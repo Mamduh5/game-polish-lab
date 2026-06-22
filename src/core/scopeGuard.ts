@@ -58,7 +58,9 @@ export function renderScopeCheckMarkdown(task: PolishTask, result: ScopeCheckRes
 
 ## Summary
 
-- Task: ${task.id} (${task.label})
+- Task: ${task.id} (${task.presetLabel ?? task.label ?? task.presetId})
+- Task kind: ${task.taskKind ?? "polish"}
+- Project type: ${task.projectType ?? "unknown"}
 - Result: ${result.ok ? "ok" : "review needed"}
 - Changed files: ${result.changedFiles.length}
 - Allowed changes: ${result.allowedChanges.length}

@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 
 import { logInfo } from "../../core/output";
+import { isActionProjectType, isIdleProjectType, suggestProjectType } from "../../core/projectType";
 import { PhaserPixelAuditResult } from "../../types/audit";
+import { ProjectType } from "../../types/profile";
 import { detectPhaserProject } from "./detectPhaserProject";
 import { findCssRenderingRuleFiles } from "./findCssRenderingRules";
 import { findPhaserConfigFiles } from "./findPhaserConfig";
@@ -14,6 +16,7 @@ type PatternCheck = {
 
 export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promise<PhaserPixelAuditResult> {
   const detection = await detectPhaserProject(folder);
+  const projectTypeSuggestion = await suggestProjectType(folder);
   const configFiles = await findPhaserConfigFiles(folder);
   const cssFiles = await findCssRenderingRuleFiles(folder);
   const allFiles = [...configFiles, ...cssFiles];
@@ -63,15 +66,20 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promi
   }
 
   const suggestedFixes = buildSuggestedFixes(checks, warnings);
-  const suggestedTasks = suggestTaskPresets(checks, filesInspected);
+  const suggestedTasks = suggestTaskPresets(checks, filesInspected, projectTypeSuggestion.suggestedProjectType);
+  const gamePresentationNotes = buildGamePresentationNotes(projectTypeSuggestion.suggestedProjectType, checks, filesInspected, warnings);
   const pixelArtReadinessScore = calculateReadinessScore(checks, optimizeSpeedFiles.size > 0, warnings);
   const mainRisk = warnings[0] ?? "No major pixel-art rendering risks detected.";
 
   logInfo(`audit files inspected: ${filesInspected.join(", ") || "none"}`);
   logInfo(`audit detection evidence: ${detection.evidence.join(" | ") || "none"}`);
+  logInfo(`audit suggested project type: ${projectTypeSuggestion.suggestedProjectType}`);
 
   return {
     detection,
+    suggestedProjectType: projectTypeSuggestion.suggestedProjectType,
+    projectTypeEvidence: projectTypeSuggestion.evidence,
+    gamePresentationNotes,
     passedChecks,
     warnings,
     suggestedFixes,
@@ -106,6 +114,9 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
   const detectionEvidence = result.detection.evidence.length > 0
     ? result.detection.evidence.map((item) => `- ${item}`).join("\n")
     : "- No Phaser-specific evidence found.";
+  const projectTypeEvidence = result.projectTypeEvidence.length > 0
+    ? result.projectTypeEvidence.map((item) => `- ${item}`).join("\n")
+    : "- No project-type evidence found.";
 
   const passedChecks = result.passedChecks.length > 0
     ? result.passedChecks.map((item) => `- ${item}`).join("\n")
@@ -132,12 +143,22 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
 
 - Phaser detected: ${result.detection.isPhaserProject ? "yes" : "no"}
 - Confidence: ${result.detection.confidence}
+- Suggested project type: ${result.suggestedProjectType}
 - Pixel-art readiness score: ${result.pixelArtReadinessScore}/100
 - Main risk: ${result.mainRisk}
 
 ## Detection Evidence
 
 ${detectionEvidence}
+
+## Suggested Project Type
+
+- Suggested project type: ${result.suggestedProjectType}
+${projectTypeEvidence}
+
+## Game Presentation Notes
+
+${result.gamePresentationNotes.map((item) => `- ${item}`).join("\n")}
 
 ## Passed Checks
 
@@ -185,12 +206,18 @@ function buildSuggestedFixes(checks: PatternCheck[], warnings: string[]): string
   return fixes;
 }
 
-function suggestTaskPresets(checks: PatternCheck[], filesInspected: string[]): string[] {
+function suggestTaskPresets(checks: PatternCheck[], filesInspected: string[], projectType: ProjectType): string[] {
   const suggestions: string[] = [];
   const lowerPaths = filesInspected.map((file) => file.toLowerCase());
 
   if (missing(checks, "`pixelArt: true`") || missing(checks, "`image-rendering: pixelated`")) {
     suggestions.push("pixel_art_setup");
+  }
+  if (isIdleProjectType(projectType)) {
+    suggestions.push("economy_hud", "idle_upgrade_screen");
+  }
+  if (isActionProjectType(projectType)) {
+    suggestions.push("hit_feedback", "control_feel");
   }
   if (lowerPaths.some((file) => /\.(css|scss|sass|less|tsx|jsx|html)$/.test(file) || file.includes("ui") || file.includes("hud"))) {
     suggestions.push("hud_readability");
@@ -206,6 +233,29 @@ function suggestTaskPresets(checks: PatternCheck[], filesInspected: string[]): s
   }
 
   return Array.from(new Set(suggestions)).slice(0, 3);
+}
+
+function buildGamePresentationNotes(projectType: ProjectType, checks: PatternCheck[], filesInspected: string[], warnings: string[]): string[] {
+  const lowerPaths = filesInspected.map((file) => file.toLowerCase());
+  const notes = [
+    `Pixel-art setup risk: ${missing(checks, "`pixelArt: true`") || missing(checks, "`image-rendering: pixelated`") ? "rendering setup needs review for crisp scaling." : "core pixel-art rendering signals were found."}`,
+    `Action readability risk: ${lowerPaths.some((file) => /(combat|enemy|projectile|bullet|player|damage|arena)/.test(file)) ? "inspect player, enemy, projectile, hit feedback, danger telegraphs, and sprite scale consistency." : "no strong action-combat file signals found; missing buttons are not treated as a problem."}`,
+    `HUD/menu readability risk: ${lowerPaths.some((file) => /(ui|hud|panel|upgrade|shop|currency|button|card)/.test(file)) ? "inspect resource clarity, upgrade hierarchy, icon/card consistency, panel spacing, reward popups, and progress bars." : "no strong menu-heavy file signals found."}`,
+    `VFX feedback risk: ${lowerPaths.some((file) => /(vfx|effect|spark|hit|pickup|reward)/.test(file)) ? "keep VFX short, readable, and pixel-styled without covering gameplay." : "no dedicated VFX files detected; consider targeted feedback tasks only if gameplay lacks response."}`,
+    `Control feel risk: ${lowerPaths.some((file) => /(control|input|joystick|touch|drag|mobile|movement)/.test(file)) ? "inspect input feedback, joystick/touch readability, and responsiveness without changing movement balance." : "no strong control files detected."}`
+  ];
+
+  if (isActionProjectType(projectType)) {
+    notes.push("For action/arena games, prioritize player/enemy/projectile readability, hit feedback, pickup feedback, camera/screen feedback, control feel, danger telegraphs, and sprite scaling consistency.");
+  }
+  if (isIdleProjectType(projectType)) {
+    notes.push("For idle/menu-heavy games, prioritize upgrade readability, resource HUD clarity, item/icon consistency, button/card feedback, panel spacing, reward popups, and progress bars.");
+  }
+  if (warnings.some((warning) => warning.includes("decimal"))) {
+    notes.push("Sprite scaling consistency risk: decimal scaling was detected; verify it does not create pixel shimmer.");
+  }
+
+  return notes;
 }
 
 function calculateReadinessScore(checks: PatternCheck[], hasOptimizeSpeed: boolean, warnings: string[]): number {

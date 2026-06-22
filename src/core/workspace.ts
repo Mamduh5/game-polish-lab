@@ -97,9 +97,11 @@ export async function ensureProfile(folder: vscode.WorkspaceFolder): Promise<{ p
 }
 
 function normalizeProfile(profile: Partial<ProjectProfile>): ProjectProfile {
+  const projectType = profile.projectType ?? defaultProfile.projectType;
   return {
     ...defaultProfile,
     ...profile,
+    projectType,
     configFiles: {
       ...defaultProfile.configFiles,
       ...profile.configFiles

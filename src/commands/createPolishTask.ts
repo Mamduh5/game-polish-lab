@@ -4,6 +4,7 @@ import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/outpu
 import { ensureProfile, ensureDirectory, labUri, openTextDocument, requireWorkspaceFolder, writeJsonFile } from "../core/workspace";
 import { polishPresets } from "../presets/polishPresets";
 import { PolishPreset, PolishTask } from "../types/polishTask";
+import { ProjectProfile } from "../types/profile";
 
 export async function createPolishTask(): Promise<void> {
   const folder = requireWorkspaceFolder();
@@ -76,17 +77,20 @@ async function nextTaskFileName(tasksFolder: vscode.Uri, preset: PolishPreset): 
   return `${nextNumber}-${preset.id.replace(/_/g, "-")}.json`;
 }
 
-function buildTask(preset: PolishPreset, problem: string, profile: { engine: "phaser"; style: "pixel_art"; defaultMustNotTouch: string[] }, fileName: string): PolishTask {
+function buildTask(preset: PolishPreset, problem: string, profile: ProjectProfile, fileName: string): PolishTask {
   const id = fileName.replace(/\.json$/, "");
   const mustNotTouch = Array.from(new Set([...preset.suggestedMustNotTouchFiles, ...profile.defaultMustNotTouch]));
 
   return {
     schemaVersion: 1,
     id,
+    taskKind: "polish",
     presetId: preset.id,
+    presetLabel: preset.label,
     label: preset.label,
     engine: profile.engine,
     style: profile.style,
+    projectType: profile.projectType,
     problem,
     area: preset.defaultArea,
     targetFeel: preset.defaultTargetFeel,
@@ -94,6 +98,9 @@ function buildTask(preset: PolishPreset, problem: string, profile: { engine: "ph
     mustNotTouch,
     acceptanceCriteria: preset.acceptanceCriteria,
     tunableValues: preset.tunableValues,
+    antiPatterns: preset.antiPatterns,
+    definitionOfDone: preset.definitionOfDone,
+    notes: [],
     createdAt: new Date().toISOString()
   };
 }

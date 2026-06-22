@@ -1,9 +1,20 @@
+export type ProjectType =
+  | "unknown"
+  | "arena_combat"
+  | "top_down_shooter"
+  | "survivor_like"
+  | "idle_economy"
+  | "clicker_incremental"
+  | "moba_like"
+  | "mobile_action"
+  | "hybrid";
+
 export interface ProjectProfile {
   schemaVersion: 1;
   projectName: string;
   engine: "phaser";
   style: "pixel_art";
-  projectType: "unknown" | string;
+  projectType: ProjectType;
   configFiles: {
     phaserConfig: string;
     css: string[];

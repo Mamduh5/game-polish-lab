@@ -1,3 +1,5 @@
+import { ProjectType } from "./profile";
+
 export type PhaserConfidence = "high" | "medium" | "low" | "none";
 
 export interface PhaserDetectionResult {
@@ -21,6 +23,9 @@ export interface AuditCheck {
 
 export interface PhaserPixelAuditResult {
   detection: PhaserDetectionResult;
+  suggestedProjectType: ProjectType;
+  projectTypeEvidence: string[];
+  gamePresentationNotes: string[];
   passedChecks: string[];
   warnings: string[];
   suggestedFixes: string[];
