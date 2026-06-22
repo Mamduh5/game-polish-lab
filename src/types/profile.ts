@@ -13,6 +13,7 @@ export interface ProjectProfile {
     combat: string;
   };
   defaultMustNotTouch: string[];
+  codexRequiresApprovalBeforePatch: boolean;
 }
 
 export const defaultProfile: ProjectProfile = {
@@ -36,5 +37,6 @@ export const defaultProfile: ProjectProfile = {
     "package-lock.json",
     "pnpm-lock.yaml",
     "yarn.lock"
-  ]
+  ],
+  codexRequiresApprovalBeforePatch: true
 };

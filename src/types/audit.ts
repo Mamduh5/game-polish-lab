@@ -4,11 +4,13 @@ export interface PhaserDetectionResult {
   isPhaserProject: boolean;
   confidence: PhaserConfidence;
   evidence: string[];
+  filesInspected: string[];
 }
 
 export interface InspectedFile {
   relativePath: string;
   text: string;
+  sizeBytes?: number;
 }
 
 export interface AuditCheck {
@@ -21,6 +23,9 @@ export interface PhaserPixelAuditResult {
   detection: PhaserDetectionResult;
   passedChecks: string[];
   warnings: string[];
+  suggestedFixes: string[];
   suggestedTasks: string[];
   filesInspected: string[];
+  pixelArtReadinessScore: number;
+  mainRisk: string;
 }

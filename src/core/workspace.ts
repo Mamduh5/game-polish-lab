@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
+import { logInfo } from "./output";
 import { defaultProfile, ProjectProfile } from "../types/profile";
 
 export const labFolderName = ".game-polish-lab";
@@ -83,11 +84,29 @@ export async function ensureProfile(folder: vscode.WorkspaceFolder): Promise<{ p
 
   const existing = await readJsonFileIfExists<ProjectProfile>(profileUri);
   if (existing) {
-    return { profile: existing, created: false, uri: profileUri };
+    const merged = normalizeProfile(existing);
+    if (JSON.stringify(merged) !== JSON.stringify(existing)) {
+      await writeJsonFile(profileUri, merged);
+      logInfo(`profile migrated: ${profileUri.fsPath}`);
+    }
+    return { profile: merged, created: false, uri: profileUri };
   }
 
   await writeJsonFile(profileUri, defaultProfile);
   return { profile: defaultProfile, created: true, uri: profileUri };
+}
+
+function normalizeProfile(profile: Partial<ProjectProfile>): ProjectProfile {
+  return {
+    ...defaultProfile,
+    ...profile,
+    configFiles: {
+      ...defaultProfile.configFiles,
+      ...profile.configFiles
+    },
+    defaultMustNotTouch: profile.defaultMustNotTouch ?? defaultProfile.defaultMustNotTouch,
+    codexRequiresApprovalBeforePatch: profile.codexRequiresApprovalBeforePatch ?? true
+  };
 }
 
 export function toWorkspaceRelativePath(folder: vscode.WorkspaceFolder, uri: vscode.Uri): string {

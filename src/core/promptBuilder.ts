@@ -1,6 +1,10 @@
 import { PolishTask } from "../types/polishTask";
 
-export function buildCodexPrompt(task: PolishTask): string {
+export function buildCodexPrompt(task: PolishTask, options: { requiresApprovalBeforePatch: boolean }): string {
+  const approvalInstruction = options.requiresApprovalBeforePatch
+    ? "- Do not edit code yet. First inspect and report the planned files.\n- Wait for approval before patching."
+    : "- Inspect first and report the planned files before patching.\n- After inspection, implementation is allowed if the planned files stay within this task scope.";
+
   return `# Game Polish Lab Codex Task
 
 Task name: ${task.label}
@@ -34,15 +38,22 @@ ${formatTunableValues(task.tunableValues)}
 
 ## Codex Instructions
 
-- Inspect the project first.
-- Before editing, list the files you plan to change.
+${approvalInstruction}
 - Keep the change scoped to this task.
 - Do not redesign unrelated gameplay, UI, architecture, assets, or systems.
 - Do not touch unrelated systems.
 - Do not change balance, economy, save logic, auth, damage values, item drops, movement values, or routing unless explicitly listed in the allowed files and acceptance criteria.
 - Do not call external AI APIs.
-- At the end, list every changed file.
-- At the end, list every tunable value you added or changed.
+- Visual/game-feel work must be small, measurable, and reversible.
+
+## Definition of Done
+
+- The implementation satisfies every acceptance criterion listed above.
+- The implementation stays within Allowed Files.
+- No Must Not Touch files are modified.
+- Any visual/game-feel values are represented as tunable constants or config values.
+- The final response lists every changed file.
+- The final response lists every tunable value added or changed.
 `;
 }
 

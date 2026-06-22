@@ -8,8 +8,9 @@ import { PolishTask } from "../types/polishTask";
 export interface ScopeCheckResult {
   ok: boolean;
   changedFiles: string[];
-  outsideAllowedFiles: string[];
-  mustNotTouchFiles: string[];
+  allowedChanges: string[];
+  suspiciousChanges: string[];
+  forbiddenChanges: string[];
   message: string;
 }
 
@@ -31,12 +32,13 @@ export function checkChangedFilesAgainstTask(changedFiles: string[], task: Polis
   const allowedFiles = task.allowedFiles.map(normalizeWorkspacePath).filter(Boolean);
   const mustNotTouch = task.mustNotTouch.map(normalizeWorkspacePath).filter(Boolean);
 
-  const mustNotTouchFiles = normalizedChangedFiles.filter((file) => containsPath(file, mustNotTouch));
-  const outsideAllowedFiles = allowedFiles.length === 0
+  const forbiddenChanges = normalizedChangedFiles.filter((file) => containsPath(file, mustNotTouch));
+  const suspiciousChanges = allowedFiles.length === 0
     ? []
-    : normalizedChangedFiles.filter((file) => !containsPath(file, allowedFiles));
+    : normalizedChangedFiles.filter((file) => !containsPath(file, allowedFiles) && !forbiddenChanges.includes(file));
+  const allowedChanges = normalizedChangedFiles.filter((file) => !forbiddenChanges.includes(file) && !suspiciousChanges.includes(file));
 
-  const ok = mustNotTouchFiles.length === 0 && outsideAllowedFiles.length === 0;
+  const ok = forbiddenChanges.length === 0 && suspiciousChanges.length === 0;
   const message = ok
     ? "Changed files are inside the latest task scope."
     : "Changed files include paths outside the latest task scope.";
@@ -44,8 +46,47 @@ export function checkChangedFilesAgainstTask(changedFiles: string[], task: Polis
   return {
     ok,
     changedFiles: normalizedChangedFiles,
-    outsideAllowedFiles,
-    mustNotTouchFiles,
+    allowedChanges,
+    suspiciousChanges,
+    forbiddenChanges,
     message
   };
+}
+
+export function renderScopeCheckMarkdown(task: PolishTask, result: ScopeCheckResult): string {
+  return `# Game Polish Lab - Codex Scope Check
+
+## Summary
+
+- Task: ${task.id} (${task.label})
+- Result: ${result.ok ? "ok" : "review needed"}
+- Changed files: ${result.changedFiles.length}
+- Allowed changes: ${result.allowedChanges.length}
+- Suspicious changes: ${result.suspiciousChanges.length}
+- Forbidden changes: ${result.forbiddenChanges.length}
+
+## Allowed Changes
+
+${formatList(result.allowedChanges)}
+
+## Suspicious Changes
+
+${formatList(result.suspiciousChanges)}
+
+## Forbidden Changes
+
+${formatList(result.forbiddenChanges)}
+
+## Allowed Files
+
+${formatList(task.allowedFiles)}
+
+## Must Not Touch
+
+${formatList(task.mustNotTouch)}
+`;
+}
+
+function formatList(items: string[]): string {
+  return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None.";
 }
