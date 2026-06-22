@@ -52,6 +52,12 @@ export async function scanWorkspaceFiles(folder: vscode.WorkspaceFolder, options
 
   for (const uri of limitedUris) {
     const relativePath = toWorkspaceRelativePath(folder, uri);
+    if (relativePath.startsWith("..") || relativePath.includes(":/")) {
+      skippedFiles.push(`${uri.fsPath} (outside workspace)`);
+      logWarn(`skipped file outside workspace: ${uri.fsPath}`);
+      continue;
+    }
+
     try {
       const stat = await vscode.workspace.fs.stat(uri);
       if (stat.size > maxFileSizeBytes) {

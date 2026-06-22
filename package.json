@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"
@@ -15,6 +15,10 @@
     "onCommand:gamePolishLab.runPhaserPixelAudit",
     "onCommand:gamePolishLab.createPolishTask",
     "onCommand:gamePolishLab.createRescueTask",
+    "onCommand:gamePolishLab.createPixelPolishKit",
+    "onCommand:gamePolishLab.listPixelPolishKits",
+    "onCommand:gamePolishLab.generateKitImplementationPrompt",
+    "onCommand:gamePolishLab.createStyleGuide",
     "onCommand:gamePolishLab.generateCodexPrompt",
     "onCommand:gamePolishLab.checkCodexScope"
   ],
@@ -36,6 +40,22 @@
       {
         "command": "gamePolishLab.createRescueTask",
         "title": "Game Polish Lab: Create Rescue Task"
+      },
+      {
+        "command": "gamePolishLab.createPixelPolishKit",
+        "title": "Game Polish Lab: Create Pixel Polish Kit"
+      },
+      {
+        "command": "gamePolishLab.listPixelPolishKits",
+        "title": "Game Polish Lab: List Pixel Polish Kits"
+      },
+      {
+        "command": "gamePolishLab.generateKitImplementationPrompt",
+        "title": "Game Polish Lab: Generate Kit Implementation Prompt"
+      },
+      {
+        "command": "gamePolishLab.createStyleGuide",
+        "title": "Game Polish Lab: Create Pixel Art Style Guide"
       },
       {
         "command": "gamePolishLab.generateCodexPrompt",
