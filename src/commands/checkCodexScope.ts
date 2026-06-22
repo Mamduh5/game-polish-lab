@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import { logCommandEnd, logCommandStart, logError, logInfo, logWarn } from "../core/output";
 import { checkChangedFilesAgainstTask, getGitChangedFiles, renderScopeCheckMarkdown } from "../core/scopeGuard";
+import { appendToTrialReport, findLatestTrialReport } from "../core/trialReports";
 import { ensureDirectory, labUri, readJsonFileIfExists, requireWorkspaceFolder, writeTextFile } from "../core/workspace";
 import { PolishTask } from "../types/polishTask";
 
@@ -40,6 +41,7 @@ export async function checkCodexScope(): Promise<void> {
     await writeTextFile(reportUri, renderScopeCheckMarkdown(task, result));
     logInfo(`scope check report created: ${reportUri.fsPath}`);
     logInfo(`scope check results: allowed=${result.allowedChanges.length}; suspicious=${result.suspiciousChanges.length}; forbidden=${result.forbiddenChanges.length}`);
+    await maybeAppendScopeCheckToTrial(folder, result);
 
     if (result.ok) {
       vscode.window.showInformationMessage(result.message);
@@ -58,6 +60,34 @@ export async function checkCodexScope(): Promise<void> {
   } finally {
     logCommandEnd("gamePolishLab.checkCodexScope");
   }
+}
+
+async function maybeAppendScopeCheckToTrial(folder: vscode.WorkspaceFolder, result: ReturnType<typeof checkChangedFilesAgainstTask>): Promise<void> {
+  const latestTrial = await findLatestTrialReport(folder);
+  if (!latestTrial) {
+    return;
+  }
+
+  const append = await vscode.window.showInformationMessage(
+    `Append scope check summary to newest trial report (${latestTrial.fileName})?`,
+    "Append",
+    "Skip"
+  );
+  if (append !== "Append") {
+    return;
+  }
+
+  await appendToTrialReport(latestTrial.uri, `## Scope Check Update - ${new Date().toISOString()}
+
+* Allowed changes: ${result.allowedChanges.length}${formatInlineFiles(result.allowedChanges)}
+* Suspicious changes: ${result.suspiciousChanges.length}${formatInlineFiles(result.suspiciousChanges)}
+* Forbidden changes: ${result.forbiddenChanges.length}${formatInlineFiles(result.forbiddenChanges)}
+`);
+  logInfo(`scope check appended to trial report: ${latestTrial.uri.fsPath}`);
+}
+
+function formatInlineFiles(files: string[]): string {
+  return files.length > 0 ? ` (${files.join(", ")})` : "";
 }
 
 async function readLatestTask(folder: vscode.WorkspaceFolder): Promise<PolishTask | undefined> {

@@ -76,6 +76,16 @@ ${formatList(task.definitionOfDone?.length ? task.definitionOfDone : [
 ## Notes
 
 ${formatList(task.notes ?? [])}
+
+## Required After-Test Notes
+
+After implementation, report:
+
+- What files changed
+- What config values were added or used
+- What should be manually tuned first
+- What visual/game-feel risk remains
+- How to verify the change in-game
 `;
 }
 

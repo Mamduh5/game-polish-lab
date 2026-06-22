@@ -5,11 +5,14 @@ import { createPixelPolishKit } from "./commands/createPixelPolishKit";
 import { createPolishTask } from "./commands/createPolishTask";
 import { createRescueTask } from "./commands/createRescueTask";
 import { createStyleGuide } from "./commands/createStyleGuide";
+import { createTrialReport } from "./commands/createTrialReport";
 import { generateKitImplementationPrompt } from "./commands/generateKitImplementationPrompt";
 import { generateCodexPrompt } from "./commands/generateCodexPrompt";
 import { initializeProfile } from "./commands/initializeProfile";
 import { listPixelPolishKits } from "./commands/listPixelPolishKits";
+import { openTrialReports } from "./commands/openTrialReports";
 import { runPhaserPixelAudit } from "./commands/runPhaserPixelAudit";
+import { updateTrialResult } from "./commands/updateTrialResult";
 import { disposeOutputChannel, getOutputChannel } from "./core/output";
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -24,6 +27,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.generateKitImplementationPrompt", generateKitImplementationPrompt),
     vscode.commands.registerCommand("gamePolishLab.createStyleGuide", createStyleGuide),
     vscode.commands.registerCommand("gamePolishLab.generateCodexPrompt", generateCodexPrompt),
+    vscode.commands.registerCommand("gamePolishLab.createTrialReport", createTrialReport),
+    vscode.commands.registerCommand("gamePolishLab.updateTrialResult", updateTrialResult),
+    vscode.commands.registerCommand("gamePolishLab.openTrialReports", openTrialReports),
     vscode.commands.registerCommand("gamePolishLab.checkCodexScope", checkCodexScope)
   );
 }

@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"
@@ -20,6 +20,9 @@
     "onCommand:gamePolishLab.generateKitImplementationPrompt",
     "onCommand:gamePolishLab.createStyleGuide",
     "onCommand:gamePolishLab.generateCodexPrompt",
+    "onCommand:gamePolishLab.createTrialReport",
+    "onCommand:gamePolishLab.updateTrialResult",
+    "onCommand:gamePolishLab.openTrialReports",
     "onCommand:gamePolishLab.checkCodexScope"
   ],
   "main": "./dist/extension.js",
@@ -60,6 +63,18 @@
       {
         "command": "gamePolishLab.generateCodexPrompt",
         "title": "Game Polish Lab: Generate Codex Prompt"
+      },
+      {
+        "command": "gamePolishLab.createTrialReport",
+        "title": "Game Polish Lab: Create Real Project Trial Report"
+      },
+      {
+        "command": "gamePolishLab.updateTrialResult",
+        "title": "Game Polish Lab: Update Trial Result"
+      },
+      {
+        "command": "gamePolishLab.openTrialReports",
+        "title": "Game Polish Lab: Open Trial Reports"
       },
       {
         "command": "gamePolishLab.checkCodexScope",

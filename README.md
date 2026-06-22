@@ -4,6 +4,12 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or provide a dashboard webview.
 
+## What v0.2.1 Does
+
+v0.2.1 adds a real-project trial workflow for dogfooding Game Polish Lab on actual Phaser games. Trial reports track the project, blocker, artifact used, Codex plan review, after-test result, scope guard result, and extension feedback.
+
+Trial reports are written under `.game-polish-lab/trials/` with stable names such as `001-real-project-trial.md`.
+
 ## What v0.2 Does
 
 v0.2 adds the Pixel Polish Kit Generator. A Pixel Polish Kit is a small, reusable, config-driven package for a specific game presentation problem: hit feedback, pickup feedback, projectile readability, control feel, HUD readability, idle upgrade UI, reward popups, sprite readability, or camera/screen feedback.
@@ -26,6 +32,9 @@ Each kit creates:
 - `Game Polish Lab: Generate Kit Implementation Prompt` regenerates the strict prompt for an existing kit and copies it to the clipboard.
 - `Game Polish Lab: Create Pixel Art Style Guide` creates `.game-polish-lab/style-guide.md`.
 - `Game Polish Lab: Generate Codex Prompt` turns an existing task JSON into `.game-polish-lab/prompts/latest-codex-prompt.md`.
+- `Game Polish Lab: Create Real Project Trial Report` creates a dogfooding report under `.game-polish-lab/trials/`.
+- `Game Polish Lab: Update Trial Result` appends a dated result and decision update to an existing trial report.
+- `Game Polish Lab: Open Trial Reports` opens an existing trial report.
 - `Game Polish Lab: Check Codex Scope` groups changed files as allowed/suspicious/forbidden and writes `.game-polish-lab/audits/latest-scope-check.md`.
 
 ## Polish Task vs Polish Kit
@@ -45,6 +54,28 @@ A polish kit is a reusable tuning package. Use it when you want a config file pl
 7. Approve patch if `codexRequiresApprovalBeforePatch` is enabled.
 8. Run `Game Polish Lab: Check Codex Scope`.
 9. Tune config values manually.
+
+## Real-Project Dogfood Loop
+
+1. Open a real Phaser game repo.
+2. Initialize profile.
+3. Run Phaser Pixel Audit.
+4. Create Pixel Art Style Guide.
+5. Create Pixel Polish Kit.
+6. Generate kit implementation prompt.
+7. Send prompt to Codex.
+8. Review Codex planned files.
+9. Approve or reject the patch.
+10. Run Check Codex Scope.
+11. Create or update Real Project Trial Report.
+12. Decide: keep, revert, tune, or create another task.
+
+Example trials:
+
+- Arena combat game blocked by weak hit feedback.
+- Idle economy game blocked by confusing upgrade screen.
+- Pixel-art game blocked by blurry rendering.
+- Abandoned prototype blocked by control feel.
 
 ## Supported Project Types
 

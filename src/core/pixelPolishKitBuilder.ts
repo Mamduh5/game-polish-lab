@@ -110,6 +110,16 @@ ${formatList(kit.codexImplementationNotes)}
 ## Manual Tuning Advice
 
 ${formatList(kit.manualTuningAdvice)}
+
+## Required After-Test Notes
+
+After implementation, report:
+
+- What files changed
+- What config values were added or used
+- What should be manually tuned first
+- What visual/game-feel risk remains
+- How to verify the change in-game
 `;
 }
 
