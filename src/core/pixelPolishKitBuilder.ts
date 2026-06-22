@@ -19,12 +19,33 @@ export function buildPixelPolishKit(preset: PixelPolishKitPreset, profile: Proje
     suggestedConfigPath: preset.suggestedConfigPath,
     actualConfigPath: normalizeWorkspacePath(actualConfigPath),
     configExportName: preset.configExportName,
+    codeStyle: preset.codeStyle ?? profile.codeStyle,
     targetFeel: preset.targetFeel,
     acceptanceCriteria: preset.acceptanceCriteria,
     antiPatterns: preset.antiPatterns,
     manualTuningAdvice: preset.manualTuningAdvice,
     codexImplementationNotes: preset.codexImplementationNotes
   };
+}
+
+export function buildConfigTemplateForProfile(preset: PixelPolishKitPreset, profile: ProjectProfile): string {
+  if ((preset.codeStyle ?? profile.codeStyle) !== "browser_global_iife" || !preset.configTemplate.trimStart().startsWith("export const ")) {
+    return preset.configTemplate;
+  }
+
+  const match = /export const\s+([A-Z0-9_]+)\s*=\s*([\s\S]*?)\s+as const;\s*$/m.exec(preset.configTemplate.trim());
+  if (!match) {
+    return preset.configTemplate;
+  }
+
+  return `(function () {
+  "use strict";
+
+  window.ARENA = window.ARENA || {};
+
+  ARENA.${match[1]} = ${match[2]};
+})();
+`;
 }
 
 export function buildKitReadme(kit: PixelPolishKit): string {
@@ -39,6 +60,7 @@ export function buildKitReadme(kit: PixelPolishKit): string {
 - Suggested config path: ${kit.suggestedConfigPath}
 - Actual config path: ${kit.actualConfigPath || "not generated"}
 - Config export: ${kit.configExportName}
+- Code style: ${kit.codeStyle}
 
 ## Target Feel
 
@@ -75,6 +97,7 @@ Style: ${kit.style}
 Project type: ${kit.projectType}
 Config export: ${kit.configExportName}
 Config path: ${kit.actualConfigPath || kit.suggestedConfigPath}
+Code style: ${kit.codeStyle}
 
 This is a game presentation/polish implementation task, not an app UI redesign.
 
@@ -86,10 +109,13 @@ ${approvalInstruction}
 - Keep the patch small, measurable, and reversible.
 - Do not change damage, HP, economy, save fields, progression, item drops, or unrelated systems unless explicitly requested.
 - At the end, list changed files and every config value used.
+${kit.codeStyle === "browser_global_iife" ? "- Preserve the existing browser-global IIFE pattern. Do not introduce imports, exports, TypeScript conversion, or build-system assumptions." : ""}
 
 ## Project-Type Guidance
 
 ${formatList(projectTypeGuidance(kit))}
+
+${formatIncrementalCursorArenaGuidance(kit)}
 
 ## Target Feel
 
@@ -218,6 +244,15 @@ export function resolveWorkspaceConfigPath(folder: vscode.WorkspaceFolder, works
 }
 
 function projectTypeGuidance(kit: PixelPolishKit): string[] {
+  if (kit.projectType === "cursor_attack_arena" || kit.projectType === "incremental_arena" || kit.projectType === "phaser_dom_hud") {
+    return [
+      "Prioritize cursor attack, enemy hit, enemy kill, combo, HUD, and upgrade readability.",
+      "Keep cursor and impact VFX short, capped, and readable.",
+      "Respect DOM HUD/shop bindings and existing element IDs.",
+      "Preserve browser-global window.ARENA code style when present."
+    ];
+  }
+
   if (isActionProjectType(kit.projectType)) {
     return [
       "Prioritize gameplay readability.",
@@ -240,6 +275,37 @@ function projectTypeGuidance(kit: PixelPolishKit): string[] {
   return [
     "Keep the patch focused on game presentation, readability, VFX, HUD, controls, or pixel-art setup."
   ];
+}
+
+function formatIncrementalCursorArenaGuidance(kit: PixelPolishKit): string {
+  const arenaKitIds = new Set(["cursor_attack_feedback", "enemy_kill_feedback", "combo_feedback", "arena_hud_readability", "arena_upgrade_panel_readability", "arena_background_readability"]);
+  if (!arenaKitIds.has(kit.kitId) && kit.projectType !== "cursor_attack_arena" && kit.projectType !== "incremental_arena" && kit.projectType !== "phaser_dom_hud") {
+    return "";
+  }
+
+  return `## Incremental Cursor Arena Guidance
+
+- This is not a player-avatar/projectile combat game.
+- The main action is pointer/click/cursor attacks.
+- Improve cursor attack, enemy hit, enemy kill, combo, HUD, or upgrade presentation only as requested.
+- Do not add a player character.
+- Do not add projectile behavior.
+- Do not change click damage, click radius, enemy HP, rewards, wave logic, upgrade costs, save fields, or spawn rates.
+- Preserve the existing \`window.ARENA\` browser-global IIFE pattern.
+- Prefer wiring config through \`${kit.configExportName}\` or the existing \`ARENA.BALANCE_CONFIG.feedback\`.
+- Keep visual effects short, readable, and capped so the arena does not become noisy.
+- Respect DOM HUD/shop bindings and existing element IDs.
+
+## Likely Files To Inspect
+
+- src/arena/scenes/ArenaScene.js
+- src/arena/systems/CursorAttackSystem.js
+- src/arena/systems/ImpactEffectSystem.js
+- src/arena/data/arenaBalanceConfig.js
+- src/arena/ui/ArenaHud.js
+- src/arena/ui/UpgradePanel.js
+- src/styles/arena.css
+`;
 }
 
 function formatList(items: string[]): string {

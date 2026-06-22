@@ -1,4 +1,4 @@
-import { ProjectType } from "./profile";
+import { CodeStyle, ProjectType } from "./profile";
 
 export interface PixelPolishKitPreset {
   kitId: string;
@@ -7,6 +7,7 @@ export interface PixelPolishKitPreset {
   bestForProjectTypes: ProjectType[];
   suggestedConfigPath: string;
   configExportName: string;
+  codeStyle?: CodeStyle;
   configTemplate: string;
   targetFeel: string;
   acceptanceCriteria: string[];
@@ -27,6 +28,7 @@ export interface PixelPolishKit {
   suggestedConfigPath: string;
   actualConfigPath: string;
   configExportName: string;
+  codeStyle: CodeStyle;
   targetFeel: string;
   acceptanceCriteria: string[];
   antiPatterns: string[];

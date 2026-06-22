@@ -1,4 +1,4 @@
-import { ProjectType } from "./profile";
+import { RuntimePresentationModel, ProjectType } from "./profile";
 
 export type PhaserConfidence = "high" | "medium" | "low" | "none";
 
@@ -25,6 +25,11 @@ export interface PhaserPixelAuditResult {
   detection: PhaserDetectionResult;
   suggestedProjectType: ProjectType;
   projectTypeEvidence: string[];
+  dominantMode: ProjectType | "unknown";
+  secondaryMode: string;
+  runtimePresentationModel: RuntimePresentationModel;
+  runtimePresentationEvidence: string[];
+  recommendedKitFamily: string;
   gamePresentationNotes: string[];
   passedChecks: string[];
   warnings: string[];

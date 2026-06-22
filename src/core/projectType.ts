@@ -9,6 +9,8 @@ export interface ProjectTypeSuggestion {
   suggestedProjectType: ProjectType;
   evidence: string[];
   scores: Partial<Record<ProjectType, number>>;
+  dominantMode: ProjectType | "unknown";
+  secondaryMode: string;
 }
 
 const keywords: Record<Exclude<ProjectType, "unknown" | "hybrid">, string[]> = {
@@ -18,11 +20,14 @@ const keywords: Record<Exclude<ProjectType, "unknown" | "hybrid">, string[]> = {
   idle_economy: ["idle", "upgrade", "currency", "production", "generator", "worker", "shop"],
   clicker_incremental: ["click", "button", "tap", "upgrade", "multiplier", "prestige"],
   moba_like: ["skill", "ability", "cooldown", "joystick", "hero", "champion", "lane"],
-  mobile_action: ["joystick", "touch", "drag", "mobile", "virtual-stick"]
+  mobile_action: ["joystick", "touch", "drag", "mobile", "virtual-stick"],
+  incremental_arena: ["wave", "energy", "upgrade", "reward", "combo", "totaldefeated", "arenaupgradelist", "upgradepanel", "arenahud", "savesystem", "arenabalanceconfig", "helper cursor", "persistent progress"],
+  cursor_attack_arena: ["cursorattacksystem", "handlepointerdown", "pointerdown", "clickradius", "clickdamage", "helperclick", "showimpact", "showcursorflash", "hitimpactscale", "missimpactscale", "arenamount", "arena.cursorattack.attack"],
+  phaser_dom_hud: ["arena.html", "arenamount", "arena-status", "arenaupgradelist", "arenaskinselect", "arenamutebtn", "arenaresetbtn", "src/arena/ui/arenahud.js", "src/arena/ui/upgradepanel.js"]
 };
 
-const actionTypes: ProjectType[] = ["arena_combat", "top_down_shooter", "survivor_like", "moba_like", "mobile_action"];
-const economyTypes: ProjectType[] = ["idle_economy", "clicker_incremental"];
+const actionTypes: ProjectType[] = ["arena_combat", "top_down_shooter", "survivor_like", "moba_like", "mobile_action", "cursor_attack_arena", "incremental_arena"];
+const economyTypes: ProjectType[] = ["idle_economy", "clicker_incremental", "incremental_arena", "phaser_dom_hud"];
 
 export async function suggestProjectType(folder: vscode.WorkspaceFolder): Promise<ProjectTypeSuggestion> {
   const scan = await scanWorkspaceFiles(folder, {
@@ -42,11 +47,13 @@ export function suggestProjectTypeFromFiles(files: InspectedFile[]): ProjectType
     const matchedTerms = new Set<string>();
     const matchedFiles = new Set<string>();
 
-    for (const file of files) {
+    for (const file of files.filter((candidate) => !candidate.relativePath.startsWith(".game-polish-lab/") && !/(docs?|mockups?|design)\//i.test(candidate.relativePath))) {
       const haystack = `${file.relativePath}\n${file.text}`.toLowerCase();
       for (const term of terms) {
         if (haystack.includes(term)) {
-          score += file.relativePath.toLowerCase().includes(term) ? 2 : 1;
+          const sourceWeight = /\.(js|ts|mjs|cjs)$/i.test(file.relativePath) ? 2 : 1;
+          const highWeight = projectType === "cursor_attack_arena" || projectType === "incremental_arena" || projectType === "phaser_dom_hud" ? 3 : 1;
+          score += (file.relativePath.toLowerCase().includes(term) ? 2 : 1) * sourceWeight * highWeight;
           matchedTerms.add(term);
           matchedFiles.add(file.relativePath);
         }
@@ -64,17 +71,36 @@ export function suggestProjectTypeFromFiles(files: InspectedFile[]): ProjectType
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]) as Array<[ProjectType, number]>;
 
   let suggestedProjectType: ProjectType = "unknown";
-  if (actionScore >= 6 && economyScore >= 6) {
+  const cursorScore = scores.cursor_attack_arena ?? 0;
+  const incrementalScore = scores.incremental_arena ?? 0;
+  const phaserDomHudScore = scores.phaser_dom_hud ?? 0;
+  if (incrementalScore >= 18 && cursorScore >= 12) {
+    suggestedProjectType = "incremental_arena";
+  } else if (cursorScore >= 12) {
+    suggestedProjectType = "cursor_attack_arena";
+  } else if (phaserDomHudScore >= 12) {
+    suggestedProjectType = "phaser_dom_hud";
+  } else if (actionScore >= 6 && economyScore >= 6) {
     suggestedProjectType = "hybrid";
   } else if (sorted[0] && sorted[0][1] >= 3) {
     suggestedProjectType = sorted[0][0];
   }
 
+  const hasProjectileSystem = (scores.top_down_shooter ?? 0) >= 10;
+  if ((suggestedProjectType === "cursor_attack_arena" || suggestedProjectType === "incremental_arena") && !hasProjectileSystem) {
+    delete scores.top_down_shooter;
+  }
+
+  const dominantMode: ProjectType | "unknown" = cursorScore >= 12 ? "cursor_attack_arena" : suggestedProjectType;
+  const secondaryMode = incrementalScore >= 12 ? "idle/incremental economy or upgrade HUD" : phaserDomHudScore >= 12 ? "DOM HUD/shop controls" : "none";
+
   logInfo(`project type suggestion: ${suggestedProjectType}; evidence: ${evidence.join(" | ") || "none"}`);
   return {
     suggestedProjectType,
     evidence,
-    scores
+    scores,
+    dominantMode,
+    secondaryMode
   };
 }
 

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { logInfo } from "../../core/output";
+import { detectRuntimePresentationModel } from "../../core/presentationDetection";
 import { isActionProjectType, isIdleProjectType, suggestProjectType } from "../../core/projectType";
 import { PhaserPixelAuditResult } from "../../types/audit";
 import { ProjectType } from "../../types/profile";
@@ -17,6 +18,7 @@ type PatternCheck = {
 export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promise<PhaserPixelAuditResult> {
   const detection = await detectPhaserProject(folder);
   const projectTypeSuggestion = await suggestProjectType(folder);
+  const runtimeDetection = await detectRuntimePresentationModel(folder);
   const configFiles = await findPhaserConfigFiles(folder);
   const cssFiles = await findCssRenderingRuleFiles(folder);
   const allFiles = [...configFiles, ...cssFiles];
@@ -66,7 +68,7 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promi
   }
 
   const suggestedFixes = buildSuggestedFixes(checks, warnings);
-  const suggestedTasks = suggestTaskPresets(checks, filesInspected, projectTypeSuggestion.suggestedProjectType);
+  const suggestedTasks = suggestTaskPresets(checks, filesInspected, projectTypeSuggestion.suggestedProjectType, runtimeDetection.runtimePresentationModel);
   const gamePresentationNotes = buildGamePresentationNotes(projectTypeSuggestion.suggestedProjectType, checks, filesInspected, warnings);
   const pixelArtReadinessScore = calculateReadinessScore(checks, optimizeSpeedFiles.size > 0, warnings);
   const mainRisk = warnings[0] ?? "No major pixel-art rendering risks detected.";
@@ -74,11 +76,17 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promi
   logInfo(`audit files inspected: ${filesInspected.join(", ") || "none"}`);
   logInfo(`audit detection evidence: ${detection.evidence.join(" | ") || "none"}`);
   logInfo(`audit suggested project type: ${projectTypeSuggestion.suggestedProjectType}`);
+  logInfo(`audit runtime presentation model: ${runtimeDetection.runtimePresentationModel}`);
 
   return {
     detection,
     suggestedProjectType: projectTypeSuggestion.suggestedProjectType,
     projectTypeEvidence: projectTypeSuggestion.evidence,
+    dominantMode: projectTypeSuggestion.dominantMode,
+    secondaryMode: projectTypeSuggestion.secondaryMode,
+    runtimePresentationModel: runtimeDetection.runtimePresentationModel,
+    runtimePresentationEvidence: runtimeDetection.evidence,
+    recommendedKitFamily: runtimeDetection.recommendedKitFamily,
     gamePresentationNotes,
     passedChecks,
     warnings,
@@ -117,6 +125,9 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
   const projectTypeEvidence = result.projectTypeEvidence.length > 0
     ? result.projectTypeEvidence.map((item) => `- ${item}`).join("\n")
     : "- No project-type evidence found.";
+  const runtimeEvidence = result.runtimePresentationEvidence.length > 0
+    ? result.runtimePresentationEvidence.map((item) => `  - ${item}`).join("\n")
+    : "  - No runtime presentation evidence found.";
 
   const passedChecks = result.passedChecks.length > 0
     ? result.passedChecks.map((item) => `- ${item}`).join("\n")
@@ -144,6 +155,7 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
 - Phaser detected: ${result.detection.isPhaserProject ? "yes" : "no"}
 - Confidence: ${result.detection.confidence}
 - Suggested project type: ${result.suggestedProjectType}
+- Runtime presentation model: ${result.runtimePresentationModel}
 - Pixel-art readiness score: ${result.pixelArtReadinessScore}/100
 - Main risk: ${result.mainRisk}
 
@@ -154,7 +166,16 @@ ${detectionEvidence}
 ## Suggested Project Type
 
 - Suggested project type: ${result.suggestedProjectType}
+- Dominant mode: ${result.dominantMode}
+- Secondary mode: ${result.secondaryMode}
 ${projectTypeEvidence}
+
+## Runtime Presentation Model
+
+* Runtime presentation model: ${result.runtimePresentationModel}
+* Recommended kit family: ${result.recommendedKitFamily}
+* Evidence:
+${runtimeEvidence}
 
 ## Game Presentation Notes
 
@@ -172,7 +193,7 @@ ${warnings}
 
 ${suggestedFixes}
 
-## Suggested Next Polish Tasks
+## Recommended Kits
 
 ${suggestedTasks}
 
@@ -206,9 +227,19 @@ function buildSuggestedFixes(checks: PatternCheck[], warnings: string[]): string
   return fixes;
 }
 
-function suggestTaskPresets(checks: PatternCheck[], filesInspected: string[], projectType: ProjectType): string[] {
+function suggestTaskPresets(checks: PatternCheck[], filesInspected: string[], projectType: ProjectType, runtimePresentationModel: string): string[] {
   const suggestions: string[] = [];
   const lowerPaths = filesInspected.map((file) => file.toLowerCase());
+
+  if (runtimePresentationModel === "phaser_rendered_dom_hud" && (projectType === "cursor_attack_arena" || projectType === "incremental_arena")) {
+    return [
+      "Cursor Attack Feedback Kit",
+      "Enemy Kill Feedback Kit",
+      "Combo Feedback Kit",
+      "Arena HUD Readability Kit",
+      "Arena Upgrade Panel Readability Kit"
+    ];
+  }
 
   if (missing(checks, "`pixelArt: true`") || missing(checks, "`image-rendering: pixelated`")) {
     suggestions.push("pixel_art_setup");

@@ -21,6 +21,252 @@ const idleAntiPatterns = [
 
 export const pixelPolishKitPresets: PixelPolishKitPreset[] = [
   {
+    kitId: "cursor_attack_feedback",
+    label: "Cursor Attack Feedback Kit",
+    description: "Browser-global IIFE config for pointer/click attack feedback, hit/miss impacts, and cursor flashes.",
+    bestForProjectTypes: ["cursor_attack_arena", "incremental_arena", "phaser_dom_hud", "hybrid"],
+    suggestedConfigPath: "src/arena/data/cursorAttackFeedbackConfig.js",
+    configExportName: "ARENA.CURSOR_ATTACK_FEEDBACK_CONFIG",
+    codeStyle: "browser_global_iife",
+    configTemplate: `(function () {
+  "use strict";
+
+  window.ARENA = window.ARENA || {};
+
+  ARENA.CURSOR_ATTACK_FEEDBACK_CONFIG = {
+    cursorFlashMs: 90,
+    cursorFlashSize: 16,
+    hitParticleCount: 7,
+    hitParticleDistance: 24,
+    impactMs: 130,
+    hitImpactScale: 1.08,
+    missImpactScale: 0.72,
+    missAlpha: 0.45,
+    helperImpactScale: 0.72,
+    maxActiveHitParticles: 48,
+    hitTextMs: 420,
+    hitTextRisePx: 22,
+    reducedMotionImpactMs: 80
+  };
+})();
+`,
+    targetFeel: "Pointer/click attacks feel immediate, readable, and satisfying without adding player-avatar or projectile behavior.",
+    acceptanceCriteria: [
+      "Pointer/click feedback starts immediately after valid pointerdown.",
+      "Hit vs miss feedback is visually distinct.",
+      "Cursor flash is readable but does not cover nearby enemies.",
+      "Hit particles are short and do not clutter the arena.",
+      "Helper cursor feedback is smaller than manual click feedback.",
+      "Reduced motion behavior remains respected if the project has it.",
+      "Damage, enemy HP, rewards, wave logic, upgrade costs, save schema, and spawn rates are unchanged.",
+      "Timing, size, count, alpha, and scale values come from config."
+    ],
+    antiPatterns: [
+      "Do not add a visible player character.",
+      "Do not add projectile behavior.",
+      "Do not change click radius, click damage, reward, enemy health, spawn rate, economy, save data, or upgrade formulas.",
+      "Do not hide enemies under particles.",
+      "Do not rewrite the arena scene or UI framework."
+    ],
+    codexImplementationNotes: [
+      "Inspect ArenaScene, CursorAttackSystem, ImpactEffectSystem, ArenaHud, UpgradePanel, arenaBalanceConfig, and arena.css first.",
+      "Preserve window.ARENA browser-global IIFE style.",
+      "Prefer wiring config through ARENA.CURSOR_ATTACK_FEEDBACK_CONFIG or ARENA.BALANCE_CONFIG.feedback."
+    ],
+    manualTuningAdvice: [
+      "Reduce hitParticleCount if the arena becomes noisy.",
+      "Keep cursorFlashMs short so enemies remain visible.",
+      "Tune missAlpha separately from hit impact scale."
+    ]
+  },
+  {
+    kitId: "enemy_kill_feedback",
+    label: "Enemy Kill Feedback Kit",
+    description: "Browser-global IIFE config for kill burst, splatter, reward text, combo trigger clarity, and restrained screen flash.",
+    bestForProjectTypes: ["cursor_attack_arena", "incremental_arena", "phaser_dom_hud", "hybrid"],
+    suggestedConfigPath: "src/arena/data/enemyKillFeedbackConfig.js",
+    configExportName: "ARENA.ENEMY_KILL_FEEDBACK_CONFIG",
+    codeStyle: "browser_global_iife",
+    configTemplate: `(function () {
+  "use strict";
+
+  window.ARENA = window.ARENA || {};
+
+  ARENA.ENEMY_KILL_FEEDBACK_CONFIG = {
+    killBurstCount: 12,
+    killBurstDistance: 34,
+    killBurstMs: 180,
+    splatterCount: 5,
+    splatterAlpha: 0.7,
+    rewardTextMs: 620,
+    rewardTextRisePx: 28,
+    comboTriggerPulseMs: 180,
+    screenFlashMs: 70,
+    screenFlashAlpha: 0.14,
+    maxActiveKillParticles: 56
+  };
+})();
+`,
+    targetFeel: "Enemy kills feel satisfying while nearby enemies, rewards, and combo state remain readable.",
+    acceptanceCriteria: [
+      "Kill feedback is satisfying but does not hide other enemies.",
+      "Reward text is readable.",
+      "Combo-related visuals remain readable.",
+      "Energy reward, combo formula, enemy HP, and wave logic are unchanged.",
+      "All burst, splatter, text, pulse, and flash values come from config."
+    ],
+    antiPatterns: ["Do not hide enemies under particles.", "Do not change rewards, enemy HP, wave logic, combo formula, or save data.", "Do not add projectiles or a player character."],
+    codexImplementationNotes: ["Wire kill feedback through ImpactEffectSystem seams.", "Keep screen flash restrained.", "Preserve window.ARENA IIFE style."],
+    manualTuningAdvice: ["Lower killBurstCount first if clutter appears.", "Keep screenFlashAlpha subtle."]
+  },
+  {
+    kitId: "combo_feedback",
+    label: "Combo Feedback Kit",
+    description: "Browser-global IIFE config for combo popup timing, milestone visibility, pulse restraint, and safe placement.",
+    bestForProjectTypes: ["cursor_attack_arena", "incremental_arena", "phaser_dom_hud", "hybrid"],
+    suggestedConfigPath: "src/arena/data/comboFeedbackConfig.js",
+    configExportName: "ARENA.COMBO_FEEDBACK_CONFIG",
+    codeStyle: "browser_global_iife",
+    configTemplate: `(function () {
+  "use strict";
+
+  window.ARENA = window.ARENA || {};
+
+  ARENA.COMBO_FEEDBACK_CONFIG = {
+    popupMs: 720,
+    milestonePopupMs: 980,
+    pulseMs: 160,
+    pulseScale: 1.08,
+    safeTopPx: 56,
+    safeSidePaddingPx: 18,
+    maxPopupScale: 1.2,
+    fadeOutMs: 180
+  };
+})();
+`,
+    targetFeel: "Combo feedback feels exciting without covering the cursor attack area too long.",
+    acceptanceCriteria: [
+      "Combo popup is visible and exciting.",
+      "Combo popup does not cover core gameplay too long.",
+      "Combo timing/formula is unchanged.",
+      "Popup timing, placement, pulse, scale, and fade values come from config."
+    ],
+    antiPatterns: ["Do not change combo formula or timing.", "Do not cover enemies or cursor feedback for too long.", "Do not rewrite HUD bindings."],
+    codexImplementationNotes: ["Inspect ImpactEffectSystem and ArenaHud combo paths.", "Keep DOM and Phaser combo cues consistent.", "Preserve window.ARENA IIFE style."],
+    manualTuningAdvice: ["Shorten popupMs if combat is dense.", "Keep pulseScale small for readability."]
+  },
+  {
+    kitId: "arena_hud_readability",
+    label: "Arena HUD Readability Kit",
+    description: "Browser-global IIFE config for Energy, Wave, Defeated, Combo, log, selector, mute/reset, and status grouping readability.",
+    bestForProjectTypes: ["incremental_arena", "phaser_dom_hud", "hybrid"],
+    suggestedConfigPath: "src/arena/data/arenaHudReadabilityConfig.js",
+    configExportName: "ARENA.ARENA_HUD_READABILITY_CONFIG",
+    codeStyle: "browser_global_iife",
+    configTemplate: `(function () {
+  "use strict";
+
+  window.ARENA = window.ARENA || {};
+
+  ARENA.ARENA_HUD_READABILITY_CONFIG = {
+    statFontSizePx: 14,
+    statLabelOpacity: 0.78,
+    statValueFontSizePx: 18,
+    comboHighlightMs: 420,
+    logMaxVisibleRows: 4,
+    logFadeMs: 220,
+    selectorMinWidthPx: 132,
+    controlButtonMinWidthPx: 64,
+    statusGroupGapPx: 8
+  };
+})();
+`,
+    targetFeel: "Arena HUD values are readable during active play without changing DOM bindings.",
+    acceptanceCriteria: [
+      "HUD values are readable during active play.",
+      "DOM IDs and data bindings remain unchanged.",
+      "No economy or save values are changed.",
+      "Font, gap, highlight, log, selector, and control sizing values come from config."
+    ],
+    antiPatterns: ["Do not rename DOM IDs.", "Do not change economy or save values.", "Do not rebuild the UI framework."],
+    codexImplementationNotes: ["Inspect ArenaHud, UpgradePanel, arena.html, and arena.css.", "Respect arena-status, arenaSkinSelect, arenaMuteBtn, and arenaResetBtn bindings."],
+    manualTuningAdvice: ["Raise statValueFontSizePx before increasing all HUD sizes.", "Keep logMaxVisibleRows low during active play."]
+  },
+  {
+    kitId: "arena_upgrade_panel_readability",
+    label: "Arena Upgrade Panel Readability Kit",
+    description: "Browser-global IIFE config for upgrade card hierarchy, costs, levels, affordable states, selectors, and shop spacing.",
+    bestForProjectTypes: ["incremental_arena", "phaser_dom_hud", "hybrid"],
+    suggestedConfigPath: "src/arena/data/arenaUpgradePanelUiConfig.js",
+    configExportName: "ARENA.ARENA_UPGRADE_PANEL_UI_CONFIG",
+    codeStyle: "browser_global_iife",
+    configTemplate: `(function () {
+  "use strict";
+
+  window.ARENA = window.ARENA || {};
+
+  ARENA.ARENA_UPGRADE_PANEL_UI_CONFIG = {
+    cardPaddingPx: 10,
+    cardGapPx: 8,
+    titleFontSizePx: 15,
+    levelFontSizePx: 12,
+    costFontSizePx: 14,
+    affordablePulseMs: 680,
+    unaffordableOpacity: 0.58,
+    buttonMinHeightPx: 34,
+    selectorGapPx: 8,
+    shopSectionGapPx: 12
+  };
+})();
+`,
+    targetFeel: "Upgrade panel choices are easier to scan without changing formulas or save data.",
+    acceptanceCriteria: [
+      "Upgrade panel is easier to scan.",
+      "Upgrade cost, level, and status are clearer.",
+      "Upgrade formulas, cost formulas, save fields, and upgrade IDs are unchanged.",
+      "Card, text, pulse, opacity, button, selector, and spacing values come from config."
+    ],
+    antiPatterns: ["Do not rename upgrade IDs.", "Do not change cost formulas.", "Do not rename save fields.", "Do not rebuild the UI framework."],
+    codexImplementationNotes: ["Inspect UpgradePanel, arenaUpgrades, UpgradeSystem, arena.html, and arena.css.", "Keep data binding and IDs stable."],
+    manualTuningAdvice: ["Tune unaffordableOpacity carefully so locked items remain readable.", "Use cardGapPx to improve scanability before adding new layout structure."]
+  },
+  {
+    kitId: "arena_background_readability",
+    label: "Arena Background Readability Kit",
+    description: "Browser-global IIFE config for background skin/effect contrast, enemy silhouette priority, and click feedback readability.",
+    bestForProjectTypes: ["cursor_attack_arena", "incremental_arena", "phaser_dom_hud", "hybrid"],
+    suggestedConfigPath: "src/arena/data/arenaBackgroundReadabilityConfig.js",
+    configExportName: "ARENA.ARENA_BACKGROUND_READABILITY_CONFIG",
+    codeStyle: "browser_global_iife",
+    configTemplate: `(function () {
+  "use strict";
+
+  window.ARENA = window.ARENA || {};
+
+  ARENA.ARENA_BACKGROUND_READABILITY_CONFIG = {
+    backgroundEffectAlpha: 0.45,
+    enemyContrastPriority: "high",
+    cursorFeedbackContrastPriority: "high",
+    waterEffectAlpha: 0.36,
+    sandEffectAlpha: 0.42,
+    destructibleEffectAlpha: 0.5,
+    maxBackgroundParticleCount: 28,
+    backgroundMotionScale: 0.75
+  };
+})();
+`,
+    targetFeel: "Backgrounds remain interesting without fighting enemy silhouettes or cursor feedback.",
+    acceptanceCriteria: [
+      "Background remains interesting but does not reduce enemy/click effect readability.",
+      "Background systems and asset paths are not renamed.",
+      "No gameplay collision/spawn logic changes unless explicitly requested.",
+      "Background alpha, contrast, particle, and motion values come from config."
+    ],
+    antiPatterns: ["Do not rename background asset paths.", "Do not change collision or spawn logic.", "Do not hide enemies or cursor feedback."],
+    codexImplementationNotes: ["Inspect background and arena CSS/effect seams before editing.", "Keep enemy/cursor feedback readability higher priority than background flair."],
+    manualTuningAdvice: ["Lower backgroundEffectAlpha first when enemies blend in.", "Reduce maxBackgroundParticleCount before changing enemy visuals."]
+  },
+  {
     kitId: "hit_feedback",
     label: "Hit Feedback Kit",
     description: "Config-driven hit pause, enemy flash, spark, knockback, and camera shake tuning.",

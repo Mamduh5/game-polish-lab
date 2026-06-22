@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 
-import { buildKitImplementationPrompt, buildKitReadme, buildPixelPolishKit, nextKitFolderName, resolveWorkspaceConfigPath } from "../core/pixelPolishKitBuilder";
+import { buildConfigTemplateForProfile, buildKitImplementationPrompt, buildKitReadme, buildPixelPolishKit, nextKitFolderName, resolveWorkspaceConfigPath } from "../core/pixelPolishKitBuilder";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
+import { detectCodeStyle, detectRuntimePresentationModel } from "../core/presentationDetection";
 import { ensureDirectory, ensureProfile, labUri, openTextDocument, pathExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 
@@ -13,7 +14,21 @@ export async function createPixelPolishKit(): Promise<void> {
   logCommandStart("gamePolishLab.createPixelPolishKit", folder.uri.fsPath);
 
   try {
-    const { profile } = await ensureProfile(folder);
+    const profileResult = await ensureProfile(folder);
+    const profile = { ...profileResult.profile };
+    const codeStyle = await detectCodeStyle(folder);
+    const runtimeModel = await detectRuntimePresentationModel(folder);
+    if (profile.codeStyle === "unknown" && codeStyle.codeStyle !== "unknown") {
+      profile.codeStyle = codeStyle.codeStyle;
+    }
+    if (profile.runtimePresentationModel === "unknown" && runtimeModel.runtimePresentationModel !== "unknown") {
+      profile.runtimePresentationModel = runtimeModel.runtimePresentationModel;
+    }
+    if (JSON.stringify(profile) !== JSON.stringify(profileResult.profile)) {
+      await writeJsonFile(profileResult.uri, profile);
+      logInfo(`profile updated with detected code style/runtime model: ${profileResult.uri.fsPath}`);
+    }
+
     const picked = await vscode.window.showQuickPick(
       pixelPolishKitPresets.map((preset) => ({
         label: preset.label,
@@ -64,7 +79,7 @@ export async function createPixelPolishKit(): Promise<void> {
 
       const parent = vscode.Uri.joinPath(configUri, "..");
       await ensureDirectory(parent);
-      await writeTextFile(configUri, picked.preset.configTemplate);
+      await writeTextFile(configUri, buildConfigTemplateForProfile(picked.preset, profile));
       actualConfigPath = inputPath;
       logInfo(`source config template created: ${configUri.fsPath}`);
     }

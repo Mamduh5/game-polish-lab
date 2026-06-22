@@ -10,6 +10,25 @@ v0.2.1 adds a real-project trial workflow for dogfooding Game Polish Lab on actu
 
 Trial reports are written under `.game-polish-lab/trials/` with stable names such as `001-real-project-trial.md`.
 
+## What v0.2.2 Does
+
+v0.2.2 adds incremental cursor arena support based on dogfooding against `Mamduh5/Do-Not-Click-This-Button` branch `experiment/incremental-arena`.
+
+This project shape is not a generic player/projectile arena. Phaser renders the arena field, pointer/click/cursor attacks are the main action, and DOM elements own HUD/shop/upgrade controls. Game Polish Lab now detects this as `phaser_rendered_dom_hud` with project types such as `incremental_arena`, `cursor_attack_arena`, and `phaser_dom_hud`.
+
+Recommended first kit: `Cursor Attack Feedback Kit`.
+
+Use the arena-specific kits first:
+
+- Cursor Attack Feedback Kit
+- Enemy Kill Feedback Kit
+- Combo Feedback Kit
+- Arena HUD Readability Kit
+- Arena Upgrade Panel Readability Kit
+- Arena Background Readability Kit
+
+Warning: do not use generic Projectile Readability or Player Damage kits unless the project actually has projectile or player-avatar systems.
+
 ## What v0.2 Does
 
 v0.2 adds the Pixel Polish Kit Generator. A Pixel Polish Kit is a small, reusable, config-driven package for a specific game presentation problem: hit feedback, pickup feedback, projectile readability, control feel, HUD readability, idle upgrade UI, reward popups, sprite readability, or camera/screen feedback.
@@ -92,6 +111,15 @@ Supported values:
 - `moba_like`
 - `mobile_action`
 - `hybrid`
+- `incremental_arena`
+- `cursor_attack_arena`
+- `phaser_dom_hud`
+
+## Phaser-Rendered DOM HUD Projects
+
+Some Phaser games render the arena or action field in canvas while DOM owns HUD, shop, upgrade panels, buttons, selectors, and status UI. Game Polish Lab calls this runtime presentation model `phaser_rendered_dom_hud`.
+
+For these projects, prompts preserve DOM IDs and browser-global IIFE patterns such as `window.ARENA`. The extension should not suggest converting the game to modules, TypeScript, or an app-style UI architecture.
 
 ## Action vs Idle Polish
 
@@ -127,6 +155,7 @@ Fixture workspaces:
 - `fixtures/phaser-pixel-sample/`
 - `fixtures/phaser-arena-sample/`
 - `fixtures/phaser-idle-sample/`
+- `fixtures/phaser-incremental-arena-sample/`
 
 To dogfood manually:
 
@@ -137,6 +166,21 @@ To dogfood manually:
 5. Run `Game Polish Lab: Create Pixel Art Style Guide`.
 6. Run `Game Polish Lab: Create Pixel Polish Kit`.
 7. Generate a config template only if you want to test source-file creation.
+
+## Incremental Cursor Arena Workflow
+
+For the `Do-Not-Click-This-Button` branch `experiment/incremental-arena`:
+
+1. Open the branch workspace.
+2. Run `Game Polish Lab: Run Phaser Pixel Audit`.
+3. Confirm runtime presentation model is `phaser_rendered_dom_hud`.
+4. Confirm suggested project type is `incremental_arena` or `cursor_attack_arena`.
+5. Run `Game Polish Lab: Create Pixel Polish Kit`.
+6. Pick `Cursor Attack Feedback Kit`.
+7. Generate `src/arena/data/cursorAttackFeedbackConfig.js` only if you want the source config file.
+8. Send the generated kit implementation prompt to Codex.
+9. Review planned files before approving patches.
+10. Run `Game Polish Lab: Check Codex Scope`.
 
 ## Troubleshooting
 

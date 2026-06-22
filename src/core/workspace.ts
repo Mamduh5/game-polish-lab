@@ -102,6 +102,8 @@ function normalizeProfile(profile: Partial<ProjectProfile>): ProjectProfile {
     ...defaultProfile,
     ...profile,
     projectType,
+    codeStyle: profile.codeStyle ?? defaultProfile.codeStyle,
+    runtimePresentationModel: profile.runtimePresentationModel ?? defaultProfile.runtimePresentationModel,
     configFiles: {
       ...defaultProfile.configFiles,
       ...profile.configFiles
