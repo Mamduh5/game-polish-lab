@@ -83,8 +83,26 @@ export const monsterFarmManualTestMatrix = [
 
 export const monsterFarmStrongGuardrail = "This is a nearly finished TypeScript Phaser UI-heavy idle monster farm. Treat visual polish as finish-stage work: diagnose first, patch one small reversible surface at a time, and never modify economy, save, hatch odds, upgrade costs, quest rewards, ad/monetization, or progression formulas unless explicitly requested.";
 
+export interface MonsterFarmProjectTypeEvidenceSplit {
+  mainEvidence: string[];
+  nonDominantKeywordEvidence: string[];
+}
+
 export function isMonsterFarmType(projectType: ProjectType | "unknown"): boolean {
   return monsterFarmProjectTypes.includes(projectType as ProjectType);
+}
+
+export function splitMonsterFarmProjectTypeEvidence(items: string[]): MonsterFarmProjectTypeEvidenceSplit {
+  const mainEvidence: string[] = [];
+  const nonDominantKeywordEvidence: string[] = [];
+  for (const item of items) {
+    if (isNonDominantGenericGenreEvidence(item)) {
+      nonDominantKeywordEvidence.push(item);
+    } else {
+      mainEvidence.push(item);
+    }
+  }
+  return { mainEvidence, nonDominantKeywordEvidence };
 }
 
 export function buildMonsterFarmAuditDetails(files: InspectedFile[], strongestSubmode: ProjectType | "unknown", runtimePresentationModel: string, codeStyle: string): MonsterFarmAuditDetails {
@@ -101,7 +119,7 @@ export function buildMonsterFarmAuditDetails(files: InspectedFile[], strongestSu
     majorSurfaceModes: monsterFarmMajorSurfaceModes,
     renderingStyle: classifyMonsterFarmRenderingStyle(files),
     detected: {
-      farmScene: hasPath(files, "src/scenes/FarmScene.ts"),
+      farmScene: detectsFarmScene(files),
       typeScriptModule: codeStyle === "typescript_module",
       phaserUiHeavyRuntime: runtimePresentationModel === "phaser_rendered_ui_heavy",
       uiViewCount,
@@ -275,6 +293,17 @@ function hasPath(files: InspectedFile[], relativePath: string): boolean {
   return files.some((file) => file.relativePath.replace(/\\/g, "/").toLowerCase() === normalized);
 }
 
+function detectsFarmScene(files: InspectedFile[]): boolean {
+  return files.some((file) => {
+    const normalizedPath = file.relativePath.replace(/\\/g, "/").toLowerCase();
+    const text = file.text;
+    return normalizedPath.includes("src/scenes/farmscene.ts")
+      || /\bclass\s+FarmScene\b/.test(text)
+      || /\bFarmScene\b/.test(text)
+      || (normalizedPath.endsWith("src/main.ts") && /scene\s*:\s*\[[\s\S]*\bFarmScene\b[\s\S]*\]/.test(text));
+  });
+}
+
 function countFiles(files: InspectedFile[], pattern: RegExp): number {
   return files.filter((file) => pattern.test(file.relativePath.replace(/\\/g, "/"))).length;
 }
@@ -294,4 +323,8 @@ function formatList(items: string[]): string {
 
 function yesNo(value: boolean): string {
   return value ? "yes" : "no";
+}
+
+function isNonDominantGenericGenreEvidence(item: string): boolean {
+  return /^(arena_combat|top_down_shooter|survivor_like|moba_like|incremental_arena):/.test(item);
 }

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import { logInfo } from "../../core/output";
-import { buildMonsterFarmAuditDetails, isMonsterFarmType, monsterFarmRecommendedKitOrder, renderMonsterFarmAuditMarkdownSections } from "../../core/monsterFarmDeepAudit";
+import { buildMonsterFarmAuditDetails, isMonsterFarmType, monsterFarmRecommendedKitOrder, renderMonsterFarmAuditMarkdownSections, splitMonsterFarmProjectTypeEvidence } from "../../core/monsterFarmDeepAudit";
 import { detectCodeStyleFromFiles, detectRuntimePresentationModelFromFiles } from "../../core/presentationDetection";
 import { isActionProjectType, isIdleProjectType, isMonsterFarmProjectType, isSortPuzzleProjectType, suggestProjectTypeFromFiles } from "../../core/projectType";
 import { renderScanStatsMarkdown, scanWasCappedMessage, scanWorkspace, setCachedAnalysis } from "../../core/workspaceScanner";
@@ -168,8 +168,9 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
   const detectionEvidence = result.detection.evidence.length > 0
     ? result.detection.evidence.map((item) => `- ${item}`).join("\n")
     : "- No Phaser-specific evidence found.";
-  const projectTypeEvidence = result.projectTypeEvidence.length > 0
-    ? result.projectTypeEvidence.map((item) => `- ${item}`).join("\n")
+  const projectTypeEvidenceItems = filterMainProjectTypeEvidence(result);
+  const projectTypeEvidence = projectTypeEvidenceItems.length > 0
+    ? projectTypeEvidenceItems.map((item) => `- ${item}`).join("\n")
     : "- No project-type evidence found.";
   const runtimeEvidence = result.runtimePresentationEvidence.length > 0
     ? result.runtimePresentationEvidence.map((item) => `  - ${item}`).join("\n")
@@ -427,7 +428,22 @@ function renderMonsterFarmAuditSections(result: PhaserPixelAuditResult): string 
     return "";
   }
 
-  return renderMonsterFarmAuditMarkdownSections(audit);
+  const noisyEvidence = nonDominantGenreEvidence(result.projectTypeEvidence);
+  const debugEvidence = noisyEvidence.length > 0
+    ? `\n\n### Non-Dominant Keyword Evidence\n\n${noisyEvidence.map((item) => `- ${item}`).join("\n")}`
+    : "";
+  return `${renderMonsterFarmAuditMarkdownSections(audit)}${debugEvidence}`;
+}
+
+function filterMainProjectTypeEvidence(result: PhaserPixelAuditResult): string[] {
+  if (!result.monsterFarmAudit) {
+    return result.projectTypeEvidence;
+  }
+  return splitMonsterFarmProjectTypeEvidence(result.projectTypeEvidence).mainEvidence;
+}
+
+function nonDominantGenreEvidence(items: string[]): string[] {
+  return splitMonsterFarmProjectTypeEvidence(items).nonDominantKeywordEvidence;
 }
 
 function calculateReadinessScore(checks: PatternCheck[], hasOptimizeSpeed: boolean, warnings: string[]): number {

@@ -4,6 +4,10 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or provide a dashboard webview.
 
+## What v0.4.2 Does
+
+v0.4.2 cleans up Monster Farm audit reporting. `FarmScene` confidence now accepts direct scene files, `class FarmScene`, general `FarmScene` references, and `src/main.ts` scene-list wiring. Monster Farm audits also keep generic action/combat keyword buckets out of the main `Suggested Project Type` section and report them under `Non-Dominant Keyword Noise` instead.
+
 ## What v0.4.1 Does
 
 v0.4.1 deepens Idle Monster Farm support for nearly finished Phaser idle/economy games. Monster Farm audits now treat the game as a UI-heavy idle farm with several visible surfaces, not as a simple clicker or one `tap_farm_idle` bucket.

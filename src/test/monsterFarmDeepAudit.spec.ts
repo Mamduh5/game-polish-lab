@@ -8,7 +8,8 @@ import {
   monsterFarmRecommendedKitOrder,
   renderMonsterFarmAuditMarkdownSections,
   renderMonsterFarmFinishStagePlanPrompt,
-  renderMonsterFarmPromptGuardrail
+  renderMonsterFarmPromptGuardrail,
+  splitMonsterFarmProjectTypeEvidence
 } from "../core/monsterFarmDeepAudit";
 import { InspectedFile } from "../types/audit";
 
@@ -30,6 +31,15 @@ assert.strictEqual(audit.detected.hatchMerge, true);
 assert.strictEqual(audit.detected.quest, true);
 assert.strictEqual(audit.detected.boss, true);
 assert.strictEqual(audit.detected.coinBug, true);
+assert.ok(sections.includes("- FarmScene detected: yes"));
+
+const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([
+  {
+    relativePath: "src/main.ts",
+    text: "import { FarmScene } from './scenes/FarmScene'; new Phaser.Game({ scene: [BootScene, FarmScene] });"
+  }
+], "tap_farm_idle", "phaser_rendered_ui_heavy", "typescript_module");
+assert.strictEqual(farmSceneFallbackAudit.detected.farmScene, true);
 
 for (const mode of [
   "monster_farm_slots",
@@ -72,6 +82,32 @@ for (const forbiddenKit of ["cursor_attack_feedback", "arena_hud_readability", "
   assert.ok(!monsterFarmRecommendedKitOrder.includes(forbiddenKit), `forbidden Monster Farm kit recommended: ${forbiddenKit}`);
 }
 
+const evidenceSplit = splitMonsterFarmProjectTypeEvidence([
+  "idle_monster_farm: farmscene, monsterrenderer in src/scenes/FarmScene.ts",
+  "tap_farm_idle: tapfarmview in src/ui/TapFarmView.ts",
+  "arena_combat: boss, attack in src/data/bossBattles.ts",
+  "top_down_shooter: projectile in src/audio/translations.ts",
+  "survivor_like: wave, pickup in src/ui/ToastView.ts",
+  "moba_like: skill, cooldown in src/state/bossBattleState.ts",
+  "incremental_arena: reward, combo in src/scenes/FarmScene.ts"
+]);
+assert.deepStrictEqual(evidenceSplit.mainEvidence, [
+  "idle_monster_farm: farmscene, monsterrenderer in src/scenes/FarmScene.ts",
+  "tap_farm_idle: tapfarmview in src/ui/TapFarmView.ts"
+]);
+assert.deepStrictEqual(evidenceSplit.nonDominantKeywordEvidence, [
+  "arena_combat: boss, attack in src/data/bossBattles.ts",
+  "top_down_shooter: projectile in src/audio/translations.ts",
+  "survivor_like: wave, pickup in src/ui/ToastView.ts",
+  "moba_like: skill, cooldown in src/state/bossBattleState.ts",
+  "incremental_arena: reward, combo in src/scenes/FarmScene.ts"
+]);
+
+const mainSuggestedProjectTypeSection = evidenceSplit.mainEvidence.map((item) => `- ${item}`).join("\n");
+for (const noisyBucket of ["arena_combat", "top_down_shooter", "survivor_like", "moba_like", "incremental_arena"]) {
+  assert.ok(!mainSuggestedProjectTypeSection.includes(`${noisyBucket}:`), `noisy bucket leaked into main Suggested Project Type: ${noisyBucket}`);
+}
+
 for (const phrase of [
   "nearly finished TypeScript Phaser UI-heavy idle monster farm",
   "diagnose first",
@@ -93,6 +129,18 @@ for (const phrase of [
 assert.ok(finishPlanPrompt.includes("- Do not patch yet."));
 assert.ok(finishPlanPrompt.includes("- Produce the top 5 polish opportunities."));
 assert.ok(finishPlanPrompt.includes("- fresh save first 2 minutes"));
+
+const cursorArenaFixture = readFixtureFiles(path.join(process.cwd(), "fixtures", "phaser-incremental-arena-sample"));
+const cursorArenaText = cursorArenaFixture.map((file) => `${file.relativePath}\n${file.text}`).join("\n").toLowerCase();
+assert.ok(cursorArenaText.includes("cursorattacksystem"));
+assert.ok(cursorArenaText.includes("arenahud"));
+assert.ok(cursorArenaText.includes("arena.html"));
+
+const sortPuzzleFixture = readFixtureFiles(path.join(process.cwd(), "fixtures", "phaser-sort-puzzle-sample"));
+const sortPuzzleText = sortPuzzleFixture.map((file) => `${file.relativePath}\n${file.text}`).join("\n").toLowerCase();
+assert.ok(sortPuzzleText.includes("spiritsortscene"));
+assert.ok(sortPuzzleText.includes("sortrules"));
+assert.ok(sortPuzzleText.includes("spiritsortlevels"));
 
 function readFixtureFiles(root: string): InspectedFile[] {
   const results: InspectedFile[] = [];
