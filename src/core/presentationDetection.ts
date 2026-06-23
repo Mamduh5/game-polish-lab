@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 import { logInfo } from "./output";
 import { getCachedAnalysis, getWorkspacePerformanceMode, scanWorkspace, setCachedAnalysis } from "./workspaceScanner";
-import { InspectedFile } from "../types/audit";
+import { InspectedFile, PresentationRouteSummary } from "../types/audit";
 import { CodeStyle, RuntimePresentationModel } from "../types/profile";
 
 export interface CodeStyleDetection {
@@ -12,8 +12,10 @@ export interface CodeStyleDetection {
 
 export interface RuntimePresentationDetection {
   runtimePresentationModel: RuntimePresentationModel;
+  secondaryRuntimePresentationModel?: RuntimePresentationModel;
   evidence: string[];
   recommendedKitFamily: string;
+  presentationRoutes?: PresentationRouteSummary;
 }
 
 export async function detectCodeStyle(folder: vscode.WorkspaceFolder, token?: vscode.CancellationToken): Promise<CodeStyleDetection> {
@@ -80,23 +82,80 @@ export function detectRuntimePresentationModelFromFiles(files: InspectedFile[]):
   const evidence: string[] = [];
   let hasArenaMount = false;
   let hasArenaScene = false;
+  let hasSceneArrayArenaScene = false;
   let hasPointerCursorAttack = false;
+  let hasImpactEffectSystem = false;
   let hasDomHud = false;
   let hasScriptModules = false;
   let hiddenPhaserRoot = false;
   let tinyConfig = false;
   let hasNewPhaserGame = false;
+  const mainDomRouteEvidence = new Set<string>();
+  const arenaRouteEvidence = new Set<string>();
 
   for (const file of sourceFiles(files)) {
     const text = `${file.relativePath}\n${file.text}`.toLowerCase();
-    hasArenaMount ||= text.includes("arenamount");
-    hasArenaScene ||= /arena\.arenascene|arenascene/.test(text);
-    hasPointerCursorAttack ||= /pointerdown|cursorattacksystem|arena\.cursorattack\.attack/.test(text);
-    hasDomHud ||= /arena-status|arenaupgradelist|arenaskinselect|arenamutebtn|arenaresetbtn|upgradepanel|arenahud/.test(text);
-    hasScriptModules ||= /src\/arena\/scenes\/arenascene\.js|src\/arena\/ui\/arenahud\.js|src\/arena\/ui\/upgradepanel\.js/.test(text);
-    hiddenPhaserRoot ||= text.includes("phaser-root") && /(opacity\s*:\s*0|pointer-events\s*:\s*none|width\s*:\s*1px|height\s*:\s*1px|position\s*:\s*absolute[\s\S]{0,120}(?:left|top)\s*:\s*-\d+)/.test(text);
-    tinyConfig ||= /width\s*:\s*1\s*,[\s\S]{0,80}height\s*:\s*1|height\s*:\s*1\s*,[\s\S]{0,80}width\s*:\s*1/.test(text);
+    const pathLower = file.relativePath.toLowerCase();
+    const fileHasArenaMount = text.includes("arenamount");
+    const fileHasArenaScene = /arena\.arenascene|arenascene/.test(text);
+    const fileHasSceneArrayArenaScene = /scene\s*:\s*\[\s*arena\.arenascene\s*\]/.test(text);
+    const fileHasPointerCursorAttack = /this\.input\.on\(["']pointerdown["']|handlepointerdown|cursorattacksystem|arena\.cursorattack\.attack/.test(text);
+    const fileHasImpactEffectSystem = /impacteffectsystem|impacteffects/.test(text);
+    const fileHasDomHud = /arena-status|arenaupgradelist|arenaskinselect|arenamutebtn|arenaresetbtn|upgradepanel|arenahud/.test(text);
+    const fileHasScriptModules = /src\/arena\/scenes\/arenascene\.js|src\/arena\/ui\/arenahud\.js|src\/arena\/ui\/upgradepanel\.js/.test(text);
+    const fileHiddenPhaserRoot = text.includes("phaser-root") && (
+      /(opacity\s*:\s*0|pointer-events\s*:\s*none|width\s*:\s*1px|height\s*:\s*1px|position\s*:\s*absolute[\s\S]{0,120}(?:left|top)\s*:\s*-\d+)/.test(text)
+      || /\.style\.(?:opacity|pointerevents|width|height|position|left|top)\s*=/.test(text)
+    );
+    const fileTinyConfig = /width\s*:\s*1\s*,[\s\S]{0,80}height\s*:\s*1|height\s*:\s*1\s*,[\s\S]{0,80}width\s*:\s*1/.test(text);
+
+    hasArenaMount ||= fileHasArenaMount;
+    hasArenaScene ||= fileHasArenaScene;
+    hasSceneArrayArenaScene ||= fileHasSceneArrayArenaScene;
+    hasPointerCursorAttack ||= fileHasPointerCursorAttack;
+    hasImpactEffectSystem ||= fileHasImpactEffectSystem;
+    hasDomHud ||= fileHasDomHud;
+    hasScriptModules ||= fileHasScriptModules;
+    hiddenPhaserRoot ||= fileHiddenPhaserRoot;
+    tinyConfig ||= fileTinyConfig;
     hasNewPhaserGame ||= /new\s+phaser\.game/.test(text);
+
+    if (pathLower === "src/main.js" && (fileHiddenPhaserRoot || fileTinyConfig || /new\s+phaser\.game/.test(text))) {
+      mainDomRouteEvidence.add("src/main.js");
+    }
+    if (fileHiddenPhaserRoot) {
+      mainDomRouteEvidence.add("hidden Phaser root");
+    }
+    if (fileTinyConfig) {
+      mainDomRouteEvidence.add("1x1 Phaser timer config");
+    }
+    if (pathLower === "arena.html") {
+      arenaRouteEvidence.add("arena.html");
+    }
+    if (pathLower === "src/arena/main.js") {
+      arenaRouteEvidence.add("src/arena/main.js");
+    }
+    if (fileHasArenaMount) {
+      arenaRouteEvidence.add("arenaMount");
+    }
+    if (fileHasArenaScene) {
+      arenaRouteEvidence.add("ARENA.ArenaScene");
+    }
+    if (fileHasSceneArrayArenaScene) {
+      arenaRouteEvidence.add("scene: [ARENA.ArenaScene]");
+    }
+    if (pathLower === "src/arena/scenes/arenascene.js") {
+      arenaRouteEvidence.add("src/arena/scenes/ArenaScene.js");
+    }
+    if (fileHasPointerCursorAttack) {
+      arenaRouteEvidence.add("pointerdown / CursorAttackSystem");
+    }
+    if (fileHasImpactEffectSystem) {
+      arenaRouteEvidence.add("ImpactEffectSystem");
+    }
+    if (fileHasDomHud) {
+      arenaRouteEvidence.add("ArenaHud / UpgradePanel");
+    }
   }
 
   if (hasArenaMount) {
@@ -116,13 +175,26 @@ export function detectRuntimePresentationModelFromFiles(files: InspectedFile[]):
   }
 
   let runtimePresentationModel: RuntimePresentationModel = "unknown";
+  let secondaryRuntimePresentationModel: RuntimePresentationModel | undefined;
   let recommendedKitFamily = "General Pixel Polish Kits";
-  if (tinyConfig && hiddenPhaserRoot) {
-    runtimePresentationModel = "phaser_timer_dom_ui";
-    recommendedKitFamily = "DOM UI Polish Kits";
-  } else if (hasArenaMount && hasArenaScene && hasPointerCursorAttack && hasDomHud) {
+  const hasTimerDomRoute = tinyConfig && hiddenPhaserRoot;
+  const hasStrongArenaRenderedEvidence = hasArenaMount
+    && hasArenaScene
+    && hasPointerCursorAttack
+    && hasDomHud
+    && (hasSceneArrayArenaScene || hasImpactEffectSystem || arenaRouteEvidence.has("src/arena/main.js") || arenaRouteEvidence.has("arena.html"));
+  const routeNotes: string[] = [];
+
+  if (hasStrongArenaRenderedEvidence) {
     runtimePresentationModel = "phaser_rendered_dom_hud";
     recommendedKitFamily = "Incremental Cursor Arena Kits";
+    if (hasTimerDomRoute) {
+      secondaryRuntimePresentationModel = "phaser_timer_dom_ui";
+      routeNotes.push("Multiple presentation routes detected. Arena route appears to be the active polish target.");
+    }
+  } else if (hasTimerDomRoute) {
+    runtimePresentationModel = "phaser_timer_dom_ui";
+    recommendedKitFamily = "DOM UI Polish Kits";
   } else if (hasNewPhaserGame || hasArenaScene) {
     runtimePresentationModel = hasDomHud ? "phaser_rendered_dom_hud" : "phaser_rendered";
     recommendedKitFamily = hasDomHud ? "Incremental Cursor Arena Kits" : "General Phaser Pixel Polish Kits";
@@ -134,8 +206,16 @@ export function detectRuntimePresentationModelFromFiles(files: InspectedFile[]):
   logInfo(`runtime presentation model: ${runtimePresentationModel}; evidence: ${evidence.join(" | ") || "none"}`);
   return {
     runtimePresentationModel,
+    secondaryRuntimePresentationModel,
     evidence: evidence.slice(0, 8),
-    recommendedKitFamily
+    recommendedKitFamily,
+    presentationRoutes: buildPresentationRoutes(
+      Array.from(mainDomRouteEvidence),
+      Array.from(arenaRouteEvidence),
+      hasStrongArenaRenderedEvidence ? "arena" : hasTimerDomRoute ? "main_dom" : "unknown",
+      secondaryRuntimePresentationModel,
+      routeNotes
+    )
   };
 }
 
@@ -154,4 +234,24 @@ function codeStylePatterns(): string[] {
     "src/**/*.{js,ts,jsx,tsx,mjs,cjs}",
     "src/**/*.html"
   ];
+}
+
+function buildPresentationRoutes(
+  mainDomRouteEvidence: string[],
+  arenaRouteEvidence: string[],
+  primaryPolishRoute: PresentationRouteSummary["primaryPolishRoute"],
+  secondaryRuntimePresentationModel: RuntimePresentationModel | undefined,
+  notes: string[]
+): PresentationRouteSummary | undefined {
+  if (mainDomRouteEvidence.length === 0 || arenaRouteEvidence.length === 0) {
+    return undefined;
+  }
+
+  return {
+    mainDomRouteEvidence: mainDomRouteEvidence.slice(0, 4),
+    arenaRouteEvidence: arenaRouteEvidence.slice(0, 6),
+    primaryPolishRoute,
+    secondaryRuntimePresentationModel,
+    notes
+  };
 }

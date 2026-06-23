@@ -74,8 +74,15 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
   }
 
   const suggestedFixes = buildSuggestedFixes(checks, warnings);
-  const suggestedTasks = suggestTaskPresets(checks, filesInspected, projectTypeSuggestion.suggestedProjectType, runtimeDetection.runtimePresentationModel);
-  const gamePresentationNotes = buildGamePresentationNotes(projectTypeSuggestion.suggestedProjectType, checks, filesInspected, warnings);
+  const suggestedTasks = suggestTaskPresets(
+    checks,
+    filesInspected,
+    projectTypeSuggestion.suggestedProjectType,
+    projectTypeSuggestion.dominantMode,
+    runtimeDetection.runtimePresentationModel,
+    runtimeDetection.presentationRoutes?.primaryPolishRoute ?? (runtimeDetection.runtimePresentationModel === "phaser_rendered_dom_hud" ? "arena" : undefined)
+  );
+  const gamePresentationNotes = buildGamePresentationNotes(projectTypeSuggestion.suggestedProjectType, projectTypeSuggestion.dominantMode, checks, filesInspected, warnings);
   const pixelArtReadinessScore = calculateReadinessScore(checks, optimizeSpeedFiles.size > 0, warnings);
   const mainRisk = warnings[0] ?? "No major pixel-art rendering risks detected.";
 
@@ -91,8 +98,10 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
     dominantMode: projectTypeSuggestion.dominantMode,
     secondaryMode: projectTypeSuggestion.secondaryMode,
     runtimePresentationModel: runtimeDetection.runtimePresentationModel,
+    secondaryRuntimePresentationModel: runtimeDetection.secondaryRuntimePresentationModel,
     runtimePresentationEvidence: runtimeDetection.evidence,
     recommendedKitFamily: runtimeDetection.recommendedKitFamily,
+    presentationRoutes: runtimeDetection.presentationRoutes,
     gamePresentationNotes,
     passedChecks,
     warnings,
@@ -104,6 +113,11 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
     mainRisk
   };
   setCachedAnalysis(folder, "latestAuditSuggestion", scan.stats.performanceMode, {
+    suggestedProjectType: projectTypeSuggestion.suggestedProjectType,
+    dominantMode: projectTypeSuggestion.dominantMode,
+    runtimePresentationModel: runtimeDetection.runtimePresentationModel,
+    secondaryRuntimePresentationModel: runtimeDetection.secondaryRuntimePresentationModel,
+    presentationRoutes: runtimeDetection.presentationRoutes,
     suggestedTasks,
     mainRisk,
     pixelArtReadinessScore
@@ -141,6 +155,7 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
   const runtimeEvidence = result.runtimePresentationEvidence.length > 0
     ? result.runtimePresentationEvidence.map((item) => `  - ${item}`).join("\n")
     : "  - No runtime presentation evidence found.";
+  const presentationRoutes = renderPresentationRoutes(result);
 
   const passedChecks = result.passedChecks.length > 0
     ? result.passedChecks.map((item) => `- ${item}`).join("\n")
@@ -170,7 +185,7 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
 - Confidence: ${result.detection.confidence}
 - Suggested project type: ${result.suggestedProjectType}
 - Runtime presentation model: ${result.runtimePresentationModel}
-- Pixel-art readiness score: ${result.pixelArtReadinessScore}/100
+${result.secondaryRuntimePresentationModel ? `- Secondary runtime presentation model: ${result.secondaryRuntimePresentationModel}\n` : ""}- Pixel-art readiness score: ${result.pixelArtReadinessScore}/100
 - Main risk: ${result.mainRisk}
 
 ## Detection Evidence
@@ -187,9 +202,11 @@ ${projectTypeEvidence}
 ## Runtime Presentation Model
 
 * Runtime presentation model: ${result.runtimePresentationModel}
-* Recommended kit family: ${result.recommendedKitFamily}
+${result.secondaryRuntimePresentationModel ? `* Secondary runtime presentation model: ${result.secondaryRuntimePresentationModel}\n` : ""}* Recommended kit family: ${result.recommendedKitFamily}
 * Evidence:
 ${runtimeEvidence}
+
+${presentationRoutes}
 
 ## Game Presentation Notes
 
@@ -243,18 +260,33 @@ function buildSuggestedFixes(checks: PatternCheck[], warnings: string[]): string
   return fixes;
 }
 
-function suggestTaskPresets(checks: PatternCheck[], filesInspected: string[], projectType: ProjectType, runtimePresentationModel: string): string[] {
+function suggestTaskPresets(
+  checks: PatternCheck[],
+  filesInspected: string[],
+  projectType: ProjectType,
+  dominantMode: ProjectType | "unknown",
+  runtimePresentationModel: string,
+  primaryPolishRoute?: string
+): string[] {
   const suggestions: string[] = [];
   const lowerPaths = filesInspected.map((file) => file.toLowerCase());
 
-  if (runtimePresentationModel === "phaser_rendered_dom_hud" && (projectType === "cursor_attack_arena" || projectType === "incremental_arena")) {
-    return [
-      "Cursor Attack Feedback Kit",
-      "Enemy Kill Feedback Kit",
-      "Combo Feedback Kit",
-      "Arena HUD Readability Kit",
-      "Arena Upgrade Panel Readability Kit"
+  if (
+    runtimePresentationModel === "phaser_rendered_dom_hud"
+    && primaryPolishRoute === "arena"
+    && (projectType === "cursor_attack_arena" || projectType === "incremental_arena" || dominantMode === "cursor_attack_arena")
+  ) {
+    const arenaKits = [
+      "cursor_attack_feedback",
+      "enemy_kill_feedback",
+      "combo_feedback",
+      "arena_hud_readability",
+      "arena_upgrade_panel_readability",
+      "arena_background_readability"
     ];
+    return missing(checks, "`pixelArt: true`") || missing(checks, "`image-rendering: pixelated`")
+      ? [...arenaKits, "pixel_art_setup"]
+      : arenaKits;
   }
 
   if (missing(checks, "`pixelArt: true`") || missing(checks, "`image-rendering: pixelated`")) {
@@ -282,8 +314,24 @@ function suggestTaskPresets(checks: PatternCheck[], filesInspected: string[], pr
   return Array.from(new Set(suggestions)).slice(0, 3);
 }
 
-function buildGamePresentationNotes(projectType: ProjectType, checks: PatternCheck[], filesInspected: string[], warnings: string[]): string[] {
+function buildGamePresentationNotes(projectType: ProjectType, dominantMode: ProjectType | "unknown", checks: PatternCheck[], filesInspected: string[], warnings: string[]): string[] {
   const lowerPaths = filesInspected.map((file) => file.toLowerCase());
+  if (projectType === "incremental_arena" || projectType === "cursor_attack_arena" || dominantMode === "cursor_attack_arena") {
+    const notes = [
+      `Pixel-art setup risk: ${missing(checks, "`pixelArt: true`") || missing(checks, "`image-rendering: pixelated`") ? "rendering setup needs review for crisp arena scaling." : "core pixel-art rendering signals were found."}`,
+      "Cursor attack readability risk: inspect cursor attack feedback, hit vs miss readability, helper cursor feedback, and short impact timing.",
+      "Enemy feedback risk: inspect enemy hit and kill feedback without hiding nearby enemies or cursor targets.",
+      "Combo feedback risk: inspect combo popup readability, placement, and timing during active clicking.",
+      "Arena HUD/menu readability risk: inspect arena HUD clarity and upgrade panel readability without changing economy formulas or DOM bindings.",
+      "Background readability risk: inspect background effect contrast so enemy silhouettes and cursor feedback stay higher priority.",
+      "System scope risk: avoid adding player or projectile systems unless they already exist in this project."
+    ];
+    if (warnings.some((warning) => warning.includes("decimal"))) {
+      notes.push("Sprite scaling consistency risk: decimal scaling was detected; verify it does not create pixel shimmer.");
+    }
+    return notes;
+  }
+
   const notes = [
     `Pixel-art setup risk: ${missing(checks, "`pixelArt: true`") || missing(checks, "`image-rendering: pixelated`") ? "rendering setup needs review for crisp scaling." : "core pixel-art rendering signals were found."}`,
     `Action readability risk: ${lowerPaths.some((file) => /(combat|enemy|projectile|bullet|player|damage|arena)/.test(file)) ? "inspect player, enemy, projectile, hit feedback, danger telegraphs, and sprite scale consistency." : "no strong action-combat file signals found; missing buttons are not treated as a problem."}`,
@@ -324,4 +372,22 @@ function calculateReadinessScore(checks: PatternCheck[], hasOptimizeSpeed: boole
 
 function missing(checks: PatternCheck[], labelPart: string): boolean {
   return checks.some((check) => check.label.includes(labelPart) && check.files.length === 0);
+}
+
+function renderPresentationRoutes(result: PhaserPixelAuditResult): string {
+  if (!result.presentationRoutes) {
+    return "";
+  }
+
+  const routes = result.presentationRoutes;
+  const notes = routes.notes.length > 0 ? `\n${routes.notes.map((note) => `* ${note}`).join("\n")}` : "";
+  return `## Presentation Routes
+
+* Main DOM route: detected via ${formatInlineEvidence(routes.mainDomRouteEvidence)}
+* Arena route: detected via ${formatInlineEvidence(routes.arenaRouteEvidence)}
+* Primary polish route: ${routes.primaryPolishRoute === "main_dom" ? "main DOM" : routes.primaryPolishRoute}${notes}`;
+}
+
+function formatInlineEvidence(items: string[]): string {
+  return items.length > 0 ? items.map((item) => `\`${item}\``).join(", ") : "`none`";
 }

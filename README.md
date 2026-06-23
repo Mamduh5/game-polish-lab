@@ -4,6 +4,14 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or provide a dashboard webview.
 
+## What v0.2.4 Does
+
+v0.2.4 fixes mixed-route runtime detection for real incremental arena branches.
+
+If a repo contains both a hidden Phaser DOM/timer route such as `src/main.js` and a strong arena route such as `arena.html`, `src/arena/main.js`, `ARENA.ArenaScene`, `CursorAttackSystem`, and `ArenaHud`/`UpgradePanel`, Game Polish Lab now treats the arena route as the primary polish route. The audit reports `phaser_rendered_dom_hud` as the primary runtime model and `phaser_timer_dom_ui` as secondary when both routes are present.
+
+Cursor arena audits now recommend arena-specific kits first: `cursor_attack_feedback`, `enemy_kill_feedback`, `combo_feedback`, `arena_hud_readability`, `arena_upgrade_panel_readability`, and `arena_background_readability`.
+
 ## What v0.2.3 Does
 
 v0.2.3 is a performance safety pass for slower PCs and large game repositories.
@@ -252,6 +260,8 @@ If the extension feels slow, run `Game Polish Lab: Set Performance Mode` and cho
 If an audit is partial, the scan hit a safety budget. The report is still usable, but results may be incomplete. Use `Balanced` or `Deep` only when troubleshooting a specific detection problem.
 
 If a real project is too large, keep assets and generated files in the skipped folders listed above. Game Polish Lab does not need to scan art/audio folders for source-code detection.
+
+If a repo contains both a hidden Phaser DOM route and an arena route, Game Polish Lab should choose the arena route as the primary polish route when strong `src/arena` evidence exists. The audit should show `phaser_rendered_dom_hud` first and list `phaser_timer_dom_ui` only as a secondary runtime model.
 
 Scope checks do not full-scan the workspace. They use `git diff --name-only`; if git is unavailable, run that command manually or provide the changed file list.
 

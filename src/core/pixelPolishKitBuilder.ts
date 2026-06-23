@@ -98,6 +98,7 @@ Project type: ${kit.projectType}
 Config export: ${kit.configExportName}
 Config path: ${kit.actualConfigPath || kit.suggestedConfigPath}
 Code style: ${kit.codeStyle}
+Runtime model: ${profile.runtimePresentationModel}
 
 This is a game presentation/polish implementation task, not an app UI redesign.
 

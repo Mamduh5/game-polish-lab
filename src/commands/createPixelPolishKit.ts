@@ -3,9 +3,16 @@ import * as vscode from "vscode";
 import { buildConfigTemplateForProfile, buildKitImplementationPrompt, buildKitReadme, buildPixelPolishKit, nextKitFolderName, resolveWorkspaceConfigPath } from "../core/pixelPolishKitBuilder";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { detectCodeStyle, detectRuntimePresentationModel } from "../core/presentationDetection";
-import { ScanCancelledError } from "../core/workspaceScanner";
-import { ensureDirectory, ensureProfile, labUri, openTextDocument, pathExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
+import { getCachedAnalysis, getWorkspacePerformanceMode, ScanCancelledError } from "../core/workspaceScanner";
+import { ensureDirectory, ensureProfile, labUri, openTextDocument, pathExists, readTextFileIfExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
+import { ProjectType, RuntimePresentationModel } from "../types/profile";
+
+interface LatestAuditRecommendation {
+  suggestedProjectType?: ProjectType;
+  dominantMode?: ProjectType | "unknown";
+  runtimePresentationModel?: RuntimePresentationModel;
+}
 
 export async function createPixelPolishKit(): Promise<void> {
   const folder = requireWorkspaceFolder();
@@ -36,13 +43,24 @@ export async function createPixelPolishKit(): Promise<void> {
     if (profile.runtimePresentationModel === "unknown" && runtimeModel.runtimePresentationModel !== "unknown") {
       profile.runtimePresentationModel = runtimeModel.runtimePresentationModel;
     }
+    const latestAudit = await readLatestAuditRecommendation(folder);
+    if (profile.projectType === "unknown" && latestAudit && isCursorArenaAudit(latestAudit)) {
+      const pickedProjectType = await pickProjectTypeFromLatestAudit(latestAudit);
+      if (!pickedProjectType) {
+        return;
+      }
+      profile.projectType = pickedProjectType;
+      if (profile.runtimePresentationModel === "unknown" && latestAudit.runtimePresentationModel) {
+        profile.runtimePresentationModel = latestAudit.runtimePresentationModel;
+      }
+    }
     if (JSON.stringify(profile) !== JSON.stringify(profileResult.profile)) {
       await writeJsonFile(profileResult.uri, profile);
       logInfo(`profile updated with detected code style/runtime model: ${profileResult.uri.fsPath}`);
     }
 
     const picked = await vscode.window.showQuickPick(
-      pixelPolishKitPresets.map((preset) => ({
+      sortPresetsForProfile(profile.projectType).map((preset) => ({
         label: preset.label,
         description: preset.kitId,
         detail: preset.description,
@@ -126,3 +144,118 @@ export async function createPixelPolishKit(): Promise<void> {
 function errorToMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+async function readLatestAuditRecommendation(folder: vscode.WorkspaceFolder): Promise<LatestAuditRecommendation | undefined> {
+  const mode = await getWorkspacePerformanceMode(folder);
+  const cached = getCachedAnalysis<LatestAuditRecommendation>(folder, "latestAuditSuggestion", mode);
+  if (cached?.suggestedProjectType || cached?.dominantMode) {
+    return cached;
+  }
+
+  const markdown = await readTextFileIfExists(labUri(folder, "audits", "latest-phaser-pixel-audit.md"));
+  if (!markdown) {
+    return undefined;
+  }
+
+  return {
+    suggestedProjectType: parseProjectType(markdown, /Suggested project type:\s*([a-z_]+)/),
+    dominantMode: parseProjectType(markdown, /Dominant mode:\s*([a-z_]+)/) ?? "unknown",
+    runtimePresentationModel: parseRuntimeModel(markdown, /Runtime presentation model:\s*([a-z_]+)/)
+  };
+}
+
+async function pickProjectTypeFromLatestAudit(latestAudit: LatestAuditRecommendation): Promise<ProjectType | undefined> {
+  const items = [
+    latestAudit.suggestedProjectType && {
+      label: `Use latest audit recommendation: ${latestAudit.suggestedProjectType}`,
+      value: latestAudit.suggestedProjectType
+    },
+    latestAudit.dominantMode && latestAudit.dominantMode !== "unknown" && latestAudit.dominantMode !== latestAudit.suggestedProjectType && {
+      label: `Use dominant mode: ${latestAudit.dominantMode}`,
+      value: latestAudit.dominantMode
+    },
+    {
+      label: "Pick manually",
+      value: "manual" as const
+    }
+  ].filter((item): item is { label: string; value: ProjectType | "manual" } => Boolean(item));
+
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: "Latest audit found an incremental cursor arena. Choose profile project type for kit recommendations."
+  });
+  if (!picked) {
+    return undefined;
+  }
+
+  if (picked.value !== "manual") {
+    return picked.value;
+  }
+
+  const manual = await vscode.window.showQuickPick(projectTypeOptions, {
+    placeHolder: "Choose profile project type"
+  });
+  return manual?.value;
+}
+
+function sortPresetsForProfile(projectType: ProjectType): typeof pixelPolishKitPresets {
+  if (projectType !== "incremental_arena" && projectType !== "cursor_attack_arena" && projectType !== "phaser_dom_hud") {
+    return pixelPolishKitPresets;
+  }
+
+  const arenaOrder = new Map([
+    ["cursor_attack_feedback", 0],
+    ["enemy_kill_feedback", 1],
+    ["combo_feedback", 2],
+    ["arena_hud_readability", 3],
+    ["arena_upgrade_panel_readability", 4],
+    ["arena_background_readability", 5]
+  ]);
+  return [...pixelPolishKitPresets].sort((a, b) => {
+    const aScore = arenaOrder.get(a.kitId) ?? 100;
+    const bScore = arenaOrder.get(b.kitId) ?? 100;
+    return aScore - bScore;
+  });
+}
+
+function isCursorArenaAudit(latestAudit: LatestAuditRecommendation): boolean {
+  return latestAudit.suggestedProjectType === "incremental_arena"
+    || latestAudit.suggestedProjectType === "cursor_attack_arena"
+    || latestAudit.dominantMode === "cursor_attack_arena";
+}
+
+function parseProjectType(markdown: string, pattern: RegExp): ProjectType | undefined {
+  const match = pattern.exec(markdown);
+  return isProjectType(match?.[1]) ? match[1] : undefined;
+}
+
+function parseRuntimeModel(markdown: string, pattern: RegExp): RuntimePresentationModel | undefined {
+  const match = pattern.exec(markdown);
+  return isRuntimePresentationModel(match?.[1]) ? match[1] : undefined;
+}
+
+function isProjectType(value: unknown): value is ProjectType {
+  return typeof value === "string" && projectTypeOptions.some((option) => option.value === value);
+}
+
+function isRuntimePresentationModel(value: unknown): value is RuntimePresentationModel {
+  return value === "phaser_rendered"
+    || value === "dom_rendered"
+    || value === "phaser_timer_dom_ui"
+    || value === "phaser_rendered_dom_hud"
+    || value === "unknown";
+}
+
+const projectTypeOptions: Array<{ label: string; value: ProjectType }> = [
+  { label: "unknown", value: "unknown" },
+  { label: "arena_combat", value: "arena_combat" },
+  { label: "top_down_shooter", value: "top_down_shooter" },
+  { label: "survivor_like", value: "survivor_like" },
+  { label: "idle_economy", value: "idle_economy" },
+  { label: "clicker_incremental", value: "clicker_incremental" },
+  { label: "moba_like", value: "moba_like" },
+  { label: "mobile_action", value: "mobile_action" },
+  { label: "incremental_arena", value: "incremental_arena" },
+  { label: "cursor_attack_arena", value: "cursor_attack_arena" },
+  { label: "phaser_dom_hud", value: "phaser_dom_hud" },
+  { label: "hybrid", value: "hybrid" }
+];
