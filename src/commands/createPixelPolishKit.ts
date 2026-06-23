@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { buildConfigTemplateForProfile, buildKitImplementationPrompt, buildKitReadme, buildPixelPolishKit, nextKitFolderName, resolveWorkspaceConfigPath } from "../core/pixelPolishKitBuilder";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { detectCodeStyle, detectRuntimePresentationModel } from "../core/presentationDetection";
+import { ScanCancelledError } from "../core/workspaceScanner";
 import { ensureDirectory, ensureProfile, labUri, openTextDocument, pathExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 
@@ -16,8 +17,19 @@ export async function createPixelPolishKit(): Promise<void> {
   try {
     const profileResult = await ensureProfile(folder);
     const profile = { ...profileResult.profile };
-    const codeStyle = await detectCodeStyle(folder);
-    const runtimeModel = await detectRuntimePresentationModel(folder);
+    const detection = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Game Polish Lab: Detecting kit context",
+        cancellable: true
+      },
+      async (_progress, token) => ({
+        codeStyle: await detectCodeStyle(folder, token),
+        runtimeModel: await detectRuntimePresentationModel(folder, token)
+      })
+    );
+    const codeStyle = detection.codeStyle;
+    const runtimeModel = detection.runtimeModel;
     if (profile.codeStyle === "unknown" && codeStyle.codeStyle !== "unknown") {
       profile.codeStyle = codeStyle.codeStyle;
     }
@@ -99,6 +111,11 @@ export async function createPixelPolishKit(): Promise<void> {
     vscode.window.showInformationMessage(`Pixel Polish Kit created: ${kitFolderName}`);
     await openTextDocument(vscode.Uri.joinPath(kitUri, "README.md"));
   } catch (error) {
+    if (error instanceof ScanCancelledError) {
+      vscode.window.showInformationMessage("Game Polish Lab scan cancelled.");
+      logInfo("Pixel Polish Kit detection cancelled by user.");
+      return;
+    }
     logError("create Pixel Polish Kit failed:", error);
     vscode.window.showErrorMessage(`Failed to create Pixel Polish Kit: ${errorToMessage(error)}`);
   } finally {

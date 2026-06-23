@@ -1,3 +1,4 @@
+import type { ScanStats } from "../core/workspaceScanner";
 import { RuntimePresentationModel, ProjectType } from "./profile";
 
 export type PhaserConfidence = "high" | "medium" | "low" | "none";
@@ -36,6 +37,7 @@ export interface PhaserPixelAuditResult {
   suggestedFixes: string[];
   suggestedTasks: string[];
   filesInspected: string[];
+  scanStats?: ScanStats;
   pixelArtReadinessScore: number;
   mainRisk: string;
 }

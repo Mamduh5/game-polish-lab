@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
 
-import { scanWorkspaceFiles } from "../../core/fileSearch";
+import { scanWorkspace } from "../../core/workspaceScanner";
 import { InspectedFile } from "../../types/audit";
 
 export async function findCssRenderingRuleFiles(folder: vscode.WorkspaceFolder): Promise<InspectedFile[]> {
-  const scan = await scanWorkspaceFiles(folder, {
-    extensions: ["css", "scss", "sass", "less", "html", "htm", "tsx", "jsx"],
-    maxFiles: 1500,
-    maxFileSizeBytes: 512 * 1024
-  });
-  return scan.files;
+  const scan = await scanWorkspace({ folder, extensions: ["css", "scss", "sass", "less", "html", "htm", "tsx", "jsx"] });
+  return findCssRenderingRuleFilesFromFiles(scan.files);
+}
+
+export function findCssRenderingRuleFilesFromFiles(files: InspectedFile[]): InspectedFile[] {
+  return files.filter((file) => /\.(css|scss|sass|less|html|htm|tsx|jsx)$/i.test(file.relativePath));
 }

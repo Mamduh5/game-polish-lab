@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"
@@ -23,7 +23,10 @@
     "onCommand:gamePolishLab.createTrialReport",
     "onCommand:gamePolishLab.updateTrialResult",
     "onCommand:gamePolishLab.openTrialReports",
-    "onCommand:gamePolishLab.checkCodexScope"
+    "onCommand:gamePolishLab.checkCodexScope",
+    "onCommand:gamePolishLab.setPerformanceMode",
+    "onCommand:gamePolishLab.clearCache",
+    "onCommand:gamePolishLab.showPerformanceDiagnostics"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -79,6 +82,18 @@
       {
         "command": "gamePolishLab.checkCodexScope",
         "title": "Game Polish Lab: Check Codex Scope"
+      },
+      {
+        "command": "gamePolishLab.setPerformanceMode",
+        "title": "Game Polish Lab: Set Performance Mode"
+      },
+      {
+        "command": "gamePolishLab.clearCache",
+        "title": "Game Polish Lab: Clear Scan Cache"
+      },
+      {
+        "command": "gamePolishLab.showPerformanceDiagnostics",
+        "title": "Game Polish Lab: Show Performance Diagnostics"
       }
     ]
   },

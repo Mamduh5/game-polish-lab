@@ -1,16 +1,16 @@
 import * as vscode from "vscode";
 
-import { scanWorkspaceFiles } from "../../core/fileSearch";
+import { scanWorkspace } from "../../core/workspaceScanner";
 import { InspectedFile } from "../../types/audit";
 
 export async function findPhaserConfigFiles(folder: vscode.WorkspaceFolder): Promise<InspectedFile[]> {
-  const scan = await scanWorkspaceFiles(folder, {
-    extensions: ["ts", "tsx", "js", "jsx", "mjs", "cjs"],
-    maxFiles: 1500,
-    maxFileSizeBytes: 512 * 1024
-  });
+  const scan = await scanWorkspace({ folder, extensions: ["ts", "tsx", "js", "jsx", "mjs", "cjs"] });
 
-  return scan.files
+  return findPhaserConfigFilesFromFiles(scan.files);
+}
+
+export function findPhaserConfigFilesFromFiles(files: InspectedFile[]): InspectedFile[] {
+  return files
     .map((file) => ({ file, score: scorePhaserConfigCandidate(file) }))
     .filter((candidate) => candidate.score > 0)
     .sort((a, b) => b.score - a.score || a.file.relativePath.localeCompare(b.file.relativePath))

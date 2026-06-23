@@ -22,10 +22,17 @@ export async function checkCodexScope(): Promise<void> {
 
     let changedFiles: string[];
     try {
-      changedFiles = await getGitChangedFiles(folder);
+      changedFiles = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Game Polish Lab: Checking Codex scope",
+          cancellable: true
+        },
+        async () => getGitChangedFiles(folder)
+      );
     } catch {
       logWarn("git diff --name-only failed.");
-      vscode.window.showWarningMessage("Could not run `git diff --name-only`. Is this workspace a git repository with git available on PATH?");
+      vscode.window.showWarningMessage("Could not detect changed files automatically. Paste/provide the changed file list, or run `git diff --name-only` manually. Game Polish Lab will not full-scan the workspace for scope checks.");
       return;
     }
 

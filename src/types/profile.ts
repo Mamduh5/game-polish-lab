@@ -14,6 +14,7 @@ export type ProjectType =
 
 export type CodeStyle = "unknown" | "typescript_module" | "javascript_module" | "browser_global_iife";
 export type RuntimePresentationModel = "phaser_rendered" | "dom_rendered" | "phaser_timer_dom_ui" | "phaser_rendered_dom_hud" | "unknown";
+export type PerformanceMode = "safe" | "balanced" | "deep";
 
 export interface ProjectProfile {
   schemaVersion: 1;
@@ -33,6 +34,7 @@ export interface ProjectProfile {
   };
   defaultMustNotTouch: string[];
   codexRequiresApprovalBeforePatch: boolean;
+  performanceMode: PerformanceMode;
 }
 
 export const defaultProfile: ProjectProfile = {
@@ -59,5 +61,6 @@ export const defaultProfile: ProjectProfile = {
     "pnpm-lock.yaml",
     "yarn.lock"
   ],
-  codexRequiresApprovalBeforePatch: true
+  codexRequiresApprovalBeforePatch: true,
+  performanceMode: "safe"
 };

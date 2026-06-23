@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-import { scanWorkspaceFiles } from "./fileSearch";
 import { logInfo } from "./output";
+import { getCachedAnalysis, getWorkspacePerformanceMode, scanWorkspace, setCachedAnalysis } from "./workspaceScanner";
 import { ProjectType } from "../types/profile";
 import { InspectedFile } from "../types/audit";
 
@@ -29,13 +29,17 @@ const keywords: Record<Exclude<ProjectType, "unknown" | "hybrid">, string[]> = {
 const actionTypes: ProjectType[] = ["arena_combat", "top_down_shooter", "survivor_like", "moba_like", "mobile_action", "cursor_attack_arena", "incremental_arena"];
 const economyTypes: ProjectType[] = ["idle_economy", "clicker_incremental", "incremental_arena", "phaser_dom_hud"];
 
-export async function suggestProjectType(folder: vscode.WorkspaceFolder): Promise<ProjectTypeSuggestion> {
-  const scan = await scanWorkspaceFiles(folder, {
-    extensions: ["ts", "tsx", "js", "jsx", "mjs", "cjs", "css", "html"],
-    maxFiles: 1500,
-    maxFileSizeBytes: 512 * 1024
-  });
-  return suggestProjectTypeFromFiles(scan.files);
+export async function suggestProjectType(folder: vscode.WorkspaceFolder, token?: vscode.CancellationToken): Promise<ProjectTypeSuggestion> {
+  const mode = await getWorkspacePerformanceMode(folder);
+  const cached = getCachedAnalysis<ProjectTypeSuggestion>(folder, "projectType", mode);
+  if (cached) {
+    return cached;
+  }
+
+  const scan = await scanWorkspace({ folder, token });
+  const suggestion = suggestProjectTypeFromFiles(scan.files);
+  setCachedAnalysis(folder, "projectType", mode, suggestion);
+  return suggestion;
 }
 
 export function suggestProjectTypeFromFiles(files: InspectedFile[]): ProjectTypeSuggestion {
@@ -47,7 +51,7 @@ export function suggestProjectTypeFromFiles(files: InspectedFile[]): ProjectType
     const matchedTerms = new Set<string>();
     const matchedFiles = new Set<string>();
 
-    for (const file of files.filter((candidate) => !candidate.relativePath.startsWith(".game-polish-lab/") && !/(docs?|mockups?|design)\//i.test(candidate.relativePath))) {
+    for (const file of files.filter(isProjectSignalFile)) {
       const haystack = `${file.relativePath}\n${file.text}`.toLowerCase();
       for (const term of terms) {
         if (haystack.includes(term)) {
@@ -56,13 +60,16 @@ export function suggestProjectTypeFromFiles(files: InspectedFile[]): ProjectType
           score += (file.relativePath.toLowerCase().includes(term) ? 2 : 1) * sourceWeight * highWeight;
           matchedTerms.add(term);
           matchedFiles.add(file.relativePath);
+          if (matchedTerms.size >= 8 && matchedFiles.size >= 8) {
+            break;
+          }
         }
       }
     }
 
     if (score > 0) {
       scores[projectType] = score;
-      evidence.push(`${projectType}: ${Array.from(matchedTerms).slice(0, 8).join(", ")} in ${Array.from(matchedFiles).slice(0, 5).join(", ")}`);
+      evidence.push(`${projectType}: ${Array.from(matchedTerms).slice(0, 8).join(", ")} in ${Array.from(matchedFiles).slice(0, 8).join(", ")}`);
     }
   }
 
@@ -97,7 +104,7 @@ export function suggestProjectTypeFromFiles(files: InspectedFile[]): ProjectType
   logInfo(`project type suggestion: ${suggestedProjectType}; evidence: ${evidence.join(" | ") || "none"}`);
   return {
     suggestedProjectType,
-    evidence,
+    evidence: evidence.slice(0, 8),
     scores,
     dominantMode,
     secondaryMode
@@ -110,4 +117,9 @@ export function isActionProjectType(projectType: ProjectType): boolean {
 
 export function isIdleProjectType(projectType: ProjectType): boolean {
   return economyTypes.includes(projectType);
+}
+
+function isProjectSignalFile(file: InspectedFile): boolean {
+  return !file.relativePath.startsWith(".game-polish-lab/")
+    && !/(^|\/)(docs?|mockups?|design)(\/|$)/i.test(file.relativePath);
 }

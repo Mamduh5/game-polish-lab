@@ -1,22 +1,41 @@
 import * as vscode from "vscode";
 
-import { findFilesByGlobs, scanWorkspaceFiles } from "../../core/fileSearch";
 import { logInfo } from "../../core/output";
-import { pathExists, readTextFile } from "../../core/workspace";
-import { PhaserDetectionResult } from "../../types/audit";
+import { getCachedAnalysis, getWorkspacePerformanceMode, scanWorkspace, setCachedAnalysis } from "../../core/workspaceScanner";
+import { InspectedFile, PhaserDetectionResult } from "../../types/audit";
 
 export async function detectPhaserProject(folder: vscode.WorkspaceFolder): Promise<PhaserDetectionResult> {
+  const mode = await getWorkspacePerformanceMode(folder);
+  const cached = getCachedAnalysis<PhaserDetectionResult>(folder, "phaserProject", mode);
+  if (cached) {
+    return cached;
+  }
+
+  const scan = await scanWorkspace({
+    folder,
+    patterns: [
+      "package.json",
+      "**/{game,Game,main,Main,index,Index,phaserConfig,PhaserConfig,config,Config}.{ts,tsx,js,jsx,mjs,cjs}",
+      "src/**/*.{ts,tsx,js,jsx,mjs,cjs}"
+    ]
+  });
+  const detection = detectPhaserProjectFromFiles(scan.files);
+  setCachedAnalysis(folder, "phaserProject", mode, detection);
+  return detection;
+}
+
+export function detectPhaserProjectFromFiles(inspected: InspectedFile[]): PhaserDetectionResult {
   const evidence: string[] = [];
   const filesInspected: string[] = [];
   let hasPackageDependency = false;
   let strongSignals = 0;
   let weakSignals = 0;
 
-  const packageJsonUri = vscode.Uri.joinPath(folder.uri, "package.json");
-  if (await pathExists(packageJsonUri)) {
+  const packageJson = inspected.find((file) => file.relativePath === "package.json");
+  if (packageJson) {
     filesInspected.push("package.json");
     try {
-      const parsed = JSON.parse(await readTextFile(packageJsonUri)) as {
+      const parsed = JSON.parse(packageJson.text) as {
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
       };
@@ -30,22 +49,13 @@ export async function detectPhaserProject(folder: vscode.WorkspaceFolder): Promi
     }
   }
 
-  const likelyNamedFiles = await findFilesByGlobs([
-    "**/{game,Game,main,Main,index,Index,phaserConfig,PhaserConfig,config,Config}.{ts,tsx,js,jsx,mjs,cjs}"
-  ], 50);
-
+  const likelyNamedFiles = inspected.filter((file) => /(^|\/)(game|main|index|phaserconfig|config)\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(file.relativePath));
   if (likelyNamedFiles.length > 0) {
-    evidence.push(`Found likely game/config files: ${likelyNamedFiles.slice(0, 6).map((file) => file.path.split("/").pop()).join(", ")}.`);
+    evidence.push(`Found likely game/config files: ${likelyNamedFiles.slice(0, 6).map((file) => file.relativePath.split("/").pop()).join(", ")}.`);
     weakSignals += 1;
   }
 
-  const scan = await scanWorkspaceFiles(folder, {
-    extensions: ["ts", "tsx", "js", "jsx", "mjs", "cjs"],
-    maxFiles: 1500,
-    maxFileSizeBytes: 512 * 1024
-  });
-  const inspected = scan.files;
-  filesInspected.push(...inspected.map((file) => file.relativePath));
+  filesInspected.push(...inspected.filter((file) => /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(file.relativePath)).map((file) => file.relativePath));
 
   const importMatches = inspected.filter((file) => /\bfrom\s+["']phaser["']|\bimport\s+["']phaser["']|\brequire\(["']phaser["']\)/.test(file.text));
   if (importMatches.length > 0) {
@@ -76,7 +86,7 @@ export async function detectPhaserProject(folder: vscode.WorkspaceFolder): Promi
   return {
     isPhaserProject: confidence !== "none",
     confidence,
-    evidence,
+    evidence: evidence.slice(0, 8),
     filesInspected: Array.from(new Set(filesInspected)).sort()
   };
 }

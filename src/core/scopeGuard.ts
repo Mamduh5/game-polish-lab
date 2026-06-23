@@ -15,8 +15,17 @@ export interface ScopeCheckResult {
 }
 
 export async function getGitChangedFiles(folder: vscode.WorkspaceFolder): Promise<string[]> {
+  const [unstaged, staged, untracked] = await Promise.all([
+    runGitNameList(folder, ["diff", "--name-only"]),
+    runGitNameList(folder, ["diff", "--name-only", "--cached"]),
+    runGitNameList(folder, ["ls-files", "--others", "--exclude-standard"])
+  ]);
+  return Array.from(new Set([...unstaged, ...staged, ...untracked])).sort();
+}
+
+function runGitNameList(folder: vscode.WorkspaceFolder, args: string[]): Promise<string[]> {
   return new Promise((resolve, reject) => {
-    execFile("git", ["diff", "--name-only"], { cwd: folder.uri.fsPath }, (error, stdout) => {
+    execFile("git", args, { cwd: folder.uri.fsPath }, (error, stdout) => {
       if (error) {
         reject(error);
         return;

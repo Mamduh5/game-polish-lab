@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { suggestProjectType } from "../core/projectType";
+import { ScanCancelledError } from "../core/workspaceScanner";
 import { createTrialReport as writeTrialReport } from "../core/trialReports";
 import { ensureProfile, openTextDocument, requireWorkspaceFolder } from "../core/workspace";
 
@@ -18,7 +19,14 @@ export async function createTrialReport(): Promise<void> {
 
   try {
     const { profile } = await ensureProfile(folder);
-    const suggestion = await suggestProjectType(folder);
+    const suggestion = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Game Polish Lab: Detecting project type",
+        cancellable: true
+      },
+      async (_progress, token) => suggestProjectType(folder, token)
+    );
 
     const trialTarget = await vscode.window.showQuickPick(trialTargets, { placeHolder: "Trial target" });
     if (!trialTarget) {
@@ -58,6 +66,11 @@ export async function createTrialReport(): Promise<void> {
     vscode.window.showInformationMessage("Game Polish Lab trial report created.");
     await openTextDocument(uri);
   } catch (error) {
+    if (error instanceof ScanCancelledError) {
+      vscode.window.showInformationMessage("Game Polish Lab scan cancelled.");
+      logInfo("trial report project-type detection cancelled by user.");
+      return;
+    }
     logError("create trial report failed:", error);
     vscode.window.showErrorMessage(`Failed to create trial report: ${errorToMessage(error)}`);
   } finally {

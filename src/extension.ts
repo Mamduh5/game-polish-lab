@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { checkCodexScope } from "./commands/checkCodexScope";
+import { clearCache } from "./commands/clearCache";
 import { createPixelPolishKit } from "./commands/createPixelPolishKit";
 import { createPolishTask } from "./commands/createPolishTask";
 import { createRescueTask } from "./commands/createRescueTask";
@@ -12,8 +13,11 @@ import { initializeProfile } from "./commands/initializeProfile";
 import { listPixelPolishKits } from "./commands/listPixelPolishKits";
 import { openTrialReports } from "./commands/openTrialReports";
 import { runPhaserPixelAudit } from "./commands/runPhaserPixelAudit";
+import { setPerformanceMode } from "./commands/setPerformanceMode";
+import { showPerformanceDiagnostics } from "./commands/showPerformanceDiagnostics";
 import { updateTrialResult } from "./commands/updateTrialResult";
 import { disposeOutputChannel, getOutputChannel } from "./core/output";
+import { clearScanCache } from "./core/workspaceScanner";
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(getOutputChannel());
@@ -30,8 +34,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.createTrialReport", createTrialReport),
     vscode.commands.registerCommand("gamePolishLab.updateTrialResult", updateTrialResult),
     vscode.commands.registerCommand("gamePolishLab.openTrialReports", openTrialReports),
-    vscode.commands.registerCommand("gamePolishLab.checkCodexScope", checkCodexScope)
+    vscode.commands.registerCommand("gamePolishLab.checkCodexScope", checkCodexScope),
+    vscode.commands.registerCommand("gamePolishLab.setPerformanceMode", setPerformanceMode),
+    vscode.commands.registerCommand("gamePolishLab.clearCache", clearCache),
+    vscode.commands.registerCommand("gamePolishLab.showPerformanceDiagnostics", showPerformanceDiagnostics)
   );
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => clearScanCache()));
 }
 
 export function deactivate(): void {

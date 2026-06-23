@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { detectCodeStyle, detectRuntimePresentationModel } from "../core/presentationDetection";
+import { ScanCancelledError } from "../core/workspaceScanner";
 import { ensureProfile, openTextDocument, requireWorkspaceFolder, writeJsonFile } from "../core/workspace";
 
 export async function initializeProfile(): Promise<void> {
@@ -14,8 +15,19 @@ export async function initializeProfile(): Promise<void> {
   try {
     const result = await ensureProfile(folder);
     const profile = { ...result.profile };
-    const codeStyle = await detectCodeStyle(folder);
-    const runtimeModel = await detectRuntimePresentationModel(folder);
+    const detection = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Game Polish Lab: Detecting project profile",
+        cancellable: true
+      },
+      async (_progress, token) => ({
+        codeStyle: await detectCodeStyle(folder, token),
+        runtimeModel: await detectRuntimePresentationModel(folder, token)
+      })
+    );
+    const codeStyle = detection.codeStyle;
+    const runtimeModel = detection.runtimeModel;
     if (profile.codeStyle === "unknown" && codeStyle.codeStyle !== "unknown") {
       profile.codeStyle = codeStyle.codeStyle;
     }
@@ -34,6 +46,11 @@ export async function initializeProfile(): Promise<void> {
     vscode.window.showInformationMessage(message);
     await openTextDocument(result.uri);
   } catch (error) {
+    if (error instanceof ScanCancelledError) {
+      vscode.window.showInformationMessage("Game Polish Lab scan cancelled.");
+      logInfo("profile detection cancelled by user.");
+      return;
+    }
     logError("initialize profile failed:", error);
     vscode.window.showErrorMessage(`Failed to initialize Game Polish Lab profile: ${errorToMessage(error)}`);
   } finally {

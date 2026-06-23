@@ -4,6 +4,18 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or provide a dashboard webview.
 
+## What v0.2.3 Does
+
+v0.2.3 is a performance safety pass for slower PCs and large game repositories.
+
+Game Polish Lab now uses a shared workspace scanner with session caching, aggressive excludes, scan budgets, progress notifications, and cancellation support for long scans. The default profile performance mode is `safe`.
+
+Phaser audits prioritize likely source files such as `package.json`, `index.html`, `arena.html`, `src/main.*`, scene/system/UI/data/config files, and small script files before broad source globs. Audits include a `Scan Stats` section and mark partial scans with:
+
+`Scan was capped for performance. Results may be incomplete.`
+
+No new polish features, engines, AI calls, or dashboard webviews were added in this version.
+
 ## What v0.2.1 Does
 
 v0.2.1 adds a real-project trial workflow for dogfooding Game Polish Lab on actual Phaser games. Trial reports track the project, blocker, artifact used, Codex plan review, after-test result, scope guard result, and extension feedback.
@@ -55,6 +67,57 @@ Each kit creates:
 - `Game Polish Lab: Update Trial Result` appends a dated result and decision update to an existing trial report.
 - `Game Polish Lab: Open Trial Reports` opens an existing trial report.
 - `Game Polish Lab: Check Codex Scope` groups changed files as allowed/suspicious/forbidden and writes `.game-polish-lab/audits/latest-scope-check.md`.
+- `Game Polish Lab: Set Performance Mode` updates `.game-polish-lab/profile.json` and clears scan cache.
+- `Game Polish Lab: Clear Scan Cache` clears cached file lists, file text, and detection results.
+- `Game Polish Lab: Show Performance Diagnostics` writes a lightweight performance summary to the Game Polish Lab output channel.
+
+## Performance Modes
+
+Profiles include `performanceMode`, which defaults to `safe`.
+
+- `safe`: fastest, recommended for slower PCs. Reads up to 400 files, skips files over 160 KB, and caps total bytes read around 5 MB.
+- `balanced`: more complete scan. Reads up to 900 files, skips files over 256 KB, and caps total bytes read around 12 MB.
+- `deep`: slower, for troubleshooting only. Reads up to 2000 files, skips files over 512 KB, and caps total bytes read around 30 MB.
+
+All modes still skip generated/build/dependency folders and asset folders by default.
+
+Skipped folders include:
+
+- `node_modules`
+- `dist`
+- `build`
+- `out`
+- `coverage`
+- `.git`
+- `.vscode`
+- `.next`
+- `public/build`
+- `vendor`
+- `temp`
+- `tmp`
+- `logs`
+- `.game-polish-lab/kits`
+- `.game-polish-lab/trials`
+- `.game-polish-lab/audits`
+- `.game-polish-lab/prompts`
+- `assets`
+- `public/assets`
+- `static/assets`
+
+Assets are skipped because project type, runtime model, code style, and pixel-rendering checks only need source/config/CSS/HTML evidence. Large art/audio folders should only be scanned by a future explicit asset-audit command.
+
+Audit reports include:
+
+- Performance mode
+- Files considered
+- Files read
+- Bytes read
+- Files skipped by size
+- Files skipped by exclude
+- Scan capped
+- Partial scan
+
+Use `Game Polish Lab: Show Performance Diagnostics` to inspect the last scan and cache status. Use `Game Polish Lab: Clear Scan Cache` if results look stale after moving files or switching branches.
 
 ## Polish Task vs Polish Kit
 
@@ -183,6 +246,14 @@ For the `Do-Not-Click-This-Button` branch `experiment/incremental-arena`:
 10. Run `Game Polish Lab: Check Codex Scope`.
 
 ## Troubleshooting
+
+If the extension feels slow, run `Game Polish Lab: Set Performance Mode` and choose `Safe`. Then run `Game Polish Lab: Clear Scan Cache` if previous scan results may be stale.
+
+If an audit is partial, the scan hit a safety budget. The report is still usable, but results may be incomplete. Use `Balanced` or `Deep` only when troubleshooting a specific detection problem.
+
+If a real project is too large, keep assets and generated files in the skipped folders listed above. Game Polish Lab does not need to scan art/audio folders for source-code detection.
+
+Scope checks do not full-scan the workspace. They use `git diff --name-only`; if git is unavailable, run that command manually or provide the changed file list.
 
 In restricted Codex shell execution on this Windows machine, standalone `npm run compile` can fail before TypeScript runs with `EPERM: operation not permitted, lstat 'C:\\Users\\mamdu'`. The same compile command passes in normal approved execution and through `npm test`. Extension scanning is guarded to use the opened workspace folder and skip files outside that workspace.
 

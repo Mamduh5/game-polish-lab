@@ -109,8 +109,13 @@ function normalizeProfile(profile: Partial<ProjectProfile>): ProjectProfile {
       ...profile.configFiles
     },
     defaultMustNotTouch: profile.defaultMustNotTouch ?? defaultProfile.defaultMustNotTouch,
-    codexRequiresApprovalBeforePatch: profile.codexRequiresApprovalBeforePatch ?? true
+    codexRequiresApprovalBeforePatch: profile.codexRequiresApprovalBeforePatch ?? true,
+    performanceMode: normalizePerformanceMode(profile.performanceMode)
   };
+}
+
+function normalizePerformanceMode(value: unknown): ProjectProfile["performanceMode"] {
+  return value === "balanced" || value === "deep" || value === "safe" ? value : defaultProfile.performanceMode;
 }
 
 export function toWorkspaceRelativePath(folder: vscode.WorkspaceFolder, uri: vscode.Uri): string {

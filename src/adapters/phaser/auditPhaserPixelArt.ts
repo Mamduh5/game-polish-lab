@@ -1,13 +1,14 @@
 import * as vscode from "vscode";
 
 import { logInfo } from "../../core/output";
-import { detectRuntimePresentationModel } from "../../core/presentationDetection";
-import { isActionProjectType, isIdleProjectType, suggestProjectType } from "../../core/projectType";
+import { detectRuntimePresentationModelFromFiles } from "../../core/presentationDetection";
+import { isActionProjectType, isIdleProjectType, suggestProjectTypeFromFiles } from "../../core/projectType";
+import { renderScanStatsMarkdown, scanWasCappedMessage, scanWorkspace, setCachedAnalysis } from "../../core/workspaceScanner";
 import { PhaserPixelAuditResult } from "../../types/audit";
 import { ProjectType } from "../../types/profile";
-import { detectPhaserProject } from "./detectPhaserProject";
-import { findCssRenderingRuleFiles } from "./findCssRenderingRules";
-import { findPhaserConfigFiles } from "./findPhaserConfig";
+import { detectPhaserProjectFromFiles } from "./detectPhaserProject";
+import { findCssRenderingRuleFilesFromFiles } from "./findCssRenderingRules";
+import { findPhaserConfigFilesFromFiles } from "./findPhaserConfig";
 
 type PatternCheck = {
   label: string;
@@ -15,12 +16,13 @@ type PatternCheck = {
   files: string[];
 };
 
-export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promise<PhaserPixelAuditResult> {
-  const detection = await detectPhaserProject(folder);
-  const projectTypeSuggestion = await suggestProjectType(folder);
-  const runtimeDetection = await detectRuntimePresentationModel(folder);
-  const configFiles = await findPhaserConfigFiles(folder);
-  const cssFiles = await findCssRenderingRuleFiles(folder);
+export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?: vscode.CancellationToken): Promise<PhaserPixelAuditResult> {
+  const scan = await scanWorkspace({ folder, token });
+  const detection = detectPhaserProjectFromFiles(scan.files);
+  const projectTypeSuggestion = suggestProjectTypeFromFiles(scan.files);
+  const runtimeDetection = detectRuntimePresentationModelFromFiles(scan.files);
+  const configFiles = findPhaserConfigFilesFromFiles(scan.files);
+  const cssFiles = findCssRenderingRuleFilesFromFiles(scan.files);
   const allFiles = [...configFiles, ...cssFiles];
   const filesInspected = Array.from(new Set([...detection.filesInspected, ...allFiles.map((file) => file.relativePath)])).sort();
 
@@ -66,6 +68,10 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promi
   if (filesInspected.length === 0) {
     warnings.push("No likely Phaser config or CSS rendering files were found.");
   }
+  const cappedMessage = scanWasCappedMessage(scan.stats);
+  if (cappedMessage) {
+    warnings.push(cappedMessage);
+  }
 
   const suggestedFixes = buildSuggestedFixes(checks, warnings);
   const suggestedTasks = suggestTaskPresets(checks, filesInspected, projectTypeSuggestion.suggestedProjectType, runtimeDetection.runtimePresentationModel);
@@ -78,7 +84,7 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promi
   logInfo(`audit suggested project type: ${projectTypeSuggestion.suggestedProjectType}`);
   logInfo(`audit runtime presentation model: ${runtimeDetection.runtimePresentationModel}`);
 
-  return {
+  const result = {
     detection,
     suggestedProjectType: projectTypeSuggestion.suggestedProjectType,
     projectTypeEvidence: projectTypeSuggestion.evidence,
@@ -93,9 +99,16 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder): Promi
     suggestedFixes,
     suggestedTasks,
     filesInspected,
+    scanStats: scan.stats,
     pixelArtReadinessScore,
     mainRisk
   };
+  setCachedAnalysis(folder, "latestAuditSuggestion", scan.stats.performanceMode, {
+    suggestedTasks,
+    mainRisk,
+    pixelArtReadinessScore
+  });
+  return result;
 }
 
 function findDecimalScaleWarnings(files: { relativePath: string; text: string }[]): string[] {
@@ -142,7 +155,8 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
     : "- No suggested fixes.";
 
   const suggestedTasks = result.suggestedTasks.map((item) => `- ${item}`).join("\n");
-  const cappedFiles = result.filesInspected.slice(0, 100);
+  const maxFiles = result.scanStats?.maxInspectedFilesInReport ?? 80;
+  const cappedFiles = result.filesInspected.slice(0, maxFiles);
   const omittedCount = Math.max(result.filesInspected.length - cappedFiles.length, 0);
   const filesInspected = cappedFiles.length > 0
     ? `${cappedFiles.map((item) => `- ${item}`).join("\n")}${omittedCount > 0 ? `\n- ... ${omittedCount} more files omitted.` : ""}`
@@ -200,6 +214,8 @@ ${suggestedTasks}
 ## Files Inspected
 
 ${filesInspected}
+
+${renderScanStatsMarkdown(result.scanStats)}
 `;
 }
 
