@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import { LatestAuditContext, resolveAuditBackedDominantMode, resolveAuditBackedProjectType, resolveAuditBackedRuntimeModel } from "./auditContext";
 import { renderFieldNotesSection } from "./fieldNotes";
+import { isMonsterFarmType, monsterFarmManualTestMatrix, renderMonsterFarmPromptGuardrail } from "./monsterFarmDeepAudit";
 import { getNextNumberedFilename } from "./trialReports";
 import { ensureDirectory, labUri, writeJsonFile, writeTextFile } from "./workspace";
 import { ProjectProfile } from "../types/profile";
@@ -117,6 +118,9 @@ export function buildVisualDiagnosisTask(profile: ProjectProfile, audit: LatestA
 }
 
 export function buildVisualDiagnosisPrompt(task: VisualDiagnosisTask, fieldNotes: string[]): string {
+  const monsterFarmGuardrail = isMonsterFarmType(task.projectType) || isMonsterFarmType(task.dominantMode)
+    ? `${renderMonsterFarmPromptGuardrail()}\n\n`
+    : "";
   return `# Game Polish Lab Visual Diagnosis Prompt
 
 Area: ${task.area}
@@ -130,7 +134,7 @@ Runtime model: ${task.runtimePresentationModel}
 Code style: ${task.codeStyle}
 Primary route: ${task.primaryRoute}
 
-${renderFieldNotesSection(fieldNotes)}## Inspect-Only Rules
+${renderFieldNotesSection(fieldNotes)}${monsterFarmGuardrail}## Inspect-Only Rules
 
 - Do not patch yet.
 - Map the feedback data flow before proposing changes.
@@ -192,6 +196,9 @@ export function buildTuningExperimentTask(input: TuningExperimentInput): TuningE
 }
 
 export function buildTuningExperimentPrompt(task: TuningExperimentTask, diagnosis: VisualDiagnosisTask, fieldNotes: string[]): string {
+  const monsterFarmGuardrail = isMonsterFarmType(diagnosis.projectType) || isMonsterFarmType(diagnosis.dominantMode)
+    ? `${renderMonsterFarmPromptGuardrail()}\n\n`
+    : "";
   return `# Game Polish Lab Tuning Experiment Prompt
 
 Area: ${task.area}
@@ -201,7 +208,7 @@ Expected result: ${task.expectedResult}
 Rollback reference: ${task.rollbackReference}
 Linked diagnosis: ${task.diagnosisTaskId}
 
-${renderFieldNotesSection(fieldNotes)}## Rules
+${renderFieldNotesSection(fieldNotes)}${monsterFarmGuardrail}## Rules
 
 - Continue until the requested deliverables are complete.
 - Only one hypothesis is allowed in this experiment.
@@ -304,23 +311,117 @@ export function getAreaTemplate(area: VisualArea): { likelyFiles: string[]; diag
   }
 
   if (isMonsterFarmArea(area)) {
+    if (area === "monster_farm_finish_audit") {
+      return {
+        likelyFiles: monsterFarmLikelyFiles(),
+        diagnosticQuestions: [
+          "What are the top 5 polish bottlenecks in visible player experience?",
+          "Which surfaces are overloaded or visually competing?",
+          "Which states are ambiguous across slots, monsters, hatch, merge, tap farm, coin bug, quest, boss, and panels?",
+          "Which UI view or renderer owns each surface?",
+          "Which state/data/system files are risk files and inspect-only?",
+          "What is the best first tiny reversible patch?",
+          "What rollback strategy should be used if the patch is worse?",
+          "Which manual tests should run before approving a patch?"
+        ]
+      };
+    }
+    if (area === "farm_slot_state_readability_diagnosis") {
+      return {
+        likelyFiles: [
+          "src/scenes/FarmScene.ts",
+          "src/rendering/MonsterRenderer.ts",
+          "src/state/farmSlotState.ts",
+          "src/systems/monsterMergeSystem.ts",
+          "src/ui/PanelChrome.ts"
+        ],
+        diagnosticQuestions: [
+          "Are empty, locked, occupied, selected, drag-hover, merge-candidate, and invalid-drop states visually distinct?",
+          "Which slot visuals are owned by FarmScene versus view/config code?",
+          "Which merge-state files are inspect-only because they own formulas or rules?",
+          "What tiny visual-only patch would improve the weakest state?",
+          "How can the patch be rolled back by reverting one config/view change?"
+        ]
+      };
+    }
+    if (area === "monster_identity_diagnosis") {
+      return {
+        likelyFiles: [
+          "src/rendering/MonsterRenderer.ts",
+          "src/data/monsters.ts",
+          "src/data/elements.ts",
+          "src/ui/HatchPanelView.ts",
+          "src/scenes/FarmScene.ts"
+        ],
+        diagnosticQuestions: [
+          "Do monster family silhouettes remain readable at slot and icon sizes?",
+          "Are level intensity, aura, sparkle, outline, and rarity/type cues clear without noise?",
+          "Which renderer values are visual-only and reversible?",
+          "Which monster/data files are inspect-only unless a content task explicitly allows them?",
+          "What first tiny patch improves identity readability without replacing assets?"
+        ]
+      };
+    }
+    if (area === "hatch_merge_loop_diagnosis") {
+      return {
+        likelyFiles: [
+          "src/ui/HatchPanelView.ts",
+          "src/state/hatchState.ts",
+          "src/systems/monsterMergeSystem.ts",
+          "src/state/farmSlotState.ts",
+          "src/scenes/FarmScene.ts"
+        ],
+        diagnosticQuestions: [
+          "Are hatch ready, cooldown, full, cost, hold, success, and blocked states clear?",
+          "Are merge candidate, merge success, and invalid merge/drop states clear?",
+          "Which hatch odds, cost, cooldown, and merge formula files are inspect-only?",
+          "What view/config patch improves readiness or feedback without rule changes?",
+          "What rollback path restores the previous visual state?"
+        ]
+      };
+    }
+    if (area === "tap_farm_and_coin_bug_diagnosis") {
+      return {
+        likelyFiles: [
+          "src/ui/TapFarmView.ts",
+          "src/state/tapFarmState.ts",
+          "src/state/coinBugState.ts",
+          "src/scenes/FarmScene.ts",
+          "src/services/rewardedAdService.ts"
+        ],
+        diagnosticQuestions: [
+          "Are tap farm energy, cooldown, blocked, reward, hover, and modal/drag-blocking states clear?",
+          "Are coin bug appearance, pickup, reward, and lifetime states readable?",
+          "Which reward/spawn/cooldown/ad files are inspect-only?",
+          "What view-only patch can improve feedback without changing reward or spawn formulas?",
+          "What manual tests prove tap farm and coin bug remained rule-safe?"
+        ]
+      };
+    }
+    if (area === "panel_hierarchy_diagnosis") {
+      return {
+        likelyFiles: [
+          "src/ui/HudView.ts",
+          "src/ui/GameplayActionBarView.ts",
+          "src/ui/NavigationControlView.ts",
+          "src/ui/NavigationMenuPanelView.ts",
+          "src/ui/NextQuestWidgetView.ts",
+          "src/ui/ToastView.ts",
+          "src/ui/PanelChrome.ts",
+          "src/ui/PanelControls.ts",
+          "src/scenes/FarmScene.ts"
+        ],
+        diagnosticQuestions: [
+          "Do HUD, action bar, navigation, quest widget, toasts, and modals have a clear visual hierarchy?",
+          "Which panels are overloaded or competing for attention?",
+          "Can hierarchy improve in view/config files without a FarmScene rewrite?",
+          "Which quest reward or save/progression files must remain inspect-only?",
+          "What first tiny patch improves scanability on small and normal viewports?"
+        ]
+      };
+    }
     return {
-      likelyFiles: [
-        "src/scenes/FarmScene.ts",
-        "src/rendering/MonsterRenderer.ts",
-        "src/ui/TapFarmView.ts",
-        "src/ui/HudView.ts",
-        "src/ui/HatchPanelView.ts",
-        "src/ui/GameplayActionBarView.ts",
-        "src/ui/NextQuestWidgetView.ts",
-        "src/ui/PanelChrome.ts",
-        "src/state/farmSlotState.ts",
-        "src/state/hatchState.ts",
-        "src/state/tapFarmState.ts",
-        "src/state/coinBugState.ts",
-        "src/systems/monsterMergeSystem.ts",
-        "src/systems/saveSystem.ts"
-      ],
+      likelyFiles: monsterFarmLikelyFiles(),
       diagnosticQuestions: [
         "Which visual layers represent farm slots, monsters, drag state, merge candidates, hatch readiness, tap farm state, coin bug, toast rewards, and panels?",
         "Which UI widgets are overloaded or unreadable?",
@@ -407,7 +508,7 @@ function manualTestMatrixForProject(projectType: string): string[] {
     return ["select source shelf", "select target shelf", "valid move", "invalid move", "completed shelf", "undo or hint if present", "win state", "small mobile viewport"];
   }
   if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
-    return ["empty farm slot", "locked farm slot", "occupied farm slot", "merge candidate", "hatch ready state", "tap farm click", "coin bug pickup", "toast reward", "panel open/close", "save/load smoke"];
+    return monsterFarmManualTestMatrix;
   }
   return defaultCursorArenaTestMatrix();
 }
@@ -417,7 +518,7 @@ function familyMustNotTouch(projectType: string): string[] {
     return ["SortRules", "level data", "save/progression", "unlock logic", "win logic"];
   }
   if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
-    return ["save schema", "economy formulas", "hatch odds/costs/cooldowns", "upgrade costs", "quest rewards", "ad/monetization logic", "FarmScene rewrite"];
+    return ["save schema", "economy formulas", "hatch odds/costs/cooldowns", "upgrade costs", "quest rewards", "ad/monetization logic", "progression formulas", "Capacitor/AdMob", "FarmScene rewrite"];
   }
   return ["arena.html", "save data", "economy formulas", "damage values", "enemy HP", "upgrade costs"];
 }
@@ -427,7 +528,7 @@ function familyNonGoals(projectType: string): string[] {
     return ["Do not change SortRules.", "Do not change levels.", "Do not change save/progression.", "Do not convert the puzzle into combat or idle economy."];
   }
   if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
-    return ["Do not change save schema.", "Do not change economy formulas.", "Do not change hatch odds.", "Do not change ad/monetization logic.", "Do not rewrite FarmScene."];
+    return ["Do not change save schema.", "Do not change economy formulas.", "Do not change hatch odds.", "Do not change ad/monetization logic.", "Do not change progression formulas.", "Do not rewrite FarmScene.", "If unsure, stop at diagnosis and propose a plan."];
   }
   return ["Do not change economy, save, damage, HP, rewards, spawn, wave, or upgrade formulas."];
 }
@@ -445,6 +546,12 @@ function isSortArea(area: VisualArea): boolean {
 
 function isMonsterFarmArea(area: VisualArea): boolean {
   return area === "monster_farm_slot_readability"
+    || area === "monster_farm_finish_audit"
+    || area === "farm_slot_state_readability_diagnosis"
+    || area === "monster_identity_diagnosis"
+    || area === "hatch_merge_loop_diagnosis"
+    || area === "tap_farm_and_coin_bug_diagnosis"
+    || area === "panel_hierarchy_diagnosis"
     || area === "hatch_feedback"
     || area === "merge_feedback"
     || area === "tap_farm_feedback"
@@ -459,4 +566,38 @@ function isMonsterFarmArea(area: VisualArea): boolean {
 
 function formatList(items: string[]): string {
   return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None.";
+}
+
+function monsterFarmLikelyFiles(): string[] {
+  return [
+    "src/scenes/FarmScene.ts",
+    "src/rendering/MonsterRenderer.ts",
+    "src/ui/TapFarmView.ts",
+    "src/ui/HudView.ts",
+    "src/ui/HatchPanelView.ts",
+    "src/ui/GameplayActionBarView.ts",
+    "src/ui/NavigationControlView.ts",
+    "src/ui/NavigationMenuPanelView.ts",
+    "src/ui/NextQuestWidgetView.ts",
+    "src/ui/ToastView.ts",
+    "src/ui/PanelChrome.ts",
+    "src/ui/PanelControls.ts",
+    "src/state/farmSlotState.ts",
+    "src/state/hatchState.ts",
+    "src/state/tapFarmState.ts",
+    "src/state/coinBugState.ts",
+    "src/state/questState.ts",
+    "src/state/bossBattleState.ts",
+    "src/systems/monsterMergeSystem.ts",
+    "src/systems/progressionSystem.ts",
+    "src/systems/saveSystem.ts",
+    "src/services/rewardedAdService.ts",
+    "src/data/economy.ts",
+    "src/data/monsters.ts",
+    "src/data/upgrades.ts",
+    "src/data/quests.ts",
+    "src/data/bossBattles.ts",
+    "src/data/elements.ts",
+    "src/data/zones.ts"
+  ];
 }

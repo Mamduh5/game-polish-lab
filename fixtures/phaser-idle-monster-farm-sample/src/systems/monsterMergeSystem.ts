@@ -3,3 +3,7 @@ export const monsterMergeSystem = {
     return undefined;
   }
 };
+
+export function getMonsterMergeResult(_left: unknown, _right: unknown): string {
+  return "sprout-plus";
+}

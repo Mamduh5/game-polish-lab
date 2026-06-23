@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { logInfo } from "../../core/output";
+import { buildMonsterFarmAuditDetails, isMonsterFarmType, monsterFarmRecommendedKitOrder, renderMonsterFarmAuditMarkdownSections } from "../../core/monsterFarmDeepAudit";
 import { detectCodeStyleFromFiles, detectRuntimePresentationModelFromFiles } from "../../core/presentationDetection";
 import { isActionProjectType, isIdleProjectType, isMonsterFarmProjectType, isSortPuzzleProjectType, suggestProjectTypeFromFiles } from "../../core/projectType";
 import { renderScanStatsMarkdown, scanWasCappedMessage, scanWorkspace, setCachedAnalysis } from "../../core/workspaceScanner";
@@ -75,6 +76,16 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
   }
 
   const suggestedFixes = buildSuggestedFixes(checks, warnings);
+  const isMonsterFarm = isMonsterFarmType(projectTypeSuggestion.suggestedProjectType)
+    || isMonsterFarmType(projectTypeSuggestion.dominantMode);
+  const monsterFarmAudit = isMonsterFarm
+    ? buildMonsterFarmAuditDetails(
+      scan.files,
+      projectTypeSuggestion.dominantMode,
+      runtimeDetection.runtimePresentationModel,
+      codeStyleDetection.codeStyle
+    )
+    : undefined;
   const suggestedTasks = suggestTaskPresets(
     checks,
     filesInspected,
@@ -85,7 +96,9 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
   );
   const gamePresentationNotes = buildGamePresentationNotes(projectTypeSuggestion.suggestedProjectType, projectTypeSuggestion.dominantMode, checks, filesInspected, warnings);
   const pixelArtReadinessScore = calculateReadinessScore(checks, optimizeSpeedFiles.size > 0, warnings);
-  const mainRisk = warnings[0] ?? "No major pixel-art rendering risks detected.";
+  const mainRisk = monsterFarmAudit
+    ? "Pixel renderer flags are secondary unless the game intends crisp pixel art. Main risk is UI-heavy visual hierarchy and state readability."
+    : warnings[0] ?? "No major pixel-art rendering risks detected.";
 
   logInfo(`audit files inspected: ${filesInspected.join(", ") || "none"}`);
   logInfo(`audit detection evidence: ${detection.evidence.join(" | ") || "none"}`);
@@ -113,7 +126,8 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
     filesInspected,
     scanStats: scan.stats,
     pixelArtReadinessScore,
-    mainRisk
+    mainRisk,
+    monsterFarmAudit
   };
   setCachedAnalysis(folder, "latestAuditSuggestion", scan.stats.performanceMode, {
     suggestedProjectType: projectTypeSuggestion.suggestedProjectType,
@@ -124,7 +138,8 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
     presentationRoutes: runtimeDetection.presentationRoutes,
     suggestedTasks,
     mainRisk,
-    pixelArtReadinessScore
+    pixelArtReadinessScore,
+    monsterFarmAudit
   });
   return result;
 }
@@ -163,6 +178,7 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
     ? result.codeStyleEvidence.map((item) => `  - ${item}`).join("\n")
     : "  - No code-style evidence found.";
   const presentationRoutes = renderPresentationRoutes(result);
+  const monsterFarmSections = renderMonsterFarmAuditSections(result);
 
   const passedChecks = result.passedChecks.length > 0
     ? result.passedChecks.map((item) => `- ${item}`).join("\n")
@@ -205,7 +221,7 @@ ${detectionEvidence}
 - Suggested project type: ${result.suggestedProjectType}
 - Dominant mode: ${result.dominantMode}
 - Secondary mode: ${result.secondaryMode}
-${projectTypeEvidence}
+${result.monsterFarmAudit ? `- Project family: ${result.monsterFarmAudit.projectFamily}\n- Strongest submode: ${result.monsterFarmAudit.strongestSubmode}\n- Major surface modes:\n${result.monsterFarmAudit.majorSurfaceModes.map((mode) => `  - ${mode}`).join("\n")}\n` : ""}${projectTypeEvidence}
 
 ## Code Style
 
@@ -225,6 +241,8 @@ ${presentationRoutes}
 ## Game Presentation Notes
 
 ${result.gamePresentationNotes.map((item) => `- ${item}`).join("\n")}
+
+${monsterFarmSections}
 
 ## Passed Checks
 
@@ -299,19 +317,7 @@ function suggestTaskPresets(
   }
 
   if (isMonsterFarmProjectType(projectType) || dominantMode === "monster_merge_idle" || dominantMode === "phaser_ui_heavy_idle" || dominantMode === "tap_farm_idle") {
-    return [
-      "monster_farm_slot_readability",
-      "hatch_feedback",
-      "merge_feedback",
-      "tap_farm_feedback",
-      "coin_bug_feedback",
-      "farm_hud_readability",
-      "monster_identity_readability",
-      "panel_readability",
-      "toast_reward_feedback",
-      "quest_widget_readability",
-      "boss_battle_feedback"
-    ];
+    return monsterFarmRecommendedKitOrder;
   }
 
   if (
@@ -413,6 +419,15 @@ function buildGamePresentationNotes(projectType: ProjectType, dominantMode: Proj
   }
 
   return notes;
+}
+
+function renderMonsterFarmAuditSections(result: PhaserPixelAuditResult): string {
+  const audit = result.monsterFarmAudit;
+  if (!audit) {
+    return "";
+  }
+
+  return renderMonsterFarmAuditMarkdownSections(audit);
 }
 
 function calculateReadinessScore(checks: PatternCheck[], hasOptimizeSpeed: boolean, warnings: string[]): number {

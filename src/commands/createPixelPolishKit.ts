@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import { hasUsefulAuditProjectType, LatestAuditContext, readLatestAuditContext } from "../core/auditContext";
 import { readFieldNotes } from "../core/fieldNotes";
+import { monsterFarmRecommendedKitOrder } from "../core/monsterFarmDeepAudit";
 import { buildConfigTemplateForProfile, buildKitImplementationPrompt, buildKitReadme, buildPixelPolishKit, nextKitFolderName, resolveWorkspaceConfigPath } from "../core/pixelPolishKitBuilder";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { detectCodeStyle, detectRuntimePresentationModel } from "../core/presentationDetection";
@@ -199,7 +200,7 @@ function kitOrderForProjectType(projectType: ProjectType): Map<string, number> |
     return new Map(["sort_move_feedback", "selected_shelf_readability", "invalid_move_feedback", "completed_shelf_glow", "win_celebration", "spirit_identity_readability", "puzzle_hud_readability", "mobile_sort_layout_readability"].map((id, index) => [id, index]));
   }
   if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
-    return new Map(["monster_farm_slot_readability", "hatch_feedback", "merge_feedback", "tap_farm_feedback", "coin_bug_feedback", "farm_hud_readability", "monster_identity_readability", "panel_readability", "toast_reward_feedback", "quest_widget_readability", "boss_battle_feedback"].map((id, index) => [id, index]));
+    return new Map(monsterFarmRecommendedKitOrder.map((id, index) => [id, index]));
   }
   return undefined;
 }

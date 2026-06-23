@@ -1,4 +1,5 @@
 import type { ScanStats } from "../core/workspaceScanner";
+import type { MonsterFarmAuditDetails } from "../core/monsterFarmDeepAudit";
 import { RuntimePresentationModel, ProjectType, CodeStyle } from "./profile";
 
 export type PhaserConfidence = "high" | "medium" | "low" | "none";
@@ -52,4 +53,5 @@ export interface PhaserPixelAuditResult {
   scanStats?: ScanStats;
   pixelArtReadinessScore: number;
   mainRisk: string;
+  monsterFarmAudit?: MonsterFarmAuditDetails;
 }

@@ -4,6 +4,39 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or provide a dashboard webview.
 
+## What v0.4.1 Does
+
+v0.4.1 deepens Idle Monster Farm support for nearly finished Phaser idle/economy games. Monster Farm audits now treat the game as a UI-heavy idle farm with several visible surfaces, not as a simple clicker or one `tap_farm_idle` bucket.
+
+Monster Farm audits now include:
+
+- `Monster Farm Confidence`
+- `Monster Farm Surface Map`
+- `Finish-Stage Polish Priorities`
+- `File Role Map`
+- `Non-Dominant Keyword Noise`
+- `Rendering Style Readiness`
+
+The recommended Monster Farm kit order now prioritizes slot state and monster identity before tap juice:
+
+1. `monster_farm_slot_readability`
+2. `monster_identity_readability`
+3. `hatch_feedback`
+4. `merge_feedback`
+5. `tap_farm_feedback`
+6. `coin_bug_feedback`
+7. `farm_hud_readability`
+8. `panel_readability`
+9. `quest_widget_readability`
+10. `toast_reward_feedback`
+11. `boss_battle_feedback`
+
+New command:
+
+- `Game Polish Lab: Create Finish-Stage Polish Plan`
+
+Use it before asking Codex to patch a nearly finished Monster Farm. The generated prompt is inspect-only and asks for the top five polish opportunities, likely files, visible improvement, risk, files not to touch, tiny patch idea, rollback, and manual tests.
+
 ## What v0.4.0 Does
 
 v0.4.0 expands Game Polish Lab beyond incremental cursor arenas with two additional real game families:
@@ -52,6 +85,57 @@ Recommended first kits: `monster_farm_slot_readability`, `hatch_feedback`, `merg
 Do not change save schema, coin/income formulas, hatch odds/costs/cooldowns, upgrade costs, quest rewards, ad/monetization behavior, or rewrite `FarmScene`.
 
 Idle Monster Farm Workflow:
+
+1. Run audit.
+2. Create Finish-Stage Polish Plan.
+3. Pick one surface.
+4. Create Visual Diagnosis Task.
+5. Send the inspect-only prompt to Codex in `Idle-Monster-Farm`.
+6. Approve a tiny patch only if it avoids save/economy/hatch/ad/progression.
+7. Run `npm run build`.
+8. Test hatch, merge, tap farm, coin bug, panels, and save/load.
+9. Mark result better/worse/same/mixed.
+
+## Monster Farm Deep Audit
+
+Monster Farm is a UI-heavy idle farm, not a simple clicker. `tap_farm_idle` can be the strongest submode, but it is not the whole project.
+
+Major surface modes:
+
+- `monster_farm_slots`
+- `monster_identity`
+- `hatch_merge_loop`
+- `tap_farm_idle`
+- `ui_panel_hierarchy`
+- `quest_reward_guidance`
+- `boss_battle_secondary`
+
+Use Finish-Stage Polish Plan first, then work one surface at a time. Do not use broad "make it polished" prompts on nearly finished idle/economy games.
+
+Finish-stage Monster Farm workflow:
+
+1. Run audit.
+2. Create Finish-Stage Polish Plan.
+3. Pick one surface.
+4. Create diagnosis task.
+5. Send inspect-only prompt to Codex in `Idle-Monster-Farm`.
+6. Approve tiny patch only if it avoids save/economy/hatch/ad/progression.
+7. Run `npm run build`.
+8. Manual test matrix.
+9. Mark result better/worse/same/mixed.
+
+Monster Farm diagnosis bundle presets:
+
+- `monster_farm_finish_audit`
+- `farm_slot_state_readability_diagnosis`
+- `monster_identity_diagnosis`
+- `hatch_merge_loop_diagnosis`
+- `tap_farm_and_coin_bug_diagnosis`
+- `panel_hierarchy_diagnosis`
+
+Every Monster Farm generated prompt includes a finish-stage guardrail: diagnose first, patch one small reversible surface at a time, do not modify economy/save/hatch odds/upgrade costs/quest rewards/ad monetization/progression formulas, do not rewrite `FarmScene`, prefer UI view or config files, and keep state/data/system files inspect-only unless explicitly requested.
+
+Legacy v0.4.0 workflow remains valid for focused kits:
 
 1. Run audit.
 2. Create Visual Diagnosis Task: Farm Slot Readability or Tap Farm Feedback.
@@ -141,6 +225,7 @@ Each kit creates:
 - `Game Polish Lab: Initialize Project Profile` creates or migrates `.game-polish-lab/profile.json`.
 - `Game Polish Lab: Run Phaser Pixel Audit` writes `.game-polish-lab/audits/latest-phaser-pixel-audit.md`.
 - `Game Polish Lab: Create Polish Task` writes a strict task JSON file in `.game-polish-lab/tasks/`.
+- `Game Polish Lab: Create Finish-Stage Polish Plan` creates an inspect-only Monster Farm polish planner prompt.
 - `Game Polish Lab: Create Rescue Task` creates a focused rescue task from project status and main blocker.
 - `Game Polish Lab: Create Pixel Polish Kit` creates kit files and optionally a source config template.
 - `Game Polish Lab: List Pixel Polish Kits` opens an existing kit README or JSON file.
@@ -277,6 +362,13 @@ Supported values:
 - `incremental_arena`
 - `cursor_attack_arena`
 - `phaser_dom_hud`
+- `cozy_sort_puzzle`
+- `shelf_sort_puzzle`
+- `tap_to_move_sort_puzzle`
+- `idle_monster_farm`
+- `monster_merge_idle`
+- `phaser_ui_heavy_idle`
+- `tap_farm_idle`
 
 ## Phaser-Rendered DOM HUD Projects
 

@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"
@@ -14,6 +14,7 @@
     "onCommand:gamePolishLab.initializeProfile",
     "onCommand:gamePolishLab.runPhaserPixelAudit",
     "onCommand:gamePolishLab.createPolishTask",
+    "onCommand:gamePolishLab.createFinishStagePolishPlan",
     "onCommand:gamePolishLab.createRescueTask",
     "onCommand:gamePolishLab.createPixelPolishKit",
     "onCommand:gamePolishLab.listPixelPolishKits",
@@ -46,6 +47,10 @@
       {
         "command": "gamePolishLab.createPolishTask",
         "title": "Game Polish Lab: Create Polish Task"
+      },
+      {
+        "command": "gamePolishLab.createFinishStagePolishPlan",
+        "title": "Game Polish Lab: Create Finish-Stage Polish Plan"
       },
       {
         "command": "gamePolishLab.createRescueTask",
@@ -121,7 +126,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "tsc --noEmit -p ./",
-    "test": "npm run compile"
+    "test": "npm run compile && node dist/test/monsterFarmDeepAudit.spec.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
