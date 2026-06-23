@@ -8,6 +8,10 @@ It does not beautify a game automatically, call external AI APIs, require networ
 
 v0.4.2 cleans up Monster Farm audit reporting. `FarmScene` confidence now accepts direct scene files, `class FarmScene`, general `FarmScene` references, and `src/main.ts` scene-list wiring. Monster Farm audits also keep generic action/combat keyword buckets out of the main `Suggested Project Type` section and report them under `Non-Dominant Keyword Noise` instead.
 
+## What v0.4.3 Does
+
+v0.4.3 folds real Monster Farm trial feedback into generated prompts and kit guidance. Farm slot readability and panel hierarchy are now treated as proven-good early polish targets. Monster identity prompts warn against farm-grid family initials, level badges, metadata chips, or extra labels because trial feedback found them noisy; exact monster metadata belongs in compendium/detail UI. Hatch panel style-only polish is treated as optional unless the user reports a clear hatch-state problem.
+
 ## What v0.4.1 Does
 
 v0.4.1 deepens Idle Monster Farm support for nearly finished Phaser idle/economy games. Monster Farm audits now treat the game as a UI-heavy idle farm with several visible surfaces, not as a simple clicker or one `tap_farm_idle` bucket.

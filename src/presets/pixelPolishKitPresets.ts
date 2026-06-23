@@ -154,7 +154,34 @@ export const pixelPolishKitPresets: PixelPolishKitPreset[] = [
   farmKit("tap_farm_feedback", "Tap Farm Feedback Kit", "src/config/tapFarmFeedbackConfig.ts", "TAP_FARM_FEEDBACK_CONFIG", tsConfig("TAP_FARM_FEEDBACK_CONFIG", "tapPopMs: 110,\n  energyFillPulseMs: 360,\n  rewardTextRisePx: 18,\n  cooldownAlpha: 0.55"), "TapFarmView click feedback, energy fill readability, reward feedback, and cooldown state improve without reward formula changes."),
   farmKit("coin_bug_feedback", "Coin Bug Feedback Kit", "src/config/coinBugFeedbackConfig.ts", "COIN_BUG_FEEDBACK_CONFIG", tsConfig("COIN_BUG_FEEDBACK_CONFIG", "visibilityPulseMs: 480,\n  pickupRadiusAlpha: 0.2,\n  rewardPopupMs: 520,\n  lifetimeWarnAlpha: 0.28"), "Coin bug visibility, pickup radius feedback, reward popup, and lifetime readability improve without spawn/reward changes."),
   farmKit("farm_hud_readability", "Farm HUD Readability Kit", "src/config/farmHudReadabilityConfig.ts", "FARM_HUD_READABILITY_CONFIG", tsConfig("FARM_HUD_READABILITY_CONFIG", "resourceFontSizePx: 16,\n  incomeFontSizePx: 13,\n  iconSizePx: 22,\n  warningPulseMs: 520"), "Coins, income, egg, slot, hatch, and quest resources become more readable without economy changes."),
-  farmKit("monster_identity_readability", "Monster Identity Readability Kit", "src/config/monsterIdentityReadabilityConfig.ts", "MONSTER_IDENTITY_READABILITY_CONFIG", tsConfig("MONSTER_IDENTITY_READABILITY_CONFIG", "nameMinContrast: \"high\",\n  rarityStrokePx: 2,\n  idleMotionScale: 0.8,\n  familyBadgeAlpha: 0.9"), "Monster rendering clarity and family/type readability improve without replacing assets unless explicitly requested."),
+  {
+    ...farmKit("monster_identity_readability", "Monster Identity Readability Kit", "src/config/monsterIdentityReadabilityConfig.ts", "MONSTER_IDENTITY_READABILITY_CONFIG", tsConfig("MONSTER_IDENTITY_READABILITY_CONFIG", "nameMinContrast: \"high\",\n  rarityStrokePx: 2,\n  idleMotionScale: 0.8,\n  outlineAlpha: 0.88,\n  silhouetteContrastPriority: \"high\""), "Monster silhouette, art contrast, spacing, outline, and renderer clarity improve without adding metadata overlays or replacing assets unless explicitly requested."),
+    acceptanceCriteria: [
+      "Monster silhouettes, contrast, spacing, outline, or renderer clarity improve without changing game rules.",
+      "No family initials, level badges, metadata chips, or extra labels are added to the main farm grid by default.",
+      "Exact monster family/level metadata remains in compendium/detail UI unless explicitly requested.",
+      "Save schema, farm slot unlocks, merge formulas, monster definitions, income, hatch odds/costs/cooldowns, upgrade costs, quest rewards, and ad logic are unchanged."
+    ],
+    antiPatterns: [
+      "Do not add family initials to farm slots.",
+      "Do not add level badges to farm slots.",
+      "Do not add metadata chips to the main farm grid.",
+      "Do not add extra farm-grid labels as the default identity fix.",
+      "Do not change save schema, economy, hatch, merge, progression, ad, or quest reward logic."
+    ],
+    codexImplementationNotes: [
+      "Trial feedback: on-farm level badges and family chips made the gameplay scene ugly/noisy.",
+      "Exact monster metadata belongs in compendium/detail UI, not the main farm grid.",
+      "Prefer silhouette/readability/art contrast/spacing/outline improvements in MonsterRenderer or visual config.",
+      "If no safe silhouette/art improvement is obvious, recommend skipping this surface instead of adding UI metadata.",
+      "Keep data/state/save/economy files inspect-only."
+    ],
+    manualTuningAdvice: [
+      "Tune outline and contrast before adding effects.",
+      "Reduce identity treatment if the farm grid becomes noisy.",
+      "Skip this kit if the only improvement idea is labels, badges, or chips."
+    ]
+  },
   farmKit("panel_readability", "Panel Readability Kit", "src/config/panelReadabilityConfig.ts", "PANEL_READABILITY_CONFIG", tsConfig("PANEL_READABILITY_CONFIG", "panelPaddingPx: 10,\n  sectionGapPx: 8,\n  titleFontSizePx: 16,\n  buttonMinHeightPx: 36"), "Panel hierarchy, navigation menu, button states, and small-screen readability improve without rewriting UI systems."),
   farmKit("toast_reward_feedback", "Toast Reward Feedback Kit", "src/config/toastRewardFeedbackConfig.ts", "TOAST_REWARD_FEEDBACK_CONFIG", tsConfig("TOAST_REWARD_FEEDBACK_CONFIG", "toastMs: 850,\n  risePx: 16,\n  maxStack: 3,\n  rewardHighlightAlpha: 0.24"), "Toast and reward clarity improve without blocking core interactions."),
   farmKit("quest_widget_readability", "Quest Widget Readability Kit", "src/config/questWidgetReadabilityConfig.ts", "QUEST_WIDGET_READABILITY_CONFIG", tsConfig("QUEST_WIDGET_READABILITY_CONFIG", "progressPulseMs: 480,\n  claimReadyAlpha: 1,\n  blockedAlpha: 0.58,\n  compactFontSizePx: 13"), "Next quest widget clarity, quest progress status, and claim readability improve without quest reward changes."),

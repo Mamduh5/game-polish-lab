@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 
 import { isActionProjectType, isIdleProjectType } from "./projectType";
 import { renderFieldNotesSection } from "./fieldNotes";
+import { monsterFarmIdentityMetadataWarning, monsterFarmTrialFeedbackNotes } from "./monsterFarmDeepAudit";
 import { labUri, normalizeWorkspacePath, readJsonFileIfExists } from "./workspace";
 import { PixelPolishKit, PixelPolishKitPreset } from "../types/pixelPolishKit";
 import { ProjectProfile, ProjectType } from "../types/profile";
@@ -281,7 +282,7 @@ function projectTypeGuidance(kit: PixelPolishKit, projectType: ProjectType): str
   }
 
   if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
-    return [
+    const guidance = [
       "This is a TypeScript Phaser UI-heavy idle monster farm. Visual polish must not modify economy/save/progression/ads.",
       "Do not change save schema.",
       "Do not change coin/income formulas.",
@@ -290,6 +291,14 @@ function projectTypeGuidance(kit: PixelPolishKit, projectType: ProjectType): str
       "Do not rewrite FarmScene; prefer view/config-level patches.",
       "Preserve TypeScript module style."
     ];
+    guidance.push(...monsterFarmTrialFeedbackNotes);
+    if (kit.kitId === "monster_identity_readability") {
+      guidance.push(...monsterFarmIdentityMetadataWarning);
+    }
+    if (kit.kitId === "hatch_feedback") {
+      guidance.push("Hatch panel style-only polish was neutral in trial feedback; only patch this if a specific hatch-state clarity issue is observed.");
+    }
+    return guidance;
   }
 
   if (kit.projectType === "cursor_attack_arena" || kit.projectType === "incremental_arena" || kit.projectType === "phaser_dom_hud") {

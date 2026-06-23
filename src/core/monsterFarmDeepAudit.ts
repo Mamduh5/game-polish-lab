@@ -38,29 +38,29 @@ export const monsterFarmMajorSurfaceModes = [
 
 export const monsterFarmFinishStagePriorities = [
   "farm_slot_state_readability",
-  "monster_identity_readability",
-  "hatch_panel_readiness",
+  "panel_hierarchy",
   "merge_feedback",
   "tap_farm_feedback",
   "coin_bug_feedback",
   "hud_resource_readability",
-  "panel_hierarchy",
   "quest_and_next_action_clarity",
-  "boss_battle_feedback"
+  "boss_battle_feedback",
+  "monster_identity_readability",
+  "hatch_panel_readiness"
 ];
 
 export const monsterFarmRecommendedKitOrder = [
   "monster_farm_slot_readability",
-  "monster_identity_readability",
-  "hatch_feedback",
+  "panel_readability",
   "merge_feedback",
   "tap_farm_feedback",
   "coin_bug_feedback",
   "farm_hud_readability",
-  "panel_readability",
   "quest_widget_readability",
   "toast_reward_feedback",
-  "boss_battle_feedback"
+  "boss_battle_feedback",
+  "monster_identity_readability",
+  "hatch_feedback"
 ];
 
 export const monsterFarmManualTestMatrix = [
@@ -82,6 +82,22 @@ export const monsterFarmManualTestMatrix = [
 ];
 
 export const monsterFarmStrongGuardrail = "This is a nearly finished TypeScript Phaser UI-heavy idle monster farm. Treat visual polish as finish-stage work: diagnose first, patch one small reversible surface at a time, and never modify economy, save, hatch odds, upgrade costs, quest rewards, ad/monetization, or progression formulas unless explicitly requested.";
+
+export const monsterFarmTrialFeedbackNotes = [
+  "Proven-good first patch: farm_slot_state_readability via visual-only slot overlays/rings in src/scenes/FarmScene.ts.",
+  "Proven-good low-risk polish target: panel_hierarchy via subtle grouping/accent in src/ui/NavigationMenuPanelView.ts.",
+  "Proven-bad main farm grid pattern: monster metadata badges/chips such as family initials, level badges, metadata chips, or extra labels made the gameplay scene ugly/noisy.",
+  "Monster family/level metadata belongs in compendium/detail UI, not as overlays on the main farm grid.",
+  "Hatch panel style-only polish was neutral; treat hatch_panel_readiness as optional unless the user reports a specific hatch-state clarity issue."
+];
+
+export const monsterFarmIdentityMetadataWarning = [
+  "Do not add family initials, level badges, metadata chips, or extra labels to the main farm grid by default.",
+  "Exact monster metadata belongs in compendium/detail UI, not on farm slots.",
+  "Prefer silhouette readability, art contrast, spacing, outline, or renderer clarity improvements only.",
+  "If no safe silhouette/art improvement is obvious, skip monster_identity_readability instead of adding UI metadata.",
+  "Keep data/state/save/economy files inspect-only."
+];
 
 export interface MonsterFarmProjectTypeEvidenceSplit {
   mainEvidence: string[];
@@ -147,7 +163,9 @@ ${monsterFarmStrongGuardrail}
 - Do not add mechanics.
 - Do not change balance.
 - Do not touch Capacitor/AdMob unless explicitly asked.
-- Run \`npm run build\` after implementation.`;
+- Run \`npm run build\` after implementation.
+
+${renderMonsterFarmTrialFeedbackSection()}`;
 }
 
 export function renderMonsterFarmFinishStagePlanPrompt(): string {
@@ -165,6 +183,17 @@ ${renderMonsterFarmPromptGuardrail()}
 - Avoid economy/save/ad/formula systems.
 - Prefer one patch at a time.
 - Do not create a broad "make it polished" implementation plan.
+- Prioritize \`farm_slot_state_readability\` and \`panel_hierarchy\` as proven safe early polish targets.
+- Treat \`hatch_panel_readiness\` as optional unless the user reports the hatch panel feels unclear.
+- If listing \`monster_identity_readability\`, warn against badge/chip metadata overlays on farm slots.
+
+## Trial Feedback
+
+${formatList(monsterFarmTrialFeedbackNotes)}
+
+## Identity Safety Guidance
+
+${formatList(monsterFarmIdentityMetadataWarning)}
 
 ## For Each Opportunity Include
 
@@ -184,6 +213,16 @@ ${formatList(monsterFarmFinishStagePriorities)}
 ## Manual Test Matrix
 
 ${formatList(monsterFarmManualTestMatrix)}`;
+}
+
+export function renderMonsterFarmTrialFeedbackSection(): string {
+  return `## Monster Farm Trial Feedback
+
+${formatList(monsterFarmTrialFeedbackNotes)}
+
+## Monster Identity Safety
+
+${formatList(monsterFarmIdentityMetadataWarning)}`;
 }
 
 export function renderMonsterFarmAuditMarkdownSections(audit: MonsterFarmAuditDetails): string {

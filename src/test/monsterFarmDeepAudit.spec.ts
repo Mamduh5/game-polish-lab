@@ -11,6 +11,7 @@ import {
   renderMonsterFarmPromptGuardrail,
   splitMonsterFarmProjectTypeEvidence
 } from "../core/monsterFarmDeepAudit";
+import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { InspectedFile } from "../types/audit";
 
 const fixtureRoot = path.join(process.cwd(), "fixtures", "phaser-idle-monster-farm-sample");
@@ -66,16 +67,16 @@ for (const heading of [
 
 assert.deepStrictEqual(monsterFarmRecommendedKitOrder, [
   "monster_farm_slot_readability",
-  "monster_identity_readability",
-  "hatch_feedback",
+  "panel_readability",
   "merge_feedback",
   "tap_farm_feedback",
   "coin_bug_feedback",
   "farm_hud_readability",
-  "panel_readability",
   "quest_widget_readability",
   "toast_reward_feedback",
-  "boss_battle_feedback"
+  "boss_battle_feedback",
+  "monster_identity_readability",
+  "hatch_feedback"
 ]);
 
 for (const forbiddenKit of ["cursor_attack_feedback", "arena_hud_readability", "projectile_readability", "hit_feedback"]) {
@@ -121,7 +122,12 @@ for (const phrase of [
   "Do not add mechanics.",
   "Do not change balance.",
   "Do not touch Capacitor/AdMob unless explicitly asked.",
-  "Run `npm run build` after implementation."
+  "Run `npm run build` after implementation.",
+  "Proven-good first patch: farm_slot_state_readability",
+  "Proven-good low-risk polish target: panel_hierarchy",
+  "Do not add family initials, level badges, metadata chips, or extra labels to the main farm grid by default.",
+  "Exact monster metadata belongs in compendium/detail UI, not on farm slots.",
+  "Hatch panel style-only polish was neutral"
 ]) {
   assert.ok(guardrail.includes(phrase), `missing guardrail phrase: ${phrase}`);
 }
@@ -129,6 +135,30 @@ for (const phrase of [
 assert.ok(finishPlanPrompt.includes("- Do not patch yet."));
 assert.ok(finishPlanPrompt.includes("- Produce the top 5 polish opportunities."));
 assert.ok(finishPlanPrompt.includes("- fresh save first 2 minutes"));
+assert.ok(finishPlanPrompt.includes("Prioritize `farm_slot_state_readability` and `panel_hierarchy` as proven safe early polish targets."));
+assert.ok(finishPlanPrompt.includes("Treat `hatch_panel_readiness` as optional unless the user reports the hatch panel feels unclear."));
+assert.ok(finishPlanPrompt.includes("warn against badge/chip metadata overlays on farm slots"));
+assert.ok(finishPlanPrompt.includes("Proven-good first patch: farm_slot_state_readability"));
+assert.ok(finishPlanPrompt.includes("Proven-good low-risk polish target: panel_hierarchy"));
+
+const identityKit = pixelPolishKitPresets.find((preset) => preset.kitId === "monster_identity_readability");
+assert.ok(identityKit, "monster_identity_readability kit missing");
+const identityPromptSource = [
+  identityKit.targetFeel,
+  ...identityKit.acceptanceCriteria,
+  ...identityKit.antiPatterns,
+  ...identityKit.codexImplementationNotes,
+  ...identityKit.manualTuningAdvice
+].join("\n");
+for (const phrase of [
+  "No family initials, level badges, metadata chips, or extra labels are added to the main farm grid by default.",
+  "Exact monster metadata belongs in compendium/detail UI",
+  "Prefer silhouette/readability/art contrast/spacing/outline improvements",
+  "recommend skipping this surface instead of adding UI metadata",
+  "Keep data/state/save/economy files inspect-only."
+]) {
+  assert.ok(identityPromptSource.includes(phrase), `missing identity prompt warning: ${phrase}`);
+}
 
 const cursorArenaFixture = readFixtureFiles(path.join(process.cwd(), "fixtures", "phaser-incremental-arena-sample"));
 const cursorArenaText = cursorArenaFixture.map((file) => `${file.relativePath}\n${file.text}`).join("\n").toLowerCase();

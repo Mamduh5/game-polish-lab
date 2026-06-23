@@ -66,7 +66,11 @@ function suggestedFieldNoteSeeds(projectType: string | undefined, dominantMode: 
     return [
       "Visual polish must not change economy, save schema, hatch odds, merge formulas, ad logic, or quest rewards.",
       "FarmScene is large; prefer view/config-level changes over scene rewrites.",
-      "TapFarmView is Phaser UI and should be tuned separately from monster/farm slot readability."
+      "TapFarmView is Phaser UI and should be tuned separately from monster/farm slot readability.",
+      "Farm slot readability via visual-only slot overlays/rings in FarmScene felt better and is a proven-good first Monster Farm patch.",
+      "Panel hierarchy via subtle grouping/accent in NavigationMenuPanelView felt better and is a proven-good low-risk Monster Farm polish target.",
+      "Do not add monster family initials, level badges, metadata chips, or extra farm-grid labels by default; exact monster metadata belongs in compendium/detail UI.",
+      "Hatch panel style-only polish felt same; treat hatch readiness polish as optional unless a specific hatch-state clarity issue is observed."
     ];
   }
   return [];

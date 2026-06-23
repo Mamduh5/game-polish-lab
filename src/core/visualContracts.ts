@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 import { LatestAuditContext, resolveAuditBackedDominantMode, resolveAuditBackedProjectType, resolveAuditBackedRuntimeModel } from "./auditContext";
 import { renderFieldNotesSection } from "./fieldNotes";
-import { isMonsterFarmType, monsterFarmManualTestMatrix, renderMonsterFarmPromptGuardrail } from "./monsterFarmDeepAudit";
+import { isMonsterFarmType, monsterFarmIdentityMetadataWarning, monsterFarmManualTestMatrix, renderMonsterFarmPromptGuardrail } from "./monsterFarmDeepAudit";
 import { getNextNumberedFilename } from "./trialReports";
 import { ensureDirectory, labUri, writeJsonFile, writeTextFile } from "./workspace";
 import { ProjectProfile } from "../types/profile";
@@ -354,11 +354,15 @@ export function getAreaTemplate(area: VisualArea): { likelyFiles: string[]; diag
           "src/scenes/FarmScene.ts"
         ],
         diagnosticQuestions: [
+          "Can monster identity be improved through silhouette, contrast, renderer clarity, spacing, or outline without adding farm-grid metadata?",
           "Do monster family silhouettes remain readable at slot and icon sizes?",
           "Are level intensity, aura, sparkle, outline, and rarity/type cues clear without noise?",
+          "Would any proposed family initials, level badges, metadata chips, or extra labels make the main farm grid noisier?",
+          "If the only idea is adding labels, badges, or chips, stop and recommend skipping this surface.",
           "Which renderer values are visual-only and reversible?",
           "Which monster/data files are inspect-only unless a content task explicitly allows them?",
-          "What first tiny patch improves identity readability without replacing assets?"
+          "What first tiny patch improves identity readability without replacing assets?",
+          ...monsterFarmIdentityMetadataWarning
         ]
       };
     }
