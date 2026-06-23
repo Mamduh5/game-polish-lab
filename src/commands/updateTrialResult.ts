@@ -21,7 +21,12 @@ const worseDetails: Array<{ label: string; value: RollbackWorseArea; symptom: Vi
   { label: "some skins worse", value: "some_skins", symptom: "worse_after_tuning" },
   { label: "all skins worse", value: "all_visuals", symptom: "worse_after_tuning" }
 ];
-const visualAreas: VisualArea[] = ["cursor_attack_feedback", "enemy_kill_feedback", "combo_feedback", "arena_hud_readability", "arena_upgrade_panel_readability", "arena_background_readability", "click_feedback", "upgrade_card_readability", "reward_popup", "other"];
+const visualAreas: VisualArea[] = [
+  "cursor_attack_feedback", "enemy_kill_feedback", "combo_feedback", "arena_hud_readability", "arena_upgrade_panel_readability", "arena_background_readability",
+  "sort_move_feedback", "selected_shelf_readability", "invalid_move_feedback", "completed_shelf_glow", "win_celebration", "spirit_identity_readability", "puzzle_hud_readability", "mobile_sort_layout_readability",
+  "monster_farm_slot_readability", "hatch_feedback", "merge_feedback", "tap_farm_feedback", "coin_bug_feedback", "farm_hud_readability", "monster_identity_readability", "panel_readability", "toast_reward_feedback", "quest_widget_readability", "boss_battle_feedback",
+  "click_feedback", "upgrade_card_readability", "reward_popup", "other"
+];
 
 export async function updateTrialResult(): Promise<void> {
   const folder = requireWorkspaceFolder();

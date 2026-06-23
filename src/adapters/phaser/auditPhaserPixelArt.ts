@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 
 import { logInfo } from "../../core/output";
-import { detectRuntimePresentationModelFromFiles } from "../../core/presentationDetection";
-import { isActionProjectType, isIdleProjectType, suggestProjectTypeFromFiles } from "../../core/projectType";
+import { detectCodeStyleFromFiles, detectRuntimePresentationModelFromFiles } from "../../core/presentationDetection";
+import { isActionProjectType, isIdleProjectType, isMonsterFarmProjectType, isSortPuzzleProjectType, suggestProjectTypeFromFiles } from "../../core/projectType";
 import { renderScanStatsMarkdown, scanWasCappedMessage, scanWorkspace, setCachedAnalysis } from "../../core/workspaceScanner";
 import { PhaserPixelAuditResult } from "../../types/audit";
 import { ProjectType } from "../../types/profile";
@@ -20,6 +20,7 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
   const scan = await scanWorkspace({ folder, token });
   const detection = detectPhaserProjectFromFiles(scan.files);
   const projectTypeSuggestion = suggestProjectTypeFromFiles(scan.files);
+  const codeStyleDetection = detectCodeStyleFromFiles(scan.files);
   const runtimeDetection = detectRuntimePresentationModelFromFiles(scan.files);
   const configFiles = findPhaserConfigFilesFromFiles(scan.files);
   const cssFiles = findCssRenderingRuleFilesFromFiles(scan.files);
@@ -100,6 +101,8 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
     runtimePresentationModel: runtimeDetection.runtimePresentationModel,
     secondaryRuntimePresentationModel: runtimeDetection.secondaryRuntimePresentationModel,
     runtimePresentationEvidence: runtimeDetection.evidence,
+    codeStyle: codeStyleDetection.codeStyle,
+    codeStyleEvidence: codeStyleDetection.evidence,
     recommendedKitFamily: runtimeDetection.recommendedKitFamily,
     presentationRoutes: runtimeDetection.presentationRoutes,
     gamePresentationNotes,
@@ -117,6 +120,7 @@ export async function auditPhaserPixelArt(folder: vscode.WorkspaceFolder, token?
     dominantMode: projectTypeSuggestion.dominantMode,
     runtimePresentationModel: runtimeDetection.runtimePresentationModel,
     secondaryRuntimePresentationModel: runtimeDetection.secondaryRuntimePresentationModel,
+    codeStyle: codeStyleDetection.codeStyle,
     presentationRoutes: runtimeDetection.presentationRoutes,
     suggestedTasks,
     mainRisk,
@@ -155,6 +159,9 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
   const runtimeEvidence = result.runtimePresentationEvidence.length > 0
     ? result.runtimePresentationEvidence.map((item) => `  - ${item}`).join("\n")
     : "  - No runtime presentation evidence found.";
+  const codeStyleEvidence = result.codeStyleEvidence.length > 0
+    ? result.codeStyleEvidence.map((item) => `  - ${item}`).join("\n")
+    : "  - No code-style evidence found.";
   const presentationRoutes = renderPresentationRoutes(result);
 
   const passedChecks = result.passedChecks.length > 0
@@ -184,6 +191,7 @@ export function renderPhaserPixelAuditMarkdown(result: PhaserPixelAuditResult): 
 - Phaser detected: ${result.detection.isPhaserProject ? "yes" : "no"}
 - Confidence: ${result.detection.confidence}
 - Suggested project type: ${result.suggestedProjectType}
+- Code style: ${result.codeStyle}
 - Runtime presentation model: ${result.runtimePresentationModel}
 ${result.secondaryRuntimePresentationModel ? `- Secondary runtime presentation model: ${result.secondaryRuntimePresentationModel}\n` : ""}- Pixel-art readiness score: ${result.pixelArtReadinessScore}/100
 - Main risk: ${result.mainRisk}
@@ -198,6 +206,12 @@ ${detectionEvidence}
 - Dominant mode: ${result.dominantMode}
 - Secondary mode: ${result.secondaryMode}
 ${projectTypeEvidence}
+
+## Code Style
+
+* Code style: ${result.codeStyle}
+* Evidence:
+${codeStyleEvidence}
 
 ## Runtime Presentation Model
 
@@ -271,6 +285,35 @@ function suggestTaskPresets(
   const suggestions: string[] = [];
   const lowerPaths = filesInspected.map((file) => file.toLowerCase());
 
+  if (isSortPuzzleProjectType(projectType) || dominantMode === "tap_to_move_sort_puzzle") {
+    return [
+      "sort_move_feedback",
+      "selected_shelf_readability",
+      "invalid_move_feedback",
+      "completed_shelf_glow",
+      "win_celebration",
+      "spirit_identity_readability",
+      "puzzle_hud_readability",
+      "mobile_sort_layout_readability"
+    ];
+  }
+
+  if (isMonsterFarmProjectType(projectType) || dominantMode === "monster_merge_idle" || dominantMode === "phaser_ui_heavy_idle" || dominantMode === "tap_farm_idle") {
+    return [
+      "monster_farm_slot_readability",
+      "hatch_feedback",
+      "merge_feedback",
+      "tap_farm_feedback",
+      "coin_bug_feedback",
+      "farm_hud_readability",
+      "monster_identity_readability",
+      "panel_readability",
+      "toast_reward_feedback",
+      "quest_widget_readability",
+      "boss_battle_feedback"
+    ];
+  }
+
   if (
     runtimePresentationModel === "phaser_rendered_dom_hud"
     && primaryPolishRoute === "arena"
@@ -316,6 +359,25 @@ function suggestTaskPresets(
 
 function buildGamePresentationNotes(projectType: ProjectType, dominantMode: ProjectType | "unknown", checks: PatternCheck[], filesInspected: string[], warnings: string[]): string[] {
   const lowerPaths = filesInspected.map((file) => file.toLowerCase());
+  if (isSortPuzzleProjectType(projectType) || dominantMode === "tap_to_move_sort_puzzle") {
+    return [
+      "Shelf selection risk: inspect source and target shelf clarity before tuning movement effects.",
+      "Move feedback risk: valid moves, invalid moves, completed shelf glow, and win celebration need distinct visual states.",
+      "Spirit identity risk: spirits must remain readable while selected, lifted, moving, or bouncing.",
+      "Mobile layout risk: shelf tap targets, HUD buttons, and board spacing need to stay readable on small screens.",
+      "System scope risk: do not change SortRules, level data, save/progression, unlock rules, or win logic during visual polish."
+    ];
+  }
+  if (isMonsterFarmProjectType(projectType) || dominantMode === "monster_merge_idle" || dominantMode === "phaser_ui_heavy_idle" || dominantMode === "tap_farm_idle") {
+    return [
+      "Farm slot readability risk: empty, locked, occupied, selected, drag-hover, and merge-candidate states need clear visual separation.",
+      "Monster identity risk: monster family/type/readability should survive slot, merge, hatch, and panel presentation.",
+      "Idle feedback risk: hatch, merge, tap farm, coin bug, toast reward, and boss feedback should stay visual-only.",
+      "Panel density risk: HUD, navigation, quest widget, hatch panel, and action bar need hierarchy without rewriting FarmScene.",
+      "System scope risk: do not change economy formulas, save schema, hatch odds/costs/cooldowns, upgrade costs, quest rewards, ad logic, or monetization behavior."
+    ];
+  }
+
   if (projectType === "incremental_arena" || projectType === "cursor_attack_arena" || dominantMode === "cursor_attack_arena") {
     const notes = [
       `Pixel-art setup risk: ${missing(checks, "`pixelArt: true`") || missing(checks, "`image-rendering: pixelated`") ? "rendering setup needs review for crisp arena scaling." : "core pixel-art rendering signals were found."}`,

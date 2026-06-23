@@ -1,5 +1,5 @@
 import type { ScanStats } from "../core/workspaceScanner";
-import { RuntimePresentationModel, ProjectType } from "./profile";
+import { RuntimePresentationModel, ProjectType, CodeStyle } from "./profile";
 
 export type PhaserConfidence = "high" | "medium" | "low" | "none";
 
@@ -39,6 +39,8 @@ export interface PhaserPixelAuditResult {
   runtimePresentationModel: RuntimePresentationModel;
   secondaryRuntimePresentationModel?: RuntimePresentationModel;
   runtimePresentationEvidence: string[];
+  codeStyle: CodeStyle;
+  codeStyleEvidence: string[];
   recommendedKitFamily: string;
   presentationRoutes?: PresentationRouteSummary;
   gamePresentationNotes: string[];

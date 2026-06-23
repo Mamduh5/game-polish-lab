@@ -7,7 +7,12 @@ import { createVisualDiagnosisFiles } from "../core/visualContracts";
 import { ensureProfile, openTextDocument, requireWorkspaceFolder } from "../core/workspace";
 import { AffectedScope, PreviousPatchResult, VisualArea, VisualSymptom } from "../types/visualContracts";
 
-const visualAreas: VisualArea[] = ["cursor_attack_feedback", "enemy_kill_feedback", "combo_feedback", "arena_hud_readability", "arena_upgrade_panel_readability", "arena_background_readability", "click_feedback", "upgrade_card_readability", "reward_popup", "other"];
+const visualAreas: VisualArea[] = [
+  "cursor_attack_feedback", "enemy_kill_feedback", "combo_feedback", "arena_hud_readability", "arena_upgrade_panel_readability", "arena_background_readability",
+  "sort_move_feedback", "selected_shelf_readability", "invalid_move_feedback", "completed_shelf_glow", "win_celebration", "spirit_identity_readability", "puzzle_hud_readability", "mobile_sort_layout_readability",
+  "monster_farm_slot_readability", "hatch_feedback", "merge_feedback", "tap_farm_feedback", "coin_bug_feedback", "farm_hud_readability", "monster_identity_readability", "panel_readability", "toast_reward_feedback", "quest_widget_readability", "boss_battle_feedback",
+  "click_feedback", "upgrade_card_readability", "reward_popup", "other"
+];
 const symptoms: VisualSymptom[] = ["too_weak", "too_noisy", "worse_after_tuning", "same_after_tuning", "unreadable", "cluttered", "wrong_color_layer", "bad_timing", "style_mismatch", "other"];
 const affectedScopes: AffectedScope[] = ["all_skins", "some_skins", "one_skin", "unknown"];
 const previousPatchResults: PreviousPatchResult[] = ["no", "yes_worse", "yes_same", "yes_mixed"];

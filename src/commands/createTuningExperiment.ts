@@ -35,10 +35,12 @@ export async function createTuningExperiment(): Promise<void> {
     if (!experimentType) {
       return;
     }
+    const template = await pickExperimentTemplate(pickedDiagnosis.entry.task.projectType);
     const expectedResult = await vscode.window.showInputBox({
       title: "Expected result",
       prompt: "One sentence. Keep this to one hypothesis.",
-      placeHolder: "Reduce shared overlay so strong skins keep their own effect identity."
+      placeHolder: "Reduce shared overlay so strong skins keep their own effect identity.",
+      value: template
     });
     if (!expectedResult) {
       return;
@@ -92,4 +94,40 @@ async function listDiagnosisTasks(folder: vscode.WorkspaceFolder): Promise<Array
 
 function errorToMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function pickExperimentTemplate(projectType: string): Promise<string | undefined> {
+  const templates = experimentTemplates(projectType);
+  if (templates.length === 0) {
+    return undefined;
+  }
+
+  const picked = await vscode.window.showQuickPick([
+    { label: "Blank expected result", value: undefined },
+    ...templates.map((template) => ({ label: template, value: template }))
+  ], { placeHolder: "Use a tuning experiment template?" });
+  return picked?.value;
+}
+
+function experimentTemplates(projectType: string): string[] {
+  if (projectType === "cozy_sort_puzzle" || projectType === "shelf_sort_puzzle" || projectType === "tap_to_move_sort_puzzle") {
+    return [
+      "gentle valid move",
+      "stronger invalid move",
+      "completed shelf glow",
+      "spirit identity readability",
+      "mobile shelf layout"
+    ];
+  }
+  if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
+    return [
+      "slot state readability",
+      "tap farm click feedback",
+      "hatch ready feedback",
+      "merge candidate clarity",
+      "coin bug pickup feedback",
+      "panel hierarchy"
+    ];
+  }
+  return [];
 }

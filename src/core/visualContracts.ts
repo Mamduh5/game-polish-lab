@@ -103,18 +103,13 @@ export function buildVisualDiagnosisTask(profile: ProjectProfile, audit: LatestA
     allowedFilesForInspection: template.likelyFiles,
     mustNotTouch: [
       ...profile.defaultMustNotTouch,
-      "arena.html",
-      "save data",
-      "economy formulas",
-      "damage values",
-      "enemy HP",
-      "upgrade costs"
+      ...familyMustNotTouch(resolveAuditBackedProjectType(profile.projectType, audit))
     ],
     nonGoals: [
       "Do not patch yet.",
       "Do not globally make effects stronger.",
       "Do not add player-avatar or projectile systems unless they already exist.",
-      "Do not change economy, save, damage, HP, rewards, spawn, wave, or upgrade formulas."
+      ...familyNonGoals(resolveAuditBackedProjectType(profile.projectType, audit))
     ],
     diagnosticQuestions: template.diagnosticQuestions,
     rollbackReference: input.rollbackReference
@@ -164,7 +159,7 @@ ${formatList(task.nonGoals)}
 
 ${task.diagnosticQuestions.map((question, index) => `${index + 1}. ${question}`).join("\n")}
 
-${renderManualTestMatrixSection()}
+${renderManualTestMatrixSection(manualTestMatrixForProject(task.projectType))}
 
 ## Deliverable
 
@@ -190,9 +185,9 @@ export function buildTuningExperimentTask(input: TuningExperimentInput): TuningE
     expectedResult: input.expectedResult,
     rollbackReference: input.rollbackReference,
     hypothesis: `${input.experimentType}: ${input.expectedResult}`,
-    allowedFiles: input.diagnosis.likelyFiles.slice(0, input.experimentType === "config_only" ? 1 : 3),
+    allowedFiles: input.diagnosis.likelyFiles.slice(0, input.experimentType === "config_only" ? 1 : 2),
     mustNotTouch: input.diagnosis.mustNotTouch,
-    manualTestMatrix: defaultCursorArenaTestMatrix()
+    manualTestMatrix: manualTestMatrixForProject(input.diagnosis.projectType)
   };
 }
 
@@ -287,6 +282,56 @@ export function defaultCursorArenaTestMatrix(): string[] {
 }
 
 export function getAreaTemplate(area: VisualArea): { likelyFiles: string[]; diagnosticQuestions: string[] } {
+  if (isSortArea(area)) {
+    return {
+      likelyFiles: [
+        "src/scenes/SpiritSortScene.js",
+        "src/systems/SortRules.js",
+        "src/data/spiritSortLevels.js",
+        "src/systems/ProgressSave.js",
+        "src/config/sortMoveFeedbackConfig.js"
+      ],
+      diagnosticQuestions: [
+        "Which visual layers represent shelf, slot, spirit, selection, move path, completed state, invalid state, and win state?",
+        "Are spirit identities readable while selected or moving?",
+        "Does feedback distinguish valid move vs invalid move vs complete shelf?",
+        "Is the HUD competing with the board?",
+        "Are mobile tap targets large enough?",
+        "What values are hardcoded inside SpiritSortScene.js that should become config?",
+        "What patch is reversible and rule-safe?"
+      ]
+    };
+  }
+
+  if (isMonsterFarmArea(area)) {
+    return {
+      likelyFiles: [
+        "src/scenes/FarmScene.ts",
+        "src/rendering/MonsterRenderer.ts",
+        "src/ui/TapFarmView.ts",
+        "src/ui/HudView.ts",
+        "src/ui/HatchPanelView.ts",
+        "src/ui/GameplayActionBarView.ts",
+        "src/ui/NextQuestWidgetView.ts",
+        "src/ui/PanelChrome.ts",
+        "src/state/farmSlotState.ts",
+        "src/state/hatchState.ts",
+        "src/state/tapFarmState.ts",
+        "src/state/coinBugState.ts",
+        "src/systems/monsterMergeSystem.ts",
+        "src/systems/saveSystem.ts"
+      ],
+      diagnosticQuestions: [
+        "Which visual layers represent farm slots, monsters, drag state, merge candidates, hatch readiness, tap farm state, coin bug, toast rewards, and panels?",
+        "Which UI widgets are overloaded or unreadable?",
+        "Which state/economy systems are visual-only inspect targets?",
+        "Which values are hardcoded in FarmScene or views?",
+        "Which changes can be done via config without touching economy/save logic?",
+        "What rollback path exists?"
+      ]
+    };
+  }
+
   if (area === "cursor_attack_feedback" || area === "click_feedback") {
     return {
       likelyFiles: [
@@ -355,6 +400,61 @@ After testing, record:
 - which layer felt wrong
 - first value to tune down
 - first value to tune up`;
+}
+
+function manualTestMatrixForProject(projectType: string): string[] {
+  if (projectType === "cozy_sort_puzzle" || projectType === "shelf_sort_puzzle" || projectType === "tap_to_move_sort_puzzle") {
+    return ["select source shelf", "select target shelf", "valid move", "invalid move", "completed shelf", "undo or hint if present", "win state", "small mobile viewport"];
+  }
+  if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
+    return ["empty farm slot", "locked farm slot", "occupied farm slot", "merge candidate", "hatch ready state", "tap farm click", "coin bug pickup", "toast reward", "panel open/close", "save/load smoke"];
+  }
+  return defaultCursorArenaTestMatrix();
+}
+
+function familyMustNotTouch(projectType: string): string[] {
+  if (projectType === "cozy_sort_puzzle" || projectType === "shelf_sort_puzzle" || projectType === "tap_to_move_sort_puzzle") {
+    return ["SortRules", "level data", "save/progression", "unlock logic", "win logic"];
+  }
+  if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
+    return ["save schema", "economy formulas", "hatch odds/costs/cooldowns", "upgrade costs", "quest rewards", "ad/monetization logic", "FarmScene rewrite"];
+  }
+  return ["arena.html", "save data", "economy formulas", "damage values", "enemy HP", "upgrade costs"];
+}
+
+function familyNonGoals(projectType: string): string[] {
+  if (projectType === "cozy_sort_puzzle" || projectType === "shelf_sort_puzzle" || projectType === "tap_to_move_sort_puzzle") {
+    return ["Do not change SortRules.", "Do not change levels.", "Do not change save/progression.", "Do not convert the puzzle into combat or idle economy."];
+  }
+  if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
+    return ["Do not change save schema.", "Do not change economy formulas.", "Do not change hatch odds.", "Do not change ad/monetization logic.", "Do not rewrite FarmScene."];
+  }
+  return ["Do not change economy, save, damage, HP, rewards, spawn, wave, or upgrade formulas."];
+}
+
+function isSortArea(area: VisualArea): boolean {
+  return area === "sort_move_feedback"
+    || area === "selected_shelf_readability"
+    || area === "invalid_move_feedback"
+    || area === "completed_shelf_glow"
+    || area === "win_celebration"
+    || area === "spirit_identity_readability"
+    || area === "puzzle_hud_readability"
+    || area === "mobile_sort_layout_readability";
+}
+
+function isMonsterFarmArea(area: VisualArea): boolean {
+  return area === "monster_farm_slot_readability"
+    || area === "hatch_feedback"
+    || area === "merge_feedback"
+    || area === "tap_farm_feedback"
+    || area === "coin_bug_feedback"
+    || area === "farm_hud_readability"
+    || area === "monster_identity_readability"
+    || area === "panel_readability"
+    || area === "toast_reward_feedback"
+    || area === "quest_widget_readability"
+    || area === "boss_battle_feedback";
 }
 
 function formatList(items: string[]): string {

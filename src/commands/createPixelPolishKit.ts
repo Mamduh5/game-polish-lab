@@ -162,7 +162,7 @@ async function pickProjectTypeFromLatestAudit(latestAudit: LatestAuditContext): 
   ].filter((item): item is { label: string; value: ProjectType | "manual" } => Boolean(item));
 
   const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: "Latest audit found an incremental cursor arena. Choose profile project type for kit recommendations."
+    placeHolder: "Latest audit found a specific game family. Choose profile project type for kit recommendations."
   });
   if (!picked) {
     return undefined;
@@ -179,23 +179,29 @@ async function pickProjectTypeFromLatestAudit(latestAudit: LatestAuditContext): 
 }
 
 function sortPresetsForProfile(projectType: ProjectType): typeof pixelPolishKitPresets {
-  if (projectType !== "incremental_arena" && projectType !== "cursor_attack_arena" && projectType !== "phaser_dom_hud") {
+  const order = kitOrderForProjectType(projectType);
+  if (!order) {
     return pixelPolishKitPresets;
   }
 
-  const arenaOrder = new Map([
-    ["cursor_attack_feedback", 0],
-    ["enemy_kill_feedback", 1],
-    ["combo_feedback", 2],
-    ["arena_hud_readability", 3],
-    ["arena_upgrade_panel_readability", 4],
-    ["arena_background_readability", 5]
-  ]);
   return [...pixelPolishKitPresets].sort((a, b) => {
-    const aScore = arenaOrder.get(a.kitId) ?? 100;
-    const bScore = arenaOrder.get(b.kitId) ?? 100;
+    const aScore = order.get(a.kitId) ?? 100;
+    const bScore = order.get(b.kitId) ?? 100;
     return aScore - bScore;
   });
+}
+
+function kitOrderForProjectType(projectType: ProjectType): Map<string, number> | undefined {
+  if (projectType === "incremental_arena" || projectType === "cursor_attack_arena" || projectType === "phaser_dom_hud") {
+    return new Map(["cursor_attack_feedback", "enemy_kill_feedback", "combo_feedback", "arena_hud_readability", "arena_upgrade_panel_readability", "arena_background_readability"].map((id, index) => [id, index]));
+  }
+  if (projectType === "cozy_sort_puzzle" || projectType === "shelf_sort_puzzle" || projectType === "tap_to_move_sort_puzzle") {
+    return new Map(["sort_move_feedback", "selected_shelf_readability", "invalid_move_feedback", "completed_shelf_glow", "win_celebration", "spirit_identity_readability", "puzzle_hud_readability", "mobile_sort_layout_readability"].map((id, index) => [id, index]));
+  }
+  if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
+    return new Map(["monster_farm_slot_readability", "hatch_feedback", "merge_feedback", "tap_farm_feedback", "coin_bug_feedback", "farm_hud_readability", "monster_identity_readability", "panel_readability", "toast_reward_feedback", "quest_widget_readability", "boss_battle_feedback"].map((id, index) => [id, index]));
+  }
+  return undefined;
 }
 
 const projectTypeOptions: Array<{ label: string; value: ProjectType }> = [
@@ -210,5 +216,12 @@ const projectTypeOptions: Array<{ label: string; value: ProjectType }> = [
   { label: "incremental_arena", value: "incremental_arena" },
   { label: "cursor_attack_arena", value: "cursor_attack_arena" },
   { label: "phaser_dom_hud", value: "phaser_dom_hud" },
+  { label: "cozy_sort_puzzle", value: "cozy_sort_puzzle" },
+  { label: "shelf_sort_puzzle", value: "shelf_sort_puzzle" },
+  { label: "tap_to_move_sort_puzzle", value: "tap_to_move_sort_puzzle" },
+  { label: "idle_monster_farm", value: "idle_monster_farm" },
+  { label: "monster_merge_idle", value: "monster_merge_idle" },
+  { label: "phaser_ui_heavy_idle", value: "phaser_ui_heavy_idle" },
+  { label: "tap_farm_idle", value: "tap_farm_idle" },
   { label: "hybrid", value: "hybrid" }
 ];

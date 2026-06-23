@@ -52,6 +52,14 @@ export function detectCodeStyleFromFiles(files: InspectedFile[]): CodeStyleDetec
 
   for (const file of sourceFiles(files)) {
     const text = file.text;
+    if (file.relativePath === "package.json" && /"type"\s*:\s*"module"/.test(text)) {
+      jsModuleScore += 2;
+      evidence.push(`package.json type module in ${file.relativePath}`);
+    }
+    if (file.relativePath === "package.json" && /typescript|vite|tsc/.test(text.toLowerCase())) {
+      tsModuleScore += 2;
+      evidence.push(`TypeScript/Vite package signals in ${file.relativePath}`);
+    }
     if (/\(function\s*\(\)\s*{/.test(text) && /["']use strict["']/.test(text)) {
       browserGlobalScore += 3;
       evidence.push(`IIFE strict wrapper in ${file.relativePath}`);
@@ -90,6 +98,12 @@ export function detectRuntimePresentationModelFromFiles(files: InspectedFile[]):
   let hiddenPhaserRoot = false;
   let tinyConfig = false;
   let hasNewPhaserGame = false;
+  let hasPhaserSceneClass = false;
+  let hasFarmScene = false;
+  let hasManyUiViews = false;
+  let hasEconomyStateImports = false;
+  let uiViewSignals = 0;
+  let economySignals = 0;
   const mainDomRouteEvidence = new Set<string>();
   const arenaRouteEvidence = new Set<string>();
 
@@ -119,6 +133,10 @@ export function detectRuntimePresentationModelFromFiles(files: InspectedFile[]):
     hiddenPhaserRoot ||= fileHiddenPhaserRoot;
     tinyConfig ||= fileTinyConfig;
     hasNewPhaserGame ||= /new\s+phaser\.game/.test(text);
+    hasPhaserSceneClass ||= /extends\s+phaser\.scene|phaser\.scene|spiritsortscene/.test(text);
+    hasFarmScene ||= /farmscene/.test(text) || pathLower === "src/scenes/farmscene.ts";
+    uiViewSignals += countSignals(text, ["tapfarmview", "hudview", "hatchpanelview", "gameplayactionbarview", "navigationcontrolview", "navigationmenupanelview", "nextquestwidgetview", "toastview", "panelchrome", "panelcontrols"]);
+    economySignals += countSignals(text, ["farmslotstate", "hatchstate", "tapfarmstate", "coinbugstate", "upgradestate", "queststate", "bossbattlestate", "progressionsystem", "monstermergesystem", "savesystem", "writesavedata"]);
 
     if (pathLower === "src/main.js" && (fileHiddenPhaserRoot || fileTinyConfig || /new\s+phaser\.game/.test(text))) {
       mainDomRouteEvidence.add("src/main.js");
@@ -173,6 +191,14 @@ export function detectRuntimePresentationModelFromFiles(files: InspectedFile[]):
   if (hasScriptModules) {
     evidence.push("browser-global IIFE scripts");
   }
+  hasManyUiViews = uiViewSignals >= 5;
+  hasEconomyStateImports = economySignals >= 5;
+  if (hasFarmScene && hasManyUiViews) {
+    evidence.push("FarmScene with many Phaser UI views");
+  }
+  if (hasEconomyStateImports) {
+    evidence.push("state/economy/save system imports");
+  }
 
   let runtimePresentationModel: RuntimePresentationModel = "unknown";
   let secondaryRuntimePresentationModel: RuntimePresentationModel | undefined;
@@ -185,7 +211,10 @@ export function detectRuntimePresentationModelFromFiles(files: InspectedFile[]):
     && (hasSceneArrayArenaScene || hasImpactEffectSystem || arenaRouteEvidence.has("src/arena/main.js") || arenaRouteEvidence.has("arena.html"));
   const routeNotes: string[] = [];
 
-  if (hasStrongArenaRenderedEvidence) {
+  if (hasFarmScene && hasManyUiViews && hasEconomyStateImports) {
+    runtimePresentationModel = "phaser_rendered_ui_heavy";
+    recommendedKitFamily = "Idle Monster Farm Kits";
+  } else if (hasStrongArenaRenderedEvidence) {
     runtimePresentationModel = "phaser_rendered_dom_hud";
     recommendedKitFamily = "Incremental Cursor Arena Kits";
     if (hasTimerDomRoute) {
@@ -195,7 +224,7 @@ export function detectRuntimePresentationModelFromFiles(files: InspectedFile[]):
   } else if (hasTimerDomRoute) {
     runtimePresentationModel = "phaser_timer_dom_ui";
     recommendedKitFamily = "DOM UI Polish Kits";
-  } else if (hasNewPhaserGame || hasArenaScene) {
+  } else if (hasNewPhaserGame || hasArenaScene || hasPhaserSceneClass) {
     runtimePresentationModel = hasDomHud ? "phaser_rendered_dom_hud" : "phaser_rendered";
     recommendedKitFamily = hasDomHud ? "Incremental Cursor Arena Kits" : "General Phaser Pixel Polish Kits";
   } else if (hasDomHud) {
@@ -254,4 +283,8 @@ function buildPresentationRoutes(
     secondaryRuntimePresentationModel,
     notes
   };
+}
+
+function countSignals(text: string, signals: string[]): number {
+  return signals.reduce((count, signal) => count + (text.includes(signal) ? 1 : 0), 0);
 }

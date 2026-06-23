@@ -39,7 +39,16 @@ export async function readLatestAuditContext(folder: vscode.WorkspaceFolder): Pr
 export function hasUsefulAuditProjectType(context: LatestAuditContext | undefined): boolean {
   return context?.suggestedProjectType === "incremental_arena"
     || context?.suggestedProjectType === "cursor_attack_arena"
-    || context?.dominantMode === "cursor_attack_arena";
+    || context?.dominantMode === "cursor_attack_arena"
+    || context?.suggestedProjectType === "cozy_sort_puzzle"
+    || context?.suggestedProjectType === "shelf_sort_puzzle"
+    || context?.dominantMode === "tap_to_move_sort_puzzle"
+    || context?.suggestedProjectType === "idle_monster_farm"
+    || context?.suggestedProjectType === "monster_merge_idle"
+    || context?.suggestedProjectType === "phaser_ui_heavy_idle"
+    || context?.dominantMode === "tap_farm_idle"
+    || context?.dominantMode === "monster_merge_idle"
+    || context?.dominantMode === "phaser_ui_heavy_idle";
 }
 
 export function resolveAuditBackedProjectType(profileProjectType: ProjectType, context: LatestAuditContext | undefined): ProjectType {
@@ -95,11 +104,19 @@ function isProjectType(value: unknown): value is ProjectType {
     || value === "incremental_arena"
     || value === "cursor_attack_arena"
     || value === "phaser_dom_hud"
+    || value === "cozy_sort_puzzle"
+    || value === "shelf_sort_puzzle"
+    || value === "tap_to_move_sort_puzzle"
+    || value === "idle_monster_farm"
+    || value === "monster_merge_idle"
+    || value === "phaser_ui_heavy_idle"
+    || value === "tap_farm_idle"
     || value === "hybrid";
 }
 
 function isRuntimePresentationModel(value: unknown): value is RuntimePresentationModel {
   return value === "phaser_rendered"
+    || value === "phaser_rendered_ui_heavy"
     || value === "dom_rendered"
     || value === "phaser_timer_dom_ui"
     || value === "phaser_rendered_dom_hud"

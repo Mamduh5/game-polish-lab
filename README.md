@@ -4,6 +4,63 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or provide a dashboard webview.
 
+## What v0.4.0 Does
+
+v0.4.0 expands Game Polish Lab beyond incremental cursor arenas with two additional real game families:
+
+- Cozy Shelf Sort Puzzle
+- Idle Monster Farm
+
+The extension now detects these families, reports the expected code style/runtime model, recommends family-specific kits, and generates visual diagnosis and kit prompts with the right guardrails. It still keeps Safe performance mode as the default and does not scan assets by default.
+
+## Supported Real Game Families
+
+### Incremental Cursor Arena
+
+Detected from `arena.html`, `src/arena/main.js`, `ARENA.ArenaScene`, `CursorAttackSystem`, DOM HUD/shop controls, and browser-global IIFE scripts.
+
+Recommended first kits: `cursor_attack_feedback`, `enemy_kill_feedback`, `combo_feedback`, `arena_hud_readability`, `arena_upgrade_panel_readability`, `arena_background_readability`.
+
+Do not add player/projectile systems, change click damage/radius, enemy HP, rewards, waves, upgrade costs, save fields, or DOM bindings.
+
+### Cozy Shelf Sort Puzzle
+
+Detected from `SpiritSortScene`, `SortRules`, `spiritSortLevels`, shelves, selected shelf state, valid/invalid move checks, completed shelf state, spirit bounce, and win message signals.
+
+Recommended first kits: `sort_move_feedback`, `selected_shelf_readability`, `invalid_move_feedback`, `completed_shelf_glow`, `win_celebration`, `spirit_identity_readability`.
+
+Do not change `SortRules`, level data, progress/save/unlock logic, or make invalid moves legal.
+
+Sort Game Workflow:
+
+1. Run audit.
+2. Create Visual Diagnosis Task: Sort Move Feedback.
+3. Create Pixel Polish Kit: Sort Move Feedback Kit.
+4. Send generated inspect-first prompt to Codex in `sort-game`.
+5. Approve only if it does not touch SortRules, levels, or save/progression.
+6. Run `npm test`.
+7. Test valid move, invalid move, completed shelf, and win state.
+
+### Idle Monster Farm
+
+Detected from `FarmScene`, `MonsterRenderer`, Phaser UI views such as `TapFarmView`/`HatchPanelView`/`HudView`, panel helpers, farm slot/hatch/tap/coin/upgrade/quest state, progression, merge, save, and ad signals.
+
+Expected runtime model: `phaser_rendered_ui_heavy`.
+
+Recommended first kits: `monster_farm_slot_readability`, `hatch_feedback`, `merge_feedback`, `tap_farm_feedback`, `coin_bug_feedback`, `farm_hud_readability`, `panel_readability`.
+
+Do not change save schema, coin/income formulas, hatch odds/costs/cooldowns, upgrade costs, quest rewards, ad/monetization behavior, or rewrite `FarmScene`.
+
+Idle Monster Farm Workflow:
+
+1. Run audit.
+2. Create Visual Diagnosis Task: Farm Slot Readability or Tap Farm Feedback.
+3. Create Pixel Polish Kit.
+4. Send generated inspect-first prompt to Codex in `Idle-Monster-Farm`.
+5. Approve only if it avoids save/economy/hatch/ad logic.
+6. Run `npm run build`.
+7. Test hatch, merge, tap farm, coin bug, panels, and save/load.
+
 ## What v0.3.0 Does
 
 v0.3.0 adds Visual Polish Contracts: diagnosis-first, skin-aware, rollback-safe prompts for real game polish work.
@@ -262,6 +319,8 @@ Fixture workspaces:
 - `fixtures/phaser-arena-sample/`
 - `fixtures/phaser-idle-sample/`
 - `fixtures/phaser-incremental-arena-sample/`
+- `fixtures/phaser-sort-puzzle-sample/`
+- `fixtures/phaser-idle-monster-farm-sample/`
 
 To dogfood manually:
 

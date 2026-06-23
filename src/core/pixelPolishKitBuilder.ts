@@ -134,11 +134,11 @@ If the task affects multiple skins/themes/states, do not globally increase scale
 - a fallback-only strategy, or
 - user approval for a clearly reversible experiment.
 
-${formatManualTestMatrix()}
+${formatManualTestMatrix(displayProjectType)}
 
 ## Project-Type Guidance
 
-${formatList(projectTypeGuidance(kit))}
+${formatList(projectTypeGuidance(kit, displayProjectType))}
 
 ${formatIncrementalCursorArenaGuidance(kit)}
 
@@ -268,7 +268,30 @@ export function resolveWorkspaceConfigPath(folder: vscode.WorkspaceFolder, works
   return vscode.Uri.joinPath(folder.uri, ...normalized.split("/"));
 }
 
-function projectTypeGuidance(kit: PixelPolishKit): string[] {
+function projectTypeGuidance(kit: PixelPolishKit, projectType: ProjectType): string[] {
+  if (projectType === "cozy_sort_puzzle" || projectType === "shelf_sort_puzzle" || projectType === "tap_to_move_sort_puzzle") {
+    return [
+      "This is a tap-to-move shelf sorting puzzle, not combat, not idle economy, and not cursor attack arena.",
+      "Do not change SortRules.",
+      "Do not change level data.",
+      "Do not change progress/save/unlock logic.",
+      "Preserve JavaScript module style.",
+      "Prefer config-driven visual values and keep the patch small and reversible."
+    ];
+  }
+
+  if (projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle") {
+    return [
+      "This is a TypeScript Phaser UI-heavy idle monster farm. Visual polish must not modify economy/save/progression/ads.",
+      "Do not change save schema.",
+      "Do not change coin/income formulas.",
+      "Do not change hatch odds, costs, or cooldowns unless explicitly requested.",
+      "Do not change upgrade costs, quest rewards, ad/monetization behavior, or save/load behavior.",
+      "Do not rewrite FarmScene; prefer view/config-level patches.",
+      "Preserve TypeScript module style."
+    ];
+  }
+
   if (kit.projectType === "cursor_attack_arena" || kit.projectType === "incremental_arena" || kit.projectType === "phaser_dom_hud") {
     return [
       "Prioritize cursor attack, enemy hit, enemy kill, combo, HUD, and upgrade readability.",
@@ -337,17 +360,15 @@ function formatList(items: string[]): string {
   return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None.";
 }
 
-function formatManualTestMatrix(): string {
+function formatManualTestMatrix(projectType: ProjectType): string {
+  const items = projectType === "cozy_sort_puzzle" || projectType === "shelf_sort_puzzle" || projectType === "tap_to_move_sort_puzzle"
+    ? ["select source shelf", "select target shelf", "valid move", "invalid move", "completed shelf", "win state", "small mobile viewport"]
+    : projectType === "idle_monster_farm" || projectType === "monster_merge_idle" || projectType === "phaser_ui_heavy_idle" || projectType === "tap_farm_idle"
+      ? ["empty farm slot", "locked farm slot", "occupied farm slot", "merge candidate", "hatch ready state", "tap farm click", "coin bug pickup", "panel open/close", "save/load smoke"]
+      : ["default click skin", "one skin that previously became worse", "one skin that previously felt same", "miss on empty arena", "hit on enemy", "kill enemy", "combo popup", "helper cursor attack"];
   return `## Manual Test Matrix
 
-- default click skin
-- one skin that previously became worse
-- one skin that previously felt same
-- miss on empty arena
-- hit on enemy
-- kill enemy
-- combo popup
-- helper cursor attack
+${formatList(items)}
 
 After testing, record:
 - better/worse/same per skin

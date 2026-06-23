@@ -1,0 +1,12 @@
+{
+  "name": "spirit-shelf-sort",
+  "type": "module",
+  "scripts": {
+    "test": "node src/systems/SortRules.test.js",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "phaser": "^3.80.1",
+    "vite": "^5.0.0"
+  }
+}

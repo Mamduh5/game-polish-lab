@@ -2,8 +2,10 @@ import { ProjectType } from "../types/profile";
 import { PixelPolishKitPreset } from "../types/pixelPolishKit";
 
 const actionTypes: ProjectType[] = ["arena_combat", "top_down_shooter", "survivor_like", "moba_like", "mobile_action", "hybrid"];
-const idleTypes: ProjectType[] = ["idle_economy", "clicker_incremental", "hybrid"];
-const allTypes: ProjectType[] = ["unknown", ...actionTypes, ...idleTypes];
+const idleTypes: ProjectType[] = ["idle_economy", "clicker_incremental", "idle_monster_farm", "monster_merge_idle", "phaser_ui_heavy_idle", "tap_farm_idle", "hybrid"];
+const sortPuzzleTypes: ProjectType[] = ["cozy_sort_puzzle", "shelf_sort_puzzle", "tap_to_move_sort_puzzle"];
+const monsterFarmTypes: ProjectType[] = ["idle_monster_farm", "monster_merge_idle", "phaser_ui_heavy_idle", "tap_farm_idle"];
+const allTypes: ProjectType[] = ["unknown", ...actionTypes, ...idleTypes, ...sortPuzzleTypes];
 
 const actionAntiPatterns = [
   "Do not use long smooth gradient effects for pixel-art VFX.",
@@ -19,7 +21,144 @@ const idleAntiPatterns = [
   "Do not add new currencies unless explicitly requested."
 ];
 
+function jsConfig(name: string, body: string): string {
+  return `export const ${name} = {
+  ${body}
+};
+`;
+}
+
+function tsConfig(name: string, body: string): string {
+  return `export const ${name} = {
+  ${body}
+} as const;
+`;
+}
+
+function sortKit(kitId: string, label: string, path: string, exportName: string, configTemplate: string, targetFeel: string): PixelPolishKitPreset {
+  return {
+    kitId,
+    label,
+    description: `${label} for cozy tap-to-move shelf sorting puzzle polish.`,
+    bestForProjectTypes: sortPuzzleTypes,
+    suggestedConfigPath: path,
+    configExportName: exportName,
+    codeStyle: "javascript_module",
+    configTemplate,
+    targetFeel,
+    acceptanceCriteria: [
+      "Valid, invalid, selected, completed, and win-state feedback remain visually distinct where relevant.",
+      "Spirit identity remains readable during selection and movement.",
+      "Sort rules, level data, save/progress, unlock rules, and win logic are unchanged.",
+      "Timing, spacing, alpha, shake, sparkle, and glow values come from config."
+    ],
+    antiPatterns: [
+      "Do not change SortRules.",
+      "Do not change level data.",
+      "Do not make invalid moves legal.",
+      "Do not change save/progression.",
+      "Do not redesign all visuals.",
+      "Do not add economy/shop/combat systems."
+    ],
+    codexImplementationNotes: [
+      "This is a tap-to-move shelf sorting puzzle, not combat, not idle economy, and not cursor attack arena.",
+      "Inspect src/scenes/SpiritSortScene.js first.",
+      "Inspect src/systems/SortRules.js and src/data/spiritSortLevels.js only for rule/data context.",
+      "Preserve JavaScript module style.",
+      "Prefer config-driven visual values and keep the patch small and reversible."
+    ],
+    manualTuningAdvice: [
+      "Tune movement duration before adding particles.",
+      "Keep invalid move feedback short and clear.",
+      "Reduce glow/sparkle before it hides spirit identity."
+    ]
+  };
+}
+
+function farmKit(kitId: string, label: string, path: string, exportName: string, configTemplate: string, targetFeel: string): PixelPolishKitPreset {
+  return {
+    kitId,
+    label,
+    description: `${label} for TypeScript Phaser UI-heavy idle monster farm polish.`,
+    bestForProjectTypes: monsterFarmTypes,
+    suggestedConfigPath: path,
+    configExportName: exportName,
+    codeStyle: "typescript_module",
+    configTemplate,
+    targetFeel,
+    acceptanceCriteria: [
+      "The target visual state becomes easier to read without changing game rules.",
+      "Config values drive visual-only timing, alpha, stroke, spacing, shake, or feedback changes.",
+      "Save schema, farm slot unlocks, merge formulas, monster definitions, income, hatch odds/costs/cooldowns, upgrade costs, quest rewards, and ad logic are unchanged."
+    ],
+    antiPatterns: [
+      "Do not change save schema.",
+      "Do not change coin/income formulas.",
+      "Do not change hatch odds, costs, or cooldowns.",
+      "Do not change upgrade costs or quest rewards.",
+      "Do not change ad/monetization behavior.",
+      "Do not rewrite FarmScene.",
+      "Do not convert UI framework."
+    ],
+    codexImplementationNotes: [
+      "This is a TypeScript Phaser UI-heavy idle monster farm. Visual polish must not modify economy/save/progression/ads.",
+      "Inspect FarmScene and the relevant view/state files first, but prefer view/config-level patches over scene rewrites.",
+      "Preserve TypeScript module style.",
+      "Report planned files before patching when approval is required."
+    ],
+    manualTuningAdvice: [
+      "Tune visibility and hierarchy before adding more effects.",
+      "Prefer view-level changes over FarmScene edits.",
+      "Rollback visual values first if save/economy-adjacent files would be touched."
+    ]
+  };
+}
+
 export const pixelPolishKitPresets: PixelPolishKitPreset[] = [
+  sortKit("sort_move_feedback", "Sort Move Feedback Kit", "src/config/sortMoveFeedbackConfig.js", "SORT_MOVE_FEEDBACK_CONFIG", `export const SORT_MOVE_FEEDBACK_CONFIG = {
+  selectedLiftPx: 12,
+  selectedScale: 1.06,
+  moveDurationMs: 180,
+  moveArcPx: 18,
+  moveEase: "Cubic.easeOut",
+  validMoveSparkleCount: 4,
+  validMoveSparkleMs: 260,
+  completedShelfGlowMs: 420,
+  invalidShakePx: 7,
+  invalidShakeMs: 130,
+  inputLockDuringMove: true,
+};
+`, "Valid moves feel responsive and readable while source/target selection, invalid rejection, completed shelf feedback, and spirit identity remain clear."),
+  sortKit("selected_shelf_readability", "Selected Shelf Readability Kit", "src/config/selectedShelfReadabilityConfig.js", "SELECTED_SHELF_READABILITY_CONFIG", jsConfig("SELECTED_SHELF_READABILITY_CONFIG", "outlineAlpha: 0.85,\n  liftPx: 10,\n  sourcePulseMs: 420,\n  targetHintAlpha: 0.35"), "Selected shelf, selected spirit lift, source/target clarity, and mobile readability improve without changing rules."),
+  sortKit("invalid_move_feedback", "Invalid Move Feedback Kit", "src/config/invalidMoveFeedbackConfig.js", "INVALID_MOVE_FEEDBACK_CONFIG", jsConfig("INVALID_MOVE_FEEDBACK_CONFIG", "shakePx: 7,\n  shakeMs: 130,\n  rejectFlashAlpha: 0.22,\n  rejectSoundVolume: 0.45"), "Invalid moves are clearly rejected without changing SortRules or making invalid moves legal."),
+  sortKit("completed_shelf_glow", "Completed Shelf Glow Kit", "src/config/completedShelfGlowConfig.js", "COMPLETED_SHELF_GLOW_CONFIG", jsConfig("COMPLETED_SHELF_GLOW_CONFIG", "glowMs: 420,\n  glowAlpha: 0.32,\n  sparkleCount: 5,\n  sparkleMs: 280"), "Completed shelves feel satisfying without hiding spirit pieces."),
+  sortKit("win_celebration", "Win Celebration Kit", "src/config/winCelebrationConfig.js", "WIN_CELEBRATION_CONFIG", jsConfig("WIN_CELEBRATION_CONFIG", "bannerMs: 900,\n  sparkleCount: 12,\n  continuePulseMs: 700,\n  dimBoardAlpha: 0.18"), "Solved level celebration and continue/restart clarity improve without progression changes."),
+  sortKit("spirit_identity_readability", "Spirit Identity Readability Kit", "src/config/spiritIdentityReadabilityConfig.js", "SPIRIT_IDENTITY_READABILITY_CONFIG", jsConfig("SPIRIT_IDENTITY_READABILITY_CONFIG", "selectedScale: 1.04,\n  idleBobPx: 2,\n  minContrast: \"high\",\n  motionBlurAvoidance: true"), "Spirit silhouettes, colors, and icons remain readable while selected or moving."),
+  sortKit("puzzle_hud_readability", "Puzzle HUD Readability Kit", "src/config/puzzleHudReadabilityConfig.js", "PUZZLE_HUD_READABILITY_CONFIG", jsConfig("PUZZLE_HUD_READABILITY_CONFIG", "buttonMinSizePx: 42,\n  hudGapPx: 8,\n  labelStrokePx: 2,\n  disabledAlpha: 0.56"), "Level, moves, undo, hint, restart, mute, and level-select UI become clearer without a menu overhaul."),
+  sortKit("mobile_sort_layout_readability", "Mobile Sort Layout Readability Kit", "src/config/mobileSortLayoutReadabilityConfig.js", "MOBILE_SORT_LAYOUT_READABILITY_CONFIG", jsConfig("MOBILE_SORT_LAYOUT_READABILITY_CONFIG", "minTapTargetPx: 44,\n  shelfGapPx: 8,\n  boardSafePaddingPx: 12,\n  hudReservedPx: 58"), "Shelf layout fit, tap target size, HUD overlap, and small-screen readability improve."),
+  farmKit("monster_farm_slot_readability", "Monster Farm Slot Readability Kit", "src/config/monsterFarmSlotReadabilityConfig.ts", "MONSTER_FARM_SLOT_READABILITY_CONFIG", `export const MONSTER_FARM_SLOT_READABILITY_CONFIG = {
+  slotStrokePx: 2,
+  unlockedSlotAlpha: 1,
+  lockedSlotAlpha: 0.56,
+  occupiedSlotGlowAlpha: 0.18,
+  dragHoverStrokePx: 3,
+  mergeCandidatePulseMs: 520,
+  invalidDropShakePx: 6,
+  invalidDropShakeMs: 120,
+  monsterNameMinContrast: "high",
+  preserveHitboxDebug: false,
+} as const;
+`, "Empty, locked, occupied, selected, drag-hover, and merge-candidate slots are visually distinct without touching save, merge, or economy rules."),
+  farmKit("hatch_feedback", "Hatch Feedback Kit", "src/config/hatchFeedbackConfig.ts", "HATCH_FEEDBACK_CONFIG", tsConfig("HATCH_FEEDBACK_CONFIG", "readyPulseMs: 520,\n  cooldownAlpha: 0.58,\n  hatchPopMs: 220,\n  panelGlowAlpha: 0.2"), "Hatch readiness, cooldown, success, and panel feedback become clearer without hatch odds/cost changes."),
+  farmKit("merge_feedback", "Merge Feedback Kit", "src/config/mergeFeedbackConfig.ts", "MERGE_FEEDBACK_CONFIG", tsConfig("MERGE_FEEDBACK_CONFIG", "candidatePulseMs: 520,\n  successBurstCount: 8,\n  invalidShakePx: 6,\n  invalidShakeMs: 120"), "Merge candidates, merge success, and invalid merge feedback become clear without formula changes."),
+  farmKit("tap_farm_feedback", "Tap Farm Feedback Kit", "src/config/tapFarmFeedbackConfig.ts", "TAP_FARM_FEEDBACK_CONFIG", tsConfig("TAP_FARM_FEEDBACK_CONFIG", "tapPopMs: 110,\n  energyFillPulseMs: 360,\n  rewardTextRisePx: 18,\n  cooldownAlpha: 0.55"), "TapFarmView click feedback, energy fill readability, reward feedback, and cooldown state improve without reward formula changes."),
+  farmKit("coin_bug_feedback", "Coin Bug Feedback Kit", "src/config/coinBugFeedbackConfig.ts", "COIN_BUG_FEEDBACK_CONFIG", tsConfig("COIN_BUG_FEEDBACK_CONFIG", "visibilityPulseMs: 480,\n  pickupRadiusAlpha: 0.2,\n  rewardPopupMs: 520,\n  lifetimeWarnAlpha: 0.28"), "Coin bug visibility, pickup radius feedback, reward popup, and lifetime readability improve without spawn/reward changes."),
+  farmKit("farm_hud_readability", "Farm HUD Readability Kit", "src/config/farmHudReadabilityConfig.ts", "FARM_HUD_READABILITY_CONFIG", tsConfig("FARM_HUD_READABILITY_CONFIG", "resourceFontSizePx: 16,\n  incomeFontSizePx: 13,\n  iconSizePx: 22,\n  warningPulseMs: 520"), "Coins, income, egg, slot, hatch, and quest resources become more readable without economy changes."),
+  farmKit("monster_identity_readability", "Monster Identity Readability Kit", "src/config/monsterIdentityReadabilityConfig.ts", "MONSTER_IDENTITY_READABILITY_CONFIG", tsConfig("MONSTER_IDENTITY_READABILITY_CONFIG", "nameMinContrast: \"high\",\n  rarityStrokePx: 2,\n  idleMotionScale: 0.8,\n  familyBadgeAlpha: 0.9"), "Monster rendering clarity and family/type readability improve without replacing assets unless explicitly requested."),
+  farmKit("panel_readability", "Panel Readability Kit", "src/config/panelReadabilityConfig.ts", "PANEL_READABILITY_CONFIG", tsConfig("PANEL_READABILITY_CONFIG", "panelPaddingPx: 10,\n  sectionGapPx: 8,\n  titleFontSizePx: 16,\n  buttonMinHeightPx: 36"), "Panel hierarchy, navigation menu, button states, and small-screen readability improve without rewriting UI systems."),
+  farmKit("toast_reward_feedback", "Toast Reward Feedback Kit", "src/config/toastRewardFeedbackConfig.ts", "TOAST_REWARD_FEEDBACK_CONFIG", tsConfig("TOAST_REWARD_FEEDBACK_CONFIG", "toastMs: 850,\n  risePx: 16,\n  maxStack: 3,\n  rewardHighlightAlpha: 0.24"), "Toast and reward clarity improve without blocking core interactions."),
+  farmKit("quest_widget_readability", "Quest Widget Readability Kit", "src/config/questWidgetReadabilityConfig.ts", "QUEST_WIDGET_READABILITY_CONFIG", tsConfig("QUEST_WIDGET_READABILITY_CONFIG", "progressPulseMs: 480,\n  claimReadyAlpha: 1,\n  blockedAlpha: 0.58,\n  compactFontSizePx: 13"), "Next quest widget clarity, quest progress status, and claim readability improve without quest reward changes."),
+  farmKit("boss_battle_feedback", "Boss Battle Feedback Kit", "src/config/bossBattleFeedbackConfig.ts", "BOSS_BATTLE_FEEDBACK_CONFIG", tsConfig("BOSS_BATTLE_FEEDBACK_CONFIG", "skillReadyPulseMs: 480,\n  damageTextMs: 520,\n  cooldownAlpha: 0.55,\n  rewardBurstCount: 8"), "Boss skill feedback, cooldown/readiness, damage, and reward readability improve without boss stats or battle formulas changes."),
   {
     kitId: "cursor_attack_feedback",
     label: "Cursor Attack Feedback Kit",
