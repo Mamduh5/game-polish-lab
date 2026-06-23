@@ -2,9 +2,10 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { isActionProjectType, isIdleProjectType } from "./projectType";
+import { renderFieldNotesSection } from "./fieldNotes";
 import { labUri, normalizeWorkspacePath, readJsonFileIfExists } from "./workspace";
 import { PixelPolishKit, PixelPolishKitPreset } from "../types/pixelPolishKit";
-import { ProjectProfile } from "../types/profile";
+import { ProjectProfile, ProjectType } from "../types/profile";
 
 export function buildPixelPolishKit(preset: PixelPolishKitPreset, profile: ProjectProfile, actualConfigPath: string): PixelPolishKit {
   return {
@@ -84,17 +85,19 @@ ${formatList(kit.codexImplementationNotes)}
 `;
 }
 
-export function buildKitImplementationPrompt(kit: PixelPolishKit, profile: ProjectProfile): string {
+export function buildKitImplementationPrompt(kit: PixelPolishKit, profile: ProjectProfile, options: { projectType?: ProjectType; dominantMode?: ProjectType | "unknown"; fieldNotes?: string[] } = {}): string {
   const approvalInstruction = profile.codexRequiresApprovalBeforePatch
     ? "- Do not edit code yet. First inspect and report the planned files.\n- Wait for approval before patching."
     : "- Inspect first and report the planned files before patching.\n- After inspection, implementation is allowed if the planned files stay within this kit scope.";
+  const displayProjectType = kit.projectType !== "unknown" ? kit.projectType : options.projectType ?? profile.projectType;
 
   return `# Game Polish Lab Kit Implementation Prompt
 
 Kit: ${kit.kitLabel}
 Engine: ${kit.engine}
 Style: ${kit.style}
-Project type: ${kit.projectType}
+Project type: ${displayProjectType}
+Dominant mode: ${options.dominantMode ?? "unknown"}
 Config export: ${kit.configExportName}
 Config path: ${kit.actualConfigPath || kit.suggestedConfigPath}
 Code style: ${kit.codeStyle}
@@ -102,6 +105,7 @@ Runtime model: ${profile.runtimePresentationModel}
 
 This is a game presentation/polish implementation task, not an app UI redesign.
 
+${renderFieldNotesSection(options.fieldNotes ?? [])}
 ## Core Rules
 
 - Use the generated config as the single source of truth for tuning values.
@@ -111,6 +115,26 @@ ${approvalInstruction}
 - Do not change damage, HP, economy, save fields, progression, item drops, or unrelated systems unless explicitly requested.
 - At the end, list changed files and every config value used.
 ${kit.codeStyle === "browser_global_iife" ? "- Preserve the existing browser-global IIFE pattern. Do not introduce imports, exports, TypeScript conversion, or build-system assumptions." : ""}
+- Continue until the requested deliverables are complete.
+- If blocked, do not invent or broaden scope. Produce the safest partial result and list exact blockers.
+- Do not keep intensifying visual effects after a worse result.
+- If visual result is worse, prefer rollback, diagnosis, or smaller experiment.
+
+## Visual Safety Gate
+
+Before changing visual intensity, inspect existing visual layers and answer:
+- What is already drawn by project-specific skins or themes?
+- What is drawn by shared fallback effects?
+- Will this change stack on top of existing skin art?
+- Could this make some skins worse?
+- What is the rollback path?
+
+If the task affects multiple skins/themes/states, do not globally increase scale, alpha, particle count, flash size, or duration without either:
+- per-skin compatibility reasoning, or
+- a fallback-only strategy, or
+- user approval for a clearly reversible experiment.
+
+${formatManualTestMatrix()}
 
 ## Project-Type Guidance
 
@@ -311,4 +335,23 @@ function formatIncrementalCursorArenaGuidance(kit: PixelPolishKit): string {
 
 function formatList(items: string[]): string {
   return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None.";
+}
+
+function formatManualTestMatrix(): string {
+  return `## Manual Test Matrix
+
+- default click skin
+- one skin that previously became worse
+- one skin that previously felt same
+- miss on empty arena
+- hit on enemy
+- kill enemy
+- combo popup
+- helper cursor attack
+
+After testing, record:
+- better/worse/same per skin
+- which layer felt wrong
+- first value to tune down
+- first value to tune up`;
 }

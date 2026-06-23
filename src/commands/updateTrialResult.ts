@@ -1,11 +1,27 @@
 import * as vscode from "vscode";
 
+import { createRollbackPromptFromInputs } from "./createRollbackPrompt";
+import { readLatestAuditContext } from "../core/auditContext";
+import { readFieldNotes } from "../core/fieldNotes";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { appendToTrialReport, listTrialReports } from "../core/trialReports";
-import { openTextDocument, requireWorkspaceFolder } from "../core/workspace";
+import { createVisualDiagnosisFiles } from "../core/visualContracts";
+import { ensureProfile, openTextDocument, requireWorkspaceFolder } from "../core/workspace";
+import { RollbackWorseArea, VisualArea, VisualSymptom } from "../types/visualContracts";
 
-const results = ["better", "worse", "same", "not_tested"];
+const results = ["better", "worse", "same", "mixed", "not_tested"];
 const decisions = ["keep_patch", "revert_patch", "tune_more", "create_another_task", "archive_project_for_now"];
+const worseDetails: Array<{ label: string; value: RollbackWorseArea; symptom: VisualSymptom }> = [
+  { label: "too noisy", value: "particle_density", symptom: "too_noisy" },
+  { label: "wrong color/layer", value: "color_layer", symptom: "wrong_color_layer" },
+  { label: "clutter", value: "some_skins", symptom: "cluttered" },
+  { label: "unreadable", value: "readability", symptom: "unreadable" },
+  { label: "style mismatch", value: "some_skins", symptom: "style_mismatch" },
+  { label: "performance", value: "performance", symptom: "other" },
+  { label: "some skins worse", value: "some_skins", symptom: "worse_after_tuning" },
+  { label: "all skins worse", value: "all_visuals", symptom: "worse_after_tuning" }
+];
+const visualAreas: VisualArea[] = ["cursor_attack_feedback", "enemy_kill_feedback", "combo_feedback", "arena_hud_readability", "arena_upgrade_panel_readability", "arena_background_readability", "click_feedback", "upgrade_card_readability", "reward_popup", "other"];
 
 export async function updateTrialResult(): Promise<void> {
   const folder = requireWorkspaceFolder();
@@ -45,6 +61,42 @@ export async function updateTrialResult(): Promise<void> {
       prompt: "Add a short note, or leave blank.",
       placeHolder: "Example: VFX reads better but camera shake needs tuning."
     });
+    let worseDetailLine = "";
+    let generatedRollback = "";
+    let generatedDiagnosis = "";
+    if (result === "worse" || result === "mixed") {
+      const worseDetail = await vscode.window.showQuickPick(worseDetails, { placeHolder: "What got worse?" });
+      if (worseDetail) {
+        worseDetailLine = `* What got worse: ${worseDetail.label}\n`;
+        const createRollback = await vscode.window.showQuickPick(["yes", "no"], { placeHolder: "Create optional rollback prompt?" });
+        if (createRollback === "yes") {
+          const rollbackUri = await createRollbackPromptFromInputs(folder, {
+            whatGotWorse: worseDetail.value,
+            rollbackScope: "config_only_values"
+          });
+          generatedRollback = rollbackUri ? `* Rollback prompt: ${rollbackUri.fsPath}\n` : "";
+        }
+
+        const createDiagnosis = await vscode.window.showQuickPick(["yes", "no"], { placeHolder: "Create optional visual diagnosis task?" });
+        if (createDiagnosis === "yes") {
+          const area = await vscode.window.showQuickPick(visualAreas, { placeHolder: "Visual area for diagnosis" }) as VisualArea | undefined;
+          if (area) {
+            const { profile } = await ensureProfile(folder);
+            const diagnosis = await createVisualDiagnosisFiles(folder, profile, await readLatestAuditContext(folder), {
+              area,
+              symptom: worseDetail.symptom,
+              observation: notes || `${result} trial result: ${worseDetail.label}`,
+              affectedScope: worseDetail.value === "all_visuals" ? "all_skins" : worseDetail.value === "some_skins" ? "some_skins" : "unknown",
+              affectedSkins: [],
+              previousPatchResult: result === "worse" ? "yes_worse" : "yes_mixed",
+              rollbackReference: generatedRollback,
+              fieldNotes: await readFieldNotes(folder)
+            });
+            generatedDiagnosis = `* Visual diagnosis: ${diagnosis.promptUri.fsPath}\n`;
+          }
+        }
+      }
+    }
 
     const timestamp = new Date().toISOString();
     await appendToTrialReport(picked.report.uri, `## Trial Update - ${timestamp}
@@ -52,6 +104,7 @@ export async function updateTrialResult(): Promise<void> {
 * Result: ${result}
 * Decision: ${decision}
 * Notes: ${notes ?? ""}
+${worseDetailLine}${generatedRollback}${generatedDiagnosis}
 `);
 
     logInfo(`trial report updated: ${picked.report.uri.fsPath}`);

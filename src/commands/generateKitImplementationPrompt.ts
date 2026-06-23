@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 
+import { readLatestAuditContext } from "../core/auditContext";
+import { readFieldNotes } from "../core/fieldNotes";
 import { buildKitImplementationPrompt, readKitFromFolder } from "../core/pixelPolishKitBuilder";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { ensureProfile, labUri, openTextDocument, requireWorkspaceFolder, writeTextFile } from "../core/workspace";
@@ -18,7 +20,12 @@ export async function generateKitImplementationPrompt(): Promise<void> {
       return;
     }
 
-    const prompt = buildKitImplementationPrompt(picked.kit, profile);
+    const latestAudit = await readLatestAuditContext(folder);
+    const prompt = buildKitImplementationPrompt(picked.kit, profile, {
+      projectType: latestAudit?.suggestedProjectType,
+      dominantMode: latestAudit?.dominantMode,
+      fieldNotes: await readFieldNotes(folder)
+    });
     const promptUri = labUri(folder, "kits", picked.folderName, "codex-implementation-prompt.md");
     await writeTextFile(promptUri, prompt);
     await vscode.env.clipboard.writeText(prompt);

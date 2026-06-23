@@ -1,12 +1,16 @@
 import * as vscode from "vscode";
 
+import { addFieldNote } from "./commands/addFieldNote";
 import { checkCodexScope } from "./commands/checkCodexScope";
 import { clearCache } from "./commands/clearCache";
 import { createPixelPolishKit } from "./commands/createPixelPolishKit";
 import { createPolishTask } from "./commands/createPolishTask";
+import { createRollbackPrompt } from "./commands/createRollbackPrompt";
 import { createRescueTask } from "./commands/createRescueTask";
 import { createStyleGuide } from "./commands/createStyleGuide";
+import { createTuningExperiment } from "./commands/createTuningExperiment";
 import { createTrialReport } from "./commands/createTrialReport";
+import { createVisualDiagnosisTask } from "./commands/createVisualDiagnosisTask";
 import { generateKitImplementationPrompt } from "./commands/generateKitImplementationPrompt";
 import { generateCodexPrompt } from "./commands/generateCodexPrompt";
 import { initializeProfile } from "./commands/initializeProfile";
@@ -37,7 +41,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.checkCodexScope", checkCodexScope),
     vscode.commands.registerCommand("gamePolishLab.setPerformanceMode", setPerformanceMode),
     vscode.commands.registerCommand("gamePolishLab.clearCache", clearCache),
-    vscode.commands.registerCommand("gamePolishLab.showPerformanceDiagnostics", showPerformanceDiagnostics)
+    vscode.commands.registerCommand("gamePolishLab.showPerformanceDiagnostics", showPerformanceDiagnostics),
+    vscode.commands.registerCommand("gamePolishLab.createVisualDiagnosisTask", createVisualDiagnosisTask),
+    vscode.commands.registerCommand("gamePolishLab.createTuningExperiment", createTuningExperiment),
+    vscode.commands.registerCommand("gamePolishLab.createRollbackPrompt", createRollbackPrompt),
+    vscode.commands.registerCommand("gamePolishLab.addFieldNote", addFieldNote)
   );
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => clearScanCache()));
 }

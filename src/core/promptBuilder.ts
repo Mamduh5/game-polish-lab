@@ -1,7 +1,8 @@
 import { PolishTask } from "../types/polishTask";
 import { isActionProjectType, isIdleProjectType } from "./projectType";
+import { renderFieldNotesSection } from "./fieldNotes";
 
-export function buildCodexPrompt(task: PolishTask, options: { requiresApprovalBeforePatch: boolean }): string {
+export function buildCodexPrompt(task: PolishTask, options: { requiresApprovalBeforePatch: boolean; fieldNotes?: string[] }): string {
   const approvalInstruction = options.requiresApprovalBeforePatch
     ? "- Do not edit code yet. First inspect and report the planned files.\n- Wait for approval before patching."
     : "- Inspect first and report the planned files before patching.\n- After inspection, implementation is allowed if the planned files stay within this task scope.";
@@ -18,6 +19,7 @@ Area: ${task.area ?? "not specified"}
 
 You are not designing an app UI. This is a game presentation/polish task.
 
+${renderFieldNotesSection(options.fieldNotes ?? [])}
 ## Problem
 
 ${task.problem}
@@ -61,6 +63,10 @@ ${approvalInstruction}
 - Do not change balance, economy, save logic, auth, damage values, item drops, movement values, or routing unless explicitly listed in the allowed files and acceptance criteria.
 - Do not call external AI APIs.
 - Visual/game-feel work must be small, measurable, and reversible.
+- Continue until the requested deliverables are complete.
+- If blocked, do not invent or broaden scope. Produce the safest partial result and list exact blockers.
+- Do not keep intensifying visual effects after a worse result.
+- If visual result is worse, prefer rollback, diagnosis, or smaller experiment.
 
 ## Definition of Done
 

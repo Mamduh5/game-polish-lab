@@ -4,6 +4,25 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or provide a dashboard webview.
 
+## What v0.3.0 Does
+
+v0.3.0 adds Visual Polish Contracts: diagnosis-first, skin-aware, rollback-safe prompts for real game polish work.
+
+Safe file scope is not enough. A patch can stay inside allowed files and still make a game look worse if it globally boosts shared effects without understanding skin-owned visuals, fallback overlays, duplicate layers, and per-skin state. Game Polish Lab now pushes visual work through diagnosis before tuning when results are weak, same, mixed, or worse.
+
+New commands:
+
+- `Game Polish Lab: Create Visual Diagnosis Task` creates an inspect-only task and prompt under `.game-polish-lab/diagnostics/`.
+- `Game Polish Lab: Create Tuning Experiment` creates a small reversible experiment under `.game-polish-lab/experiments/`.
+- `Game Polish Lab: Create Rollback Prompt` creates a precise rollback prompt under `.game-polish-lab/rollbacks/`.
+- `Game Polish Lab: Add Field Note` stores project-specific lessons in `.game-polish-lab/field-notes.md`.
+
+Visual diagnosis prompts require Codex to map feedback data flow, skin-owned effects, shared fallback effects, duplicate layers, risky global values, and the smallest safe patch before any code changes.
+
+Generated kit prompts now include a Visual Safety Gate. Before changing visual intensity, Codex must inspect what is already drawn by project-specific skins/themes and what is drawn by shared fallback effects. If multiple skins, themes, or states are affected, prompts block global increases to scale, alpha, particle count, flash size, or duration unless there is per-skin compatibility reasoning, a fallback-only strategy, or a clearly reversible user-approved experiment.
+
+Example: if Cursor Attack Feedback got worse after global tuning because a dark/blue-looking shared layer stacked badly on some click skins, the recommended response is to rollback aggressive values, inspect skin layers, then create a per-skin or fallback-only experiment. Do not keep making all effects stronger.
+
 ## What v0.2.4 Does
 
 v0.2.4 fixes mixed-route runtime detection for real incremental arena branches.
@@ -78,6 +97,22 @@ Each kit creates:
 - `Game Polish Lab: Set Performance Mode` updates `.game-polish-lab/profile.json` and clears scan cache.
 - `Game Polish Lab: Clear Scan Cache` clears cached file lists, file text, and detection results.
 - `Game Polish Lab: Show Performance Diagnostics` writes a lightweight performance summary to the Game Polish Lab output channel.
+- `Game Polish Lab: Create Visual Diagnosis Task` creates an inspect-only visual diagnosis task and prompt.
+- `Game Polish Lab: Create Tuning Experiment` creates one rollback-safe visual tuning experiment from a diagnosis.
+- `Game Polish Lab: Create Rollback Prompt` creates a rollback or partial-rollback Codex prompt.
+- `Game Polish Lab: Add Field Note` records project-specific lessons for future prompts.
+
+## Visual Polish Contracts
+
+A Visual Polish Contract records the actual route/runtime model, project type, dominant mode, visual symptom, affected skins/states, hypothesis, allowed inspection files, forbidden systems, rollback reference, manual test matrix, and if-worse behavior.
+
+Use a Visual Diagnosis Task before tuning when the symptom is unclear, the last result felt the same, or a stronger pass made visuals worse. The prompt is inspect-only: Codex must return planned files and a diagnosis before patching.
+
+Use a Tuning Experiment only after diagnosis. It allows one hypothesis, a tiny file scope, rollback instructions, a manual test matrix, and a report of every changed value.
+
+Use a Rollback Prompt when the result is worse or mixed. Rollback prompts prefer reverting aggressive config-only values while preserving safe extraction/wiring if the structure was not the problem.
+
+Field notes are workspace-local memory. Add lessons such as: `Do-Not-Click-This-Button cursor attack skins get worse when shared flash/particles are globally boosted. Diagnose skin-owned effects before tuning.` Future generated prompts include those notes.
 
 ## Performance Modes
 

@@ -1,18 +1,14 @@
 import * as vscode from "vscode";
 
+import { hasUsefulAuditProjectType, LatestAuditContext, readLatestAuditContext } from "../core/auditContext";
+import { readFieldNotes } from "../core/fieldNotes";
 import { buildConfigTemplateForProfile, buildKitImplementationPrompt, buildKitReadme, buildPixelPolishKit, nextKitFolderName, resolveWorkspaceConfigPath } from "../core/pixelPolishKitBuilder";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { detectCodeStyle, detectRuntimePresentationModel } from "../core/presentationDetection";
-import { getCachedAnalysis, getWorkspacePerformanceMode, ScanCancelledError } from "../core/workspaceScanner";
-import { ensureDirectory, ensureProfile, labUri, openTextDocument, pathExists, readTextFileIfExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
+import { ScanCancelledError } from "../core/workspaceScanner";
+import { ensureDirectory, ensureProfile, labUri, openTextDocument, pathExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
-import { ProjectType, RuntimePresentationModel } from "../types/profile";
-
-interface LatestAuditRecommendation {
-  suggestedProjectType?: ProjectType;
-  dominantMode?: ProjectType | "unknown";
-  runtimePresentationModel?: RuntimePresentationModel;
-}
+import { ProjectType } from "../types/profile";
 
 export async function createPixelPolishKit(): Promise<void> {
   const folder = requireWorkspaceFolder();
@@ -43,8 +39,8 @@ export async function createPixelPolishKit(): Promise<void> {
     if (profile.runtimePresentationModel === "unknown" && runtimeModel.runtimePresentationModel !== "unknown") {
       profile.runtimePresentationModel = runtimeModel.runtimePresentationModel;
     }
-    const latestAudit = await readLatestAuditRecommendation(folder);
-    if (profile.projectType === "unknown" && latestAudit && isCursorArenaAudit(latestAudit)) {
+    const latestAudit = await readLatestAuditContext(folder);
+    if (profile.projectType === "unknown" && latestAudit && hasUsefulAuditProjectType(latestAudit)) {
       const pickedProjectType = await pickProjectTypeFromLatestAudit(latestAudit);
       if (!pickedProjectType) {
         return;
@@ -119,7 +115,11 @@ export async function createPixelPolishKit(): Promise<void> {
     await ensureDirectory(kitUri);
 
     const kit = buildPixelPolishKit(picked.preset, profile, actualConfigPath);
-    const prompt = buildKitImplementationPrompt(kit, profile);
+    const prompt = buildKitImplementationPrompt(kit, profile, {
+      projectType: latestAudit?.suggestedProjectType,
+      dominantMode: latestAudit?.dominantMode,
+      fieldNotes: await readFieldNotes(folder)
+    });
     await writeJsonFile(vscode.Uri.joinPath(kitUri, "kit.json"), kit);
     await writeTextFile(vscode.Uri.joinPath(kitUri, "README.md"), buildKitReadme(kit));
     await writeTextFile(vscode.Uri.joinPath(kitUri, "codex-implementation-prompt.md"), prompt);
@@ -145,26 +145,7 @@ function errorToMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function readLatestAuditRecommendation(folder: vscode.WorkspaceFolder): Promise<LatestAuditRecommendation | undefined> {
-  const mode = await getWorkspacePerformanceMode(folder);
-  const cached = getCachedAnalysis<LatestAuditRecommendation>(folder, "latestAuditSuggestion", mode);
-  if (cached?.suggestedProjectType || cached?.dominantMode) {
-    return cached;
-  }
-
-  const markdown = await readTextFileIfExists(labUri(folder, "audits", "latest-phaser-pixel-audit.md"));
-  if (!markdown) {
-    return undefined;
-  }
-
-  return {
-    suggestedProjectType: parseProjectType(markdown, /Suggested project type:\s*([a-z_]+)/),
-    dominantMode: parseProjectType(markdown, /Dominant mode:\s*([a-z_]+)/) ?? "unknown",
-    runtimePresentationModel: parseRuntimeModel(markdown, /Runtime presentation model:\s*([a-z_]+)/)
-  };
-}
-
-async function pickProjectTypeFromLatestAudit(latestAudit: LatestAuditRecommendation): Promise<ProjectType | undefined> {
+async function pickProjectTypeFromLatestAudit(latestAudit: LatestAuditContext): Promise<ProjectType | undefined> {
   const items = [
     latestAudit.suggestedProjectType && {
       label: `Use latest audit recommendation: ${latestAudit.suggestedProjectType}`,
@@ -215,34 +196,6 @@ function sortPresetsForProfile(projectType: ProjectType): typeof pixelPolishKitP
     const bScore = arenaOrder.get(b.kitId) ?? 100;
     return aScore - bScore;
   });
-}
-
-function isCursorArenaAudit(latestAudit: LatestAuditRecommendation): boolean {
-  return latestAudit.suggestedProjectType === "incremental_arena"
-    || latestAudit.suggestedProjectType === "cursor_attack_arena"
-    || latestAudit.dominantMode === "cursor_attack_arena";
-}
-
-function parseProjectType(markdown: string, pattern: RegExp): ProjectType | undefined {
-  const match = pattern.exec(markdown);
-  return isProjectType(match?.[1]) ? match[1] : undefined;
-}
-
-function parseRuntimeModel(markdown: string, pattern: RegExp): RuntimePresentationModel | undefined {
-  const match = pattern.exec(markdown);
-  return isRuntimePresentationModel(match?.[1]) ? match[1] : undefined;
-}
-
-function isProjectType(value: unknown): value is ProjectType {
-  return typeof value === "string" && projectTypeOptions.some((option) => option.value === value);
-}
-
-function isRuntimePresentationModel(value: unknown): value is RuntimePresentationModel {
-  return value === "phaser_rendered"
-    || value === "dom_rendered"
-    || value === "phaser_timer_dom_ui"
-    || value === "phaser_rendered_dom_hud"
-    || value === "unknown";
 }
 
 const projectTypeOptions: Array<{ label: string; value: ProjectType }> = [

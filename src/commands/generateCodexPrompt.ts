@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 
+import { readFieldNotes } from "../core/fieldNotes";
 import { buildCodexPrompt } from "../core/promptBuilder";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { ensureDirectory, ensureProfile, labUri, openTextDocument, readJsonFileIfExists, requireWorkspaceFolder, writeTextFile } from "../core/workspace";
@@ -25,7 +26,10 @@ export async function generateCodexPrompt(): Promise<void> {
       return;
     }
 
-    const prompt = buildCodexPrompt(task, { requiresApprovalBeforePatch: profile.codexRequiresApprovalBeforePatch });
+    const prompt = buildCodexPrompt(task, {
+      requiresApprovalBeforePatch: profile.codexRequiresApprovalBeforePatch,
+      fieldNotes: await readFieldNotes(folder)
+    });
     const promptUri = labUri(folder, "prompts", "latest-codex-prompt.md");
     await ensureDirectory(labUri(folder, "prompts"));
     await writeTextFile(promptUri, prompt);
