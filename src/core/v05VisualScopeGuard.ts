@@ -19,7 +19,13 @@ const forbiddenPathTerms = [
   "rewarded_ad",
   "monetization",
   "/state/",
-  "/data/"
+  "/data/",
+  "leveldata",
+  "level-data",
+  "levels",
+  "worldbounds",
+  "camera",
+  "loader"
 ];
 
 const allowedStylePathTerms = [
@@ -42,7 +48,11 @@ const farmSlotRenderingTerms = [
   "slot-view",
   "slotcard",
   "slot-card",
-  "monsterrenderer"
+  "monsterrenderer",
+  "background",
+  "backdrop",
+  "environment",
+  "worldview"
 ];
 
 export interface V05ScopeGuardResult {

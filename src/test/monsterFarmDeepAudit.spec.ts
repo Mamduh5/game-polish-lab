@@ -11,9 +11,18 @@ import {
   renderMonsterFarmPromptGuardrail,
   splitMonsterFarmProjectTypeEvidence
 } from "../core/monsterFarmDeepAudit";
+import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection } from "../core/farmSlotAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
-import { buildRollbackSnapshotName, buildSlotCardStyleConfig, loadSlotCardStyleConfigFromText } from "../core/visualSurfaceConfig";
+import {
+  backgroundReadabilityStyleConfigRelativePath,
+  buildBackgroundReadabilityStyleConfig,
+  buildRollbackSnapshotName,
+  buildSlotCardStyleConfig,
+  loadBackgroundReadabilityStyleConfigFromText,
+  loadSlotCardStyleConfigFromText
+} from "../core/visualSurfaceConfig";
+import { backgroundReadabilityPresets, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { slotCardPresets } from "../presets/slotCardPresets";
 import { InspectedFile } from "../types/audit";
@@ -134,6 +143,101 @@ assert.strictEqual(connectedAfterRepeatedApply.connectionType, "style_module");
 assert.strictEqual(
   buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), ".game-polish-lab/styles/farm-slot-style.json"),
   "2026-06-24T10-11-12-123Z-farm-slot-style.json"
+);
+
+assert.deepStrictEqual(backgroundReadabilityPresets.map((preset) => preset.name), [
+  "Soft Farm Morning",
+  "Cozy Dusk",
+  "Clean Contrast",
+  "Dark Readable"
+]);
+assert.strictEqual(defaultBackgroundReadabilityStyle.backgroundColor, "#6f9f5f");
+assert.strictEqual(defaultBackgroundReadabilityStyle.backgroundImageOpacity, 0.78);
+
+const validBackgroundConfig = buildBackgroundReadabilityStyleConfig("Soft Farm Morning", backgroundReadabilityPresets[0].values);
+const validBackgroundLoad = loadBackgroundReadabilityStyleConfigFromText(JSON.stringify(validBackgroundConfig));
+assert.strictEqual(validBackgroundLoad.status, "valid");
+assert.strictEqual(validBackgroundLoad.existingConfigDetected, true);
+assert.strictEqual(validBackgroundLoad.initializedFromExistingConfig, true);
+assert.strictEqual(validBackgroundLoad.config.surfaceType, "background_readability");
+
+const missingBackgroundLoad = loadBackgroundReadabilityStyleConfigFromText(undefined);
+assert.strictEqual(missingBackgroundLoad.status, "missing");
+assert.strictEqual(missingBackgroundLoad.existingConfigDetected, false);
+assert.strictEqual(missingBackgroundLoad.config.values.backgroundColor, backgroundReadabilityPresets[0].values.backgroundColor);
+
+const invalidBackgroundJsonLoad = loadBackgroundReadabilityStyleConfigFromText("{ nope");
+assert.strictEqual(invalidBackgroundJsonLoad.status, "invalid_json");
+assert.strictEqual(invalidBackgroundJsonLoad.existingConfigDetected, true);
+assert.strictEqual(invalidBackgroundJsonLoad.initializedFromExistingConfig, false);
+assert.ok(invalidBackgroundJsonLoad.warning?.includes("invalid JSON"));
+
+const invalidBackgroundSchemaLoad = loadBackgroundReadabilityStyleConfigFromText(JSON.stringify({ schemaVersion: 99 }));
+assert.strictEqual(invalidBackgroundSchemaLoad.status, "schema_invalid");
+assert.strictEqual(invalidBackgroundSchemaLoad.initializedFromExistingConfig, false);
+assert.ok(invalidBackgroundSchemaLoad.warning?.includes("unsupported schema"));
+
+const backgroundScope = checkV05VisualScope([
+  backgroundReadabilityStyleConfigRelativePath,
+  ".game-polish-lab/rollback/2026-06-24-background-readability-style.json",
+  "src/config/backgroundReadabilityStyle.ts",
+  "src/data/levels.ts",
+  "src/systems/progressionSystem.ts",
+  "src/services/rewardedAdService.ts"
+], { throughAdapter: true });
+assert.ok(backgroundScope.allowedFiles.includes(backgroundReadabilityStyleConfigRelativePath));
+assert.ok(backgroundScope.allowedFiles.includes("src/config/backgroundReadabilityStyle.ts"));
+assert.ok(backgroundScope.forbiddenFiles.includes("src/data/levels.ts"));
+assert.ok(backgroundScope.forbiddenFiles.includes("src/systems/progressionSystem.ts"));
+assert.ok(backgroundScope.forbiddenFiles.includes("src/services/rewardedAdService.ts"));
+
+const disconnectedBackgroundFiles = [
+  {
+    relativePath: "src/scenes/FarmScene.ts",
+    text: "this.add.rectangle(0, 0, 800, 600, 0x335533); this.cameras.main.setBounds(0, 0, 800, 600);"
+  },
+  {
+    relativePath: "src/config/backgroundReadabilityStyle.ts",
+    text: "export const BACKGROUND_READABILITY_STYLE = {};"
+  }
+];
+const backgroundDetection = analyzeBackgroundDetection(disconnectedBackgroundFiles);
+assert.strictEqual(backgroundDetection.target, "idle_monster_farm.background");
+assert.strictEqual(backgroundDetection.detected, true);
+assert.strictEqual(backgroundDetection.confidence, "medium");
+assert.deepStrictEqual(backgroundDetection.ownerFiles, ["src/scenes/FarmScene.ts"]);
+assert.ok(backgroundDetection.reasons.some((reason) => reason.includes("FarmScene")));
+assert.ok(backgroundDetection.warnings.some((warning) => warning.includes("camera or world bounds")));
+
+const disconnectedBackground = analyzeBackgroundStyleConnection(disconnectedBackgroundFiles);
+assert.strictEqual(disconnectedBackground.connected, false);
+assert.strictEqual(disconnectedBackground.connectionType, "none");
+assert.ok(disconnectedBackground.missingPieces.some((piece) => piece.includes("Background owner/rendering files")));
+
+const connectedBackgroundFiles = [
+  {
+    relativePath: "src/ui/BackgroundView.ts",
+    text: "import { BACKGROUND_READABILITY_STYLE } from '../config/backgroundReadabilityStyle'; export function drawBackground() { return BACKGROUND_READABILITY_STYLE.backgroundColor; }"
+  },
+  {
+    relativePath: "src/config/backgroundReadabilityStyle.ts",
+    text: "export const BACKGROUND_READABILITY_STYLE = { backgroundColor: '#000000' };"
+  }
+];
+const connectedBackgroundDetection = analyzeBackgroundDetection(connectedBackgroundFiles);
+assert.strictEqual(connectedBackgroundDetection.detected, true);
+assert.strictEqual(connectedBackgroundDetection.confidence, "high");
+const connectedBackground = analyzeBackgroundStyleConnection(connectedBackgroundFiles);
+assert.strictEqual(connectedBackground.connected, true);
+assert.strictEqual(connectedBackground.connectionType, "style_module");
+assert.deepStrictEqual(connectedBackground.connectedFiles, ["src/ui/BackgroundView.ts"]);
+const connectedBackgroundAfterRepeatedApply = analyzeBackgroundStyleConnection(connectedBackgroundFiles);
+assert.strictEqual(connectedBackgroundAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedBackgroundAfterRepeatedApply.connectionType, "style_module");
+
+assert.strictEqual(
+  buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), backgroundReadabilityStyleConfigRelativePath),
+  "2026-06-24T10-11-12-123Z-background-readability-style.json"
 );
 
 const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([

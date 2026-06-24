@@ -1,7 +1,8 @@
 import * as path from "path";
 
+import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { defaultSlotCardStyle, slotCardStyleBounds, slotCardPresets } from "../presets/slotCardPresets";
-import { SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
+import { BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues, SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
 
 export type StyleConfigLoadStatus = "valid" | "missing" | "invalid_json" | "schema_invalid";
 
@@ -14,6 +15,7 @@ export interface StyleConfigLoadResult {
 }
 
 export const farmSlotStyleConfigRelativePath = ".game-polish-lab/styles/farm-slot-style.json";
+export const backgroundReadabilityStyleConfigRelativePath = ".game-polish-lab/styles/background-readability-style.json";
 
 export function loadSlotCardStyleConfigFromText(text: string | undefined): StyleConfigLoadResult {
   if (text === undefined) {
@@ -58,6 +60,57 @@ export function buildSlotCardStyleConfig(presetName: string, values: SlotCardSty
   };
 }
 
+export function loadBackgroundReadabilityStyleConfigFromText(text: string | undefined): BackgroundStyleConfigLoadResult {
+  if (text === undefined) {
+    return {
+      status: "missing",
+      config: buildBackgroundReadabilityStyleConfig(backgroundReadabilityPresets[0].name, backgroundReadabilityPresets[0].values),
+      existingConfigDetected: false,
+      initializedFromExistingConfig: false
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return invalidBackgroundConfigResult("Existing background readability config is invalid JSON. The editor was reset to the default v0.52 preset.");
+  }
+
+  if (!isBackgroundReadabilityStyleConfigShape(parsed)) {
+    return invalidBackgroundConfigResult("Existing background readability config has an unsupported schema. The editor was reset to the default v0.52 preset.");
+  }
+
+  return {
+    status: "valid",
+    config: {
+      ...parsed,
+      values: normalizeBackgroundReadabilityStyleValues(parsed.values)
+    },
+    existingConfigDetected: true,
+    initializedFromExistingConfig: true
+  };
+}
+
+export interface BackgroundStyleConfigLoadResult {
+  status: StyleConfigLoadStatus;
+  config: BackgroundReadabilityStyleConfig;
+  existingConfigDetected: boolean;
+  initializedFromExistingConfig: boolean;
+  warning?: string;
+}
+
+export function buildBackgroundReadabilityStyleConfig(presetName: string, values: BackgroundReadabilityStyleValues): BackgroundReadabilityStyleConfig {
+  return {
+    schemaVersion: 1,
+    surfaceType: "background_readability",
+    adapterTarget: "idle_monster_farm.background",
+    presetName,
+    updatedAt: new Date().toISOString(),
+    values: normalizeBackgroundReadabilityStyleValues(values)
+  };
+}
+
 export function normalizeSlotCardStyleValues(values: SlotCardStyleValues): SlotCardStyleValues {
   return {
     slotWidth: clampNumber(values.slotWidth, "slotWidth"),
@@ -76,6 +129,20 @@ export function normalizeSlotCardStyleValues(values: SlotCardStyleValues): SlotC
   };
 }
 
+export function normalizeBackgroundReadabilityStyleValues(values: BackgroundReadabilityStyleValues): BackgroundReadabilityStyleValues {
+  return {
+    backgroundColor: normalizeColor(values.backgroundColor, defaultBackgroundReadabilityStyle.backgroundColor),
+    backgroundImageOpacity: clampBackgroundNumber(values.backgroundImageOpacity, "backgroundImageOpacity"),
+    contrastOverlayColor: normalizeColor(values.contrastOverlayColor, defaultBackgroundReadabilityStyle.contrastOverlayColor),
+    contrastOverlayOpacity: clampBackgroundNumber(values.contrastOverlayOpacity, "contrastOverlayOpacity"),
+    vignetteStrength: clampBackgroundNumber(values.vignetteStrength, "vignetteStrength"),
+    patternOpacity: clampBackgroundNumber(values.patternOpacity, "patternOpacity"),
+    blurAmount: clampBackgroundNumber(values.blurAmount, "blurAmount"),
+    brightness: clampBackgroundNumber(values.brightness, "brightness"),
+    contrast: clampBackgroundNumber(values.contrast, "contrast")
+  };
+}
+
 export function buildRollbackSnapshotName(date: Date, affectedRelativePath: string): string {
   const timestamp = date.toISOString().replace(/[:.]/g, "-");
   const basename = path.basename(affectedRelativePath).replace(/[^a-zA-Z0-9._-]/g, "-") || "snapshot.txt";
@@ -86,6 +153,16 @@ function invalidConfigResult(warning: string): StyleConfigLoadResult {
   return {
     status: warning.includes("invalid JSON") ? "invalid_json" : "schema_invalid",
     config: buildSlotCardStyleConfig(slotCardPresets[0].name, slotCardPresets[0].values),
+    existingConfigDetected: true,
+    initializedFromExistingConfig: false,
+    warning
+  };
+}
+
+function invalidBackgroundConfigResult(warning: string): BackgroundStyleConfigLoadResult {
+  return {
+    status: warning.includes("invalid JSON") ? "invalid_json" : "schema_invalid",
+    config: buildBackgroundReadabilityStyleConfig(backgroundReadabilityPresets[0].name, backgroundReadabilityPresets[0].values),
     existingConfigDetected: true,
     initializedFromExistingConfig: false,
     warning
@@ -125,9 +202,44 @@ function isSlotCardStyleValuesShape(value: unknown): value is SlotCardStyleValue
     && typeof candidate.monsterVerticalOffset === "number";
 }
 
+function isBackgroundReadabilityStyleConfigShape(value: unknown): value is BackgroundReadabilityStyleConfig {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<BackgroundReadabilityStyleConfig>;
+  return candidate.schemaVersion === 1
+    && candidate.surfaceType === "background_readability"
+    && candidate.adapterTarget === "idle_monster_farm.background"
+    && typeof candidate.presetName === "string"
+    && typeof candidate.updatedAt === "string"
+    && isBackgroundReadabilityStyleValuesShape(candidate.values);
+}
+
+function isBackgroundReadabilityStyleValuesShape(value: unknown): value is BackgroundReadabilityStyleValues {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<BackgroundReadabilityStyleValues>;
+  return typeof candidate.backgroundColor === "string"
+    && typeof candidate.backgroundImageOpacity === "number"
+    && typeof candidate.contrastOverlayColor === "string"
+    && typeof candidate.contrastOverlayOpacity === "number"
+    && typeof candidate.vignetteStrength === "number"
+    && typeof candidate.patternOpacity === "number"
+    && typeof candidate.blurAmount === "number"
+    && typeof candidate.brightness === "number"
+    && typeof candidate.contrast === "number";
+}
+
 function clampNumber(value: number, key: keyof typeof slotCardStyleBounds): number {
   const bounds = slotCardStyleBounds[key];
   const numericValue = Number.isFinite(value) ? value : defaultSlotCardStyle[key];
+  return Math.min(bounds.max, Math.max(bounds.min, numericValue));
+}
+
+function clampBackgroundNumber(value: number, key: keyof typeof backgroundReadabilityStyleBounds): number {
+  const bounds = backgroundReadabilityStyleBounds[key];
+  const numericValue = Number.isFinite(value) ? value : defaultBackgroundReadabilityStyle[key];
   return Math.min(bounds.max, Math.max(bounds.min, numericValue));
 }
 
