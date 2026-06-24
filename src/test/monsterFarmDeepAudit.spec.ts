@@ -15,6 +15,12 @@ import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "..
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection } from "../core/farmSlotAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
 import {
+  buildAssetRollbackSnapshotName,
+  inspectAssetImage,
+  normalizeAssetFileName,
+  validateReplacementAsset
+} from "../core/assetReplacement";
+import {
   backgroundReadabilityStyleConfigRelativePath,
   buildBackgroundReadabilityStyleConfig,
   buildRollbackSnapshotName,
@@ -22,6 +28,7 @@ import {
   loadBackgroundReadabilityStyleConfigFromText,
   loadSlotCardStyleConfigFromText
 } from "../core/visualSurfaceConfig";
+import { detectMonsterFarmAssetTargets, monsterFarmAssetTargets } from "../core/monsterFarmAssetTargets";
 import { backgroundReadabilityPresets, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { slotCardPresets } from "../presets/slotCardPresets";
@@ -240,6 +247,76 @@ assert.strictEqual(
   "2026-06-24T10-11-12-123Z-background-readability-style.json"
 );
 
+const monsterFarmTargets = monsterFarmAssetTargets();
+const monsterArtTarget = monsterFarmTargets.find((target) => target.targetId === "monster_art");
+const rewardIconTarget = monsterFarmTargets.find((target) => target.targetId === "reward_icon");
+assert.ok(monsterArtTarget, "monster_art target missing");
+assert.ok(rewardIconTarget, "reward_icon target missing");
+assert.strictEqual(monsterArtTarget.directApplySupported, true);
+assert.strictEqual(monsterArtTarget.assignmentMode, "manifest");
+assert.strictEqual(rewardIconTarget.directApplySupported, false);
+assert.strictEqual(rewardIconTarget.assignmentMode, "manual_required");
+const targetDetection = detectMonsterFarmAssetTargets();
+assert.strictEqual(targetDetection.adapterId, "idle_monster_farm.assets");
+assert.ok(targetDetection.targets.length >= 4);
+
+const opaquePng = makeTestRgbaPng(4, 4, () => 255);
+const transparentPng = makeTestRgbaPng(4, 4, () => 0);
+const tinyPng = makeTestRgbaPng(20, 20, (x, y) => x === 0 && y === 0 ? 255 : 0);
+const webp = makeTestWebP(32, 24, true);
+assert.strictEqual(inspectAssetImage(opaquePng).fileType, "image/png");
+assert.strictEqual(inspectAssetImage(webp).fileType, "image/webp");
+assert.strictEqual(inspectAssetImage(new Uint8Array([1, 2, 3])).fileType, "unsupported");
+
+assert.strictEqual(normalizeAssetFileName("Happy Monster.PNG"), "happy-monster.png");
+assert.strictEqual(normalizeAssetFileName("../evil.png"), "");
+assert.strictEqual(normalizeAssetFileName("folder/evil.png"), "");
+
+const validMonsterAsset = validateReplacementAsset({ fileName: "monster.png", bytes: opaquePng }, monsterArtTarget);
+assert.strictEqual(validMonsterAsset.ok, true);
+assert.strictEqual(validMonsterAsset.model.destinationPath, "src/assets/monsters/monster.png");
+assert.strictEqual(validMonsterAsset.imageInfo.visiblePixelCount, 16);
+
+const invalidTypeAsset = validateReplacementAsset({ fileName: "monster.txt", bytes: new Uint8Array([1, 2, 3]) }, monsterArtTarget);
+assert.strictEqual(invalidTypeAsset.ok, false);
+assert.ok(invalidTypeAsset.model.validationErrors.some((error) => error.includes("PNG and WebP")));
+
+const traversalAsset = validateReplacementAsset({ fileName: "../monster.png", bytes: opaquePng }, monsterArtTarget);
+assert.strictEqual(traversalAsset.ok, false);
+assert.ok(traversalAsset.model.validationErrors.some((error) => error.includes("path traversal")));
+
+const transparentAsset = validateReplacementAsset({ fileName: "empty.png", bytes: transparentPng }, monsterArtTarget);
+assert.strictEqual(transparentAsset.ok, false);
+assert.ok(transparentAsset.model.validationErrors.some((error) => error.includes("fully transparent")));
+
+const tinyAsset = validateReplacementAsset({ fileName: "tiny.png", bytes: tinyPng }, monsterArtTarget);
+assert.strictEqual(tinyAsset.ok, false);
+assert.ok(tinyAsset.model.validationErrors.some((error) => error.includes("tiny relative")));
+
+const noAlphaBackground = validateReplacementAsset({ fileName: "background.webp", bytes: webp }, monsterFarmTargets.find((target) => target.targetId === "background_image")!);
+assert.strictEqual(noAlphaBackground.ok, true);
+assert.strictEqual(noAlphaBackground.model.transparencyRequired, false);
+
+const assetScope = checkV05VisualScope([
+  ".game-polish-lab/assets/imported.png",
+  "src/assets/monsters/monster.png",
+  "src/config/monsterFarmAssetManifest.ts",
+  "src/systems/saveSystem.ts",
+  "src/data/levels.ts",
+  "src/gameplay/rules.ts"
+], { throughAdapter: true });
+assert.ok(assetScope.allowedFiles.includes(".game-polish-lab/assets/imported.png"));
+assert.ok(assetScope.allowedFiles.includes("src/assets/monsters/monster.png"));
+assert.ok(assetScope.allowedFiles.includes("src/config/monsterFarmAssetManifest.ts"));
+assert.ok(assetScope.forbiddenFiles.includes("src/systems/saveSystem.ts"));
+assert.ok(assetScope.forbiddenFiles.includes("src/data/levels.ts"));
+assert.ok(assetScope.forbiddenFiles.includes("src/gameplay/rules.ts"));
+
+assert.strictEqual(
+  buildAssetRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), "src/assets/monsters/monster.png", "monster_art"),
+  "2026-06-24T10-11-12-123Z-monster_art-monster.png"
+);
+
 const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([
   {
     relativePath: "src/main.ts",
@@ -377,6 +454,76 @@ const sortPuzzleText = sortPuzzleFixture.map((file) => `${file.relativePath}\n${
 assert.ok(sortPuzzleText.includes("spiritsortscene"));
 assert.ok(sortPuzzleText.includes("sortrules"));
 assert.ok(sortPuzzleText.includes("spiritsortlevels"));
+
+function makeTestRgbaPng(width: number, height: number, alphaForPixel: (x: number, y: number) => number): Uint8Array {
+  const rowLength = 1 + width * 4;
+  const idat = new Uint8Array(rowLength * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * rowLength;
+    idat[rowStart] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const pixelStart = rowStart + 1 + x * 4;
+      idat[pixelStart] = 80;
+      idat[pixelStart + 1] = 160;
+      idat[pixelStart + 2] = 80;
+      idat[pixelStart + 3] = alphaForPixel(x, y);
+    }
+  }
+  return concatBytes(
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", concatBytes(uint32BE(width), uint32BE(height), new Uint8Array([8, 6, 0, 0, 0]))),
+    pngChunk("IDAT", idat),
+    pngChunk("IEND", new Uint8Array())
+  );
+}
+
+function makeTestWebP(width: number, height: number, alpha: boolean): Uint8Array {
+  const bytes = new Uint8Array(30);
+  writeAscii(bytes, 0, "RIFF");
+  writeAscii(bytes, 8, "WEBP");
+  writeAscii(bytes, 12, "VP8X");
+  bytes[20] = alpha ? 0x10 : 0;
+  writeUint24LE(bytes, 24, width - 1);
+  writeUint24LE(bytes, 27, height - 1);
+  return bytes;
+}
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  return concatBytes(uint32BE(data.length), asciiBytes(type), data, new Uint8Array([0, 0, 0, 0]));
+}
+
+function uint32BE(value: number): Uint8Array {
+  return new Uint8Array([(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff]);
+}
+
+function writeUint24LE(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = value & 0xff;
+  bytes[offset + 1] = (value >>> 8) & 0xff;
+  bytes[offset + 2] = (value >>> 16) & 0xff;
+}
+
+function writeAscii(bytes: Uint8Array, offset: number, value: string): void {
+  for (let index = 0; index < value.length; index += 1) {
+    bytes[offset + index] = value.charCodeAt(index);
+  }
+}
+
+function asciiBytes(value: string): Uint8Array {
+  const bytes = new Uint8Array(value.length);
+  writeAscii(bytes, 0, value);
+  return bytes;
+}
+
+function concatBytes(...chunks: Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
 
 function readFixtureFiles(root: string): InspectedFile[] {
   const results: InspectedFile[] = [];

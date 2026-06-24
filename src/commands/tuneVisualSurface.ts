@@ -6,6 +6,7 @@ import {
   setupIdleMonsterFarmBackgroundBridge,
   summarizeBackgroundApplyResult
 } from "../adapters/idleMonsterFarm/backgroundAdapter";
+import { applyIdleMonsterFarmReplacementAsset, getIdleMonsterFarmAssetTargets } from "../adapters/idleMonsterFarm/assetReplacementAdapter";
 import {
   applyIdleMonsterFarmFarmSlotStyle,
   getIdleMonsterFarmFarmSlotAdapterState,
@@ -28,15 +29,18 @@ import {
 import { ensureDirectory, labUri, pathExists, readTextFile, readTextFileIfExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
 import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { defaultSlotCardStyle, slotCardPresets, slotCardStyleBounds } from "../presets/slotCardPresets";
-import { BackgroundReadabilityStyleValues, SlotCardStyleValues, VisualSurfaceType } from "../types/visualSurface";
+import { AssetReplacementTargetId, BackgroundReadabilityStyleValues, SlotCardStyleValues, VisualSurfaceType } from "../types/visualSurface";
 
 type SurfaceValues = SlotCardStyleValues | BackgroundReadabilityStyleValues;
 
 interface SaveMessage {
-  command: "saveAndApply" | "setupBridge";
+  command: "saveAndApply" | "setupBridge" | "applyAsset";
   surfaceType: VisualSurfaceType;
   presetName: string;
   values: SurfaceValues;
+  assetTargetId?: AssetReplacementTargetId;
+  fileName?: string;
+  dataBase64?: string;
 }
 
 interface SaveResultMessage {
@@ -68,6 +72,7 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
 
     const slotAdapterState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
     const backgroundAdapterState = await getIdleMonsterFarmBackgroundAdapterState(folder);
+    const assetTargets = getIdleMonsterFarmAssetTargets();
     const panel = vscode.window.createWebviewPanel("gamePolishLab.tuneVisualSurface", "Tune Visual Surface", vscode.ViewColumn.One, {
       enableScripts: true,
       retainContextWhenHidden: true,
@@ -78,11 +83,14 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
       slotConfigLoad,
       backgroundConfigLoad,
       slotAdapterState,
-      backgroundAdapterState
+      backgroundAdapterState,
+      assetTargets
     });
 
     panel.webview.onDidReceiveMessage(async (message: SaveMessage) => {
-      const result = message.command === "setupBridge"
+      const result = message.command === "applyAsset"
+        ? await applyAsset(folder, message)
+        : message.command === "setupBridge"
         ? await setupBridge(folder, message, slotConfigLoad, backgroundConfigLoad)
         : await saveAndApply(folder, message, slotConfigLoad, backgroundConfigLoad);
       await panel.webview.postMessage(result);
@@ -92,6 +100,47 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
     vscode.window.showErrorMessage(`Failed to open visual surface tuner: ${errorToMessage(error)}`);
   } finally {
     logCommandEnd("gamePolishLab.tuneVisualSurface");
+  }
+}
+
+async function applyAsset(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  try {
+    if (!message.assetTargetId || !message.fileName || !message.dataBase64) {
+      return { command: "saveResult", ok: false, surfaceType: "asset_replacement", error: "Choose a PNG/WebP asset before applying." };
+    }
+    const result = await applyIdleMonsterFarmReplacementAsset(folder, {
+      targetId: message.assetTargetId,
+      fileName: message.fileName,
+      bytes: Buffer.from(message.dataBase64, "base64")
+    });
+    const applySummary = [
+      "adapter target: idle_monster_farm.assets",
+      `asset target: ${message.assetTargetId}`,
+      `copied: ${result.copied ? "yes" : "no"}`,
+      `assignment updated: ${result.assignmentUpdated ? "yes" : "no"}`,
+      `assignment mode: ${result.model?.assignmentMode ?? "unknown"}`,
+      `destination: ${result.destinationPath ?? "none"}`,
+      `changed files: ${result.changedFiles.length > 0 ? result.changedFiles.join(", ") : "none"}`,
+      `rollback snapshots: ${result.rollbackPaths.length > 0 ? result.rollbackPaths.join(", ") : "none"}`,
+      ...result.warnings.map((warning) => `warning: ${warning}`),
+      ...result.errors.map((error) => `error: ${error}`)
+    ];
+    logSummary(applySummary, result.warnings);
+    logChecklist("v0.53 asset replacement manual test checklist:", result.checklist);
+    return {
+      command: "saveResult",
+      ok: result.errors.length === 0,
+      surfaceType: "asset_replacement",
+      configPath: result.destinationPath,
+      rollbackPaths: result.rollbackPaths,
+      checklist: result.checklist,
+      applySummary,
+      warnings: result.warnings,
+      error: result.errors.length > 0 ? result.errors.join(" ") : undefined
+    };
+  } catch (error) {
+    logError("asset replacement apply failed:", error);
+    return { command: "saveResult", ok: false, surfaceType: "asset_replacement", error: errorToMessage(error) };
   }
 }
 
@@ -296,6 +345,7 @@ function renderTuneVisualSurfaceHtml(input: {
   backgroundConfigLoad: BackgroundStyleConfigLoadResult;
   slotAdapterState: Awaited<ReturnType<typeof getIdleMonsterFarmFarmSlotAdapterState>>;
   backgroundAdapterState: Awaited<ReturnType<typeof getIdleMonsterFarmBackgroundAdapterState>>;
+  assetTargets: ReturnType<typeof getIdleMonsterFarmAssetTargets>;
 }): string {
   const nonce = createNonce();
   const payload = JSON.stringify({
@@ -318,7 +368,8 @@ function renderTuneVisualSurfaceHtml(input: {
         adapterState: input.backgroundAdapterState,
         beforeValues: defaultBackgroundReadabilityStyle
       }
-    }
+    },
+    assetTargets: input.assetTargets
   }).replace(/</g, "\\u003c");
 
   return `<!DOCTYPE html>
@@ -347,7 +398,7 @@ function renderTuneVisualSurfaceHtml(input: {
     .control-row { display: grid; grid-template-columns: 1fr 76px; gap: 8px; align-items: center; }
     .preview-grid { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 14px; }
     .preview-stage { min-width: 0; }
-    .slot-board, .background-board { position: relative; display: grid; justify-content: start; align-content: start; padding: 14px; min-height: 390px; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; }
+    .slot-board, .background-board, .asset-board { position: relative; display: grid; justify-content: start; align-content: start; padding: 14px; min-height: 390px; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; }
     .slot-board { background: color-mix(in srgb, var(--vscode-editor-background) 82%, #000 18%); }
     .background-board { background: var(--bg-color); filter: brightness(var(--brightness)) contrast(var(--contrast)); }
     .background-board::before { content: ""; position: absolute; inset: 0; opacity: var(--image-opacity); filter: blur(var(--blur)); background-image: radial-gradient(circle at 22% 22%, rgba(255,255,255,.34), transparent 18%), radial-gradient(circle at 74% 26%, rgba(255,226,142,.25), transparent 18%), linear-gradient(135deg, rgba(255,255,255,.14) 0 12%, transparent 12% 100%), repeating-linear-gradient(45deg, rgba(255,255,255,var(--pattern-opacity)) 0 8px, transparent 8px 18px); }
@@ -362,6 +413,10 @@ function renderTuneVisualSurfaceHtml(input: {
     .state-label { position: absolute; left: 6px; top: 5px; z-index: 2; font-size: 10px; color: #fff; text-shadow: 0 1px 2px #000; pointer-events: none; }
     .monster { width: 52px; height: 52px; border-radius: 45% 45% 38% 38%; background: radial-gradient(circle at 34% 28%, #fff 0 8%, #81d37b 9% 44%, #2f8a4a 45% 100%); border: 3px solid #173f25; transform: translateY(var(--monster-offset)) scale(var(--monster-scale)); box-shadow: inset -8px -8px 0 rgba(0,0,0,.18); }
     .empty-mark { width: 44%; height: 4px; border-radius: 3px; background: color-mix(in srgb, var(--border-color) 70%, transparent); }
+    .drop-zone { border: 1px dashed var(--border); border-radius: 6px; padding: 14px; color: var(--muted); text-align: center; }
+    .drop-zone.drag { border-color: var(--focus); color: var(--text); }
+    .asset-img { max-width: 96px; max-height: 96px; object-fit: contain; image-rendering: auto; }
+    .asset-reward { display: grid; grid-template-columns: 58px 1fr; gap: 10px; align-items: center; padding: 10px; color: #fff; background: rgba(0,0,0,.46); border: 1px solid rgba(255,255,255,.3); border-radius: 8px; }
     .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
     button { min-height: 30px; color: var(--button-text); background: var(--button); border: 1px solid transparent; border-radius: 4px; padding: 4px 12px; cursor: pointer; }
     button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
@@ -381,8 +436,8 @@ function renderTuneVisualSurfaceHtml(input: {
     <section class="panel">
       <h2>Style Values</h2>
       <div class="controls">
-        <div><label for="surface">Surface</label><select id="surface"><option value="slot_card">slot_card</option><option value="background_readability">background_readability</option></select></div>
-        <div><label for="preset">Preset</label><select id="preset"></select></div>
+        <div><label for="surface">Surface</label><select id="surface"><option value="slot_card">slot_card</option><option value="background_readability">background_readability</option><option value="asset_replacement">asset_replacement</option></select></div>
+        <div id="presetRow"><label for="preset">Preset</label><select id="preset"></select></div>
         <div id="controls"></div>
       </div>
       <div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary" id="setup" style="display:none;">One-Time Setup</button><button id="save">Save & Apply</button></div>
@@ -411,6 +466,7 @@ function renderTuneVisualSurfaceHtml(input: {
     let presetName = surfaceData.initialConfig.presetName;
     let values = structuredClone(surfaceData.initialConfig.values);
     let lastApplyNeedsSetup = false;
+    let selectedAsset = null;
     const surfaceSelect = document.getElementById("surface");
     const presetSelect = document.getElementById("preset");
     const controls = document.getElementById("controls");
@@ -419,8 +475,8 @@ function renderTuneVisualSurfaceHtml(input: {
     surfaceSelect.addEventListener("change", () => {
       surfaceType = surfaceSelect.value;
       surfaceData = data.surfaces[surfaceType];
-      presetName = surfaceData.initialConfig.presetName;
-      values = structuredClone(surfaceData.initialConfig.values);
+      presetName = surfaceType === "asset_replacement" ? "" : surfaceData.initialConfig.presetName;
+      values = surfaceType === "asset_replacement" ? {} : structuredClone(surfaceData.initialConfig.values);
       lastApplyNeedsSetup = false;
       rebuild();
     });
@@ -431,11 +487,13 @@ function renderTuneVisualSurfaceHtml(input: {
       render();
       renderAdapter();
       document.getElementById("setup").style.display = lastApplyNeedsSetup ? "inline-block" : "none";
-      status.textContent = surfaceData.configLoad.warning ? surfaceData.configLoad.warning : "";
+      status.textContent = surfaceType !== "asset_replacement" && surfaceData.configLoad.warning ? surfaceData.configLoad.warning : "";
     }
 
     function buildPresetOptions() {
       presetSelect.textContent = "";
+      document.getElementById("presetRow").style.display = surfaceType === "asset_replacement" ? "none" : "block";
+      if (surfaceType === "asset_replacement") return;
       for (const preset of surfaceData.presets) {
         const option = document.createElement("option");
         option.value = preset.name;
@@ -447,6 +505,10 @@ function renderTuneVisualSurfaceHtml(input: {
 
     function buildControls() {
       controls.textContent = "";
+      if (surfaceType === "asset_replacement") {
+        buildAssetControls();
+        return;
+      }
       for (const key of numericKeysBySurface[surfaceType]) {
         const wrapper = document.createElement("div");
         const label = document.createElement("label");
@@ -477,6 +539,62 @@ function renderTuneVisualSurfaceHtml(input: {
       }
     }
 
+    function buildAssetControls() {
+      const targetWrap = document.createElement("div");
+      const targetLabel = document.createElement("label");
+      targetLabel.textContent = "Asset target";
+      const targetSelect = document.createElement("select");
+      targetSelect.id = "assetTarget";
+      for (const target of data.assetTargets.targets) {
+        const option = document.createElement("option");
+        option.value = target.targetId;
+        option.textContent = target.label + " (" + target.assignmentMode + ")";
+        targetSelect.append(option);
+      }
+      targetSelect.addEventListener("change", render);
+      targetWrap.append(targetLabel, targetSelect);
+      const fileWrap = document.createElement("div");
+      const fileLabel = document.createElement("label");
+      fileLabel.textContent = "PNG/WebP replacement";
+      const drop = document.createElement("div");
+      drop.className = "drop-zone";
+      drop.textContent = "Drop PNG/WebP here or choose a file";
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = "image/png,image/webp,.png,.webp";
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (file) readAssetFile(file);
+      });
+      drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("drag"); });
+      drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
+      drop.addEventListener("drop", (event) => {
+        event.preventDefault();
+        drop.classList.remove("drag");
+        const file = event.dataTransfer && event.dataTransfer.files[0];
+        if (file) readAssetFile(file);
+      });
+      fileWrap.append(fileLabel, drop, fileInput);
+      controls.append(targetWrap, fileWrap);
+    }
+
+    function readAssetFile(file) {
+      if (!["image/png", "image/webp"].includes(file.type) && !/\\.(png|webp)$/i.test(file.name)) {
+        status.textContent = "Unsupported file type. Choose PNG or WebP.";
+        selectedAsset = null;
+        render();
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result);
+        selectedAsset = { name: file.name, type: file.type, dataUrl, dataBase64: dataUrl.split(",")[1] || "" };
+        status.textContent = "Asset loaded for preview: " + file.name;
+        render();
+      };
+      reader.readAsDataURL(file);
+    }
+
     function setNumber(key, raw, number, range) {
       const bounds = surfaceData.bounds[key];
       const next = Math.min(bounds.max, Math.max(bounds.min, Number(raw)));
@@ -501,6 +619,16 @@ function renderTuneVisualSurfaceHtml(input: {
       render();
     });
     document.getElementById("save").addEventListener("click", () => {
+      if (surfaceType === "asset_replacement") {
+        if (!selectedAsset) {
+          status.textContent = "Choose a PNG/WebP asset before applying.";
+          return;
+        }
+        const targetSelect = document.getElementById("assetTarget");
+        status.textContent = "Validating and applying replacement asset...";
+        vscode.postMessage({ command: "applyAsset", surfaceType, presetName: "", values: {}, assetTargetId: targetSelect.value, fileName: selectedAsset.name, dataBase64: selectedAsset.dataBase64 });
+        return;
+      }
       status.textContent = "Saving style config and applying supported visual values...";
       vscode.postMessage({ command: "saveAndApply", surfaceType, presetName, values });
     });
@@ -518,6 +646,11 @@ function renderTuneVisualSurfaceHtml(input: {
     });
 
     function render() {
+      if (surfaceType === "asset_replacement") {
+        renderAssetBoard(document.getElementById("before"), null);
+        renderAssetBoard(document.getElementById("after"), selectedAsset);
+        return;
+      }
       if (surfaceType === "background_readability") {
         renderBackgroundBoard(document.getElementById("before"), surfaceData.beforeValues);
         renderBackgroundBoard(document.getElementById("after"), values);
@@ -556,6 +689,85 @@ function renderTuneVisualSurfaceHtml(input: {
       foreground.className = "foreground";
       container.append(hud, foreground);
       appendSlotCards(foreground, false);
+    }
+
+    function renderAssetBoard(container, asset) {
+      container.className = "asset-board background-board";
+      container.textContent = "";
+      container.style.setProperty("--bg-color", data.surfaces.background_readability.beforeValues.backgroundColor);
+      container.style.setProperty("--image-opacity", data.surfaces.background_readability.beforeValues.backgroundImageOpacity);
+      container.style.setProperty("--overlay-color", data.surfaces.background_readability.beforeValues.contrastOverlayColor);
+      container.style.setProperty("--overlay-opacity", data.surfaces.background_readability.beforeValues.contrastOverlayOpacity);
+      container.style.setProperty("--vignette", data.surfaces.background_readability.beforeValues.vignetteStrength);
+      container.style.setProperty("--pattern-opacity", data.surfaces.background_readability.beforeValues.patternOpacity);
+      container.style.setProperty("--blur", "0px");
+      container.style.setProperty("--brightness", "1");
+      container.style.setProperty("--contrast", "1");
+      setSlotVars(container, data.surfaces.slot_card.beforeValues);
+      const targetSelect = document.getElementById("assetTarget");
+      const targetId = targetSelect ? targetSelect.value : "monster_art";
+      const hud = document.createElement("div");
+      hud.className = "hud";
+      hud.textContent = asset ? asset.name : "No asset selected";
+      container.append(hud);
+      if (targetId === "reward_icon") {
+        const reward = document.createElement("div");
+        reward.className = "asset-reward";
+        reward.append(assetImage(asset), document.createTextNode("Reward ready"));
+        container.append(reward);
+        return;
+      }
+      if (targetId === "background_image") {
+        if (asset) {
+          container.style.backgroundImage = "url(" + asset.dataUrl + ")";
+          container.style.backgroundSize = "cover";
+          container.style.backgroundPosition = "center";
+        } else {
+          container.style.backgroundImage = "";
+        }
+      } else {
+        container.style.backgroundImage = "";
+      }
+      const foreground = document.createElement("div");
+      foreground.className = "foreground";
+      container.append(foreground);
+      if (targetId === "slot_frame") {
+        appendAssetSlot(foreground, asset, false);
+        appendAssetSlot(foreground, asset, true);
+      } else {
+        appendAssetSlot(foreground, null, false);
+        appendAssetSlot(foreground, null, true, asset);
+      }
+    }
+
+    function appendAssetSlot(container, frameAsset, occupied, monsterAsset) {
+      const card = document.createElement("div");
+      card.className = "slot-card" + (occupied ? " selected" : " empty");
+      if (frameAsset) {
+        card.style.borderImage = "url(" + frameAsset.dataUrl + ") 24 stretch";
+      }
+      const label = document.createElement("span");
+      label.className = "state-label";
+      label.textContent = occupied ? "occupied" : "empty";
+      card.append(label);
+      if (occupied) {
+        card.append(assetImage(monsterAsset));
+      } else {
+        const mark = document.createElement("div");
+        mark.className = "empty-mark";
+        card.append(mark);
+      }
+      container.append(card);
+    }
+
+    function assetImage(asset) {
+      const img = document.createElement("img");
+      img.className = "asset-img";
+      if (asset) {
+        img.src = asset.dataUrl;
+        img.alt = asset.name;
+      }
+      return img;
     }
 
     function setSlotVars(container, style) {
@@ -600,6 +812,15 @@ function renderTuneVisualSurfaceHtml(input: {
     function renderAdapter() {
       const adapterList = document.getElementById("adapter");
       adapterList.textContent = "";
+      if (surfaceType === "asset_replacement") {
+        const lines = ["Adapter: idle_monster_farm.assets", ...data.assetTargets.targets.map((target) => target.label + ": " + target.assignmentMode + (target.directApplySupported ? " direct" : " manual_required")), ...data.assetTargets.warnings.map((warning) => "Warning: " + warning)];
+        for (const line of lines) {
+          const item = document.createElement("li");
+          item.textContent = line;
+          adapterList.append(item);
+        }
+        return;
+      }
       const adapter = surfaceData.adapterState;
       const lines = ["Config: " + surfaceData.configLoad.status, surfaceData.configLoad.warning ? "Warning: " + surfaceData.configLoad.warning : "", "Detected: " + adapter.detection.detected + " (" + adapter.detection.confidence + ")", "Owners: " + (adapter.detection.ownerFiles.length > 0 ? adapter.detection.ownerFiles.join(", ") : "none"), "Connected: " + adapter.connection.connected + " (" + adapter.connection.connectionType + ")", "Connected files: " + (adapter.connection.connectedFiles.length > 0 ? adapter.connection.connectedFiles.join(", ") : "none"), ...adapter.detection.reasons.map((reason) => "Reason: " + reason), ...adapter.connection.missingPieces.map((piece) => "Missing: " + piece), ...adapter.detection.warnings.map((warning) => "Warning: " + warning)];
       for (const line of lines.filter(Boolean)) {

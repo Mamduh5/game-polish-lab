@@ -25,17 +25,23 @@ const forbiddenPathTerms = [
   "levels",
   "worldbounds",
   "camera",
-  "loader"
+  "loader",
+  "gameplay",
+  "rules"
 ];
 
 const allowedStylePathTerms = [
   ".game-polish-lab/styles/",
   ".game-polish-lab/rollback/",
+  ".game-polish-lab/assets/",
+  "src/assets/",
+  "public/assets/",
   "src/config/",
   "src/styles/",
   "src/theme/",
   "style",
-  "visual"
+  "visual",
+  "assetmanifest"
 ];
 
 const farmSlotRenderingTerms = [

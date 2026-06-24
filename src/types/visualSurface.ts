@@ -1,5 +1,5 @@
-export type VisualSurfaceType = "slot_card" | "background_readability";
-export type VisualSurfaceAdapterTarget = "idle_monster_farm.farm_slots" | "idle_monster_farm.background";
+export type VisualSurfaceType = "slot_card" | "background_readability" | "asset_replacement";
+export type VisualSurfaceAdapterTarget = "idle_monster_farm.farm_slots" | "idle_monster_farm.background" | "idle_monster_farm.assets";
 
 export interface SlotCardStyleValues {
   slotWidth: number;
@@ -55,4 +55,38 @@ export interface BackgroundReadabilityStyleConfig {
 export interface BackgroundReadabilityPreset {
   name: string;
   values: BackgroundReadabilityStyleValues;
+}
+
+export type AssetReplacementTargetId = "monster_art" | "slot_frame" | "background_image" | "reward_icon";
+export type AssetReplacementAssignmentMode = "manifest" | "style_config" | "runtime_bridge" | "manual_required";
+export type AcceptedAssetFileType = "image/png" | "image/webp";
+
+export interface AssetReplacementModel {
+  assetTargetId: AssetReplacementTargetId;
+  surfaceType: "asset_replacement";
+  adapterId: "idle_monster_farm.assets";
+  expectedKinds: string[];
+  acceptedFileTypes: AcceptedAssetFileType[];
+  expectedWidth?: number;
+  expectedHeight?: number;
+  transparencyRequired: boolean;
+  destinationPath: string;
+  assignmentMode: AssetReplacementAssignmentMode;
+  validationWarnings: string[];
+  validationErrors: string[];
+}
+
+export interface AssetReplacementTarget {
+  targetId: AssetReplacementTargetId;
+  label: string;
+  surfaceType: "asset_replacement";
+  expectedKinds: string[];
+  acceptedFileTypes: AcceptedAssetFileType[];
+  expectedWidth?: number;
+  expectedHeight?: number;
+  transparencyRequired: boolean;
+  destinationFolder: string;
+  assignmentMode: AssetReplacementAssignmentMode;
+  directApplySupported: boolean;
+  warnings: string[];
 }
