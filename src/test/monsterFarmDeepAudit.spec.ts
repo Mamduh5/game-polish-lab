@@ -13,6 +13,7 @@ import {
 } from "../core/monsterFarmDeepAudit";
 import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection } from "../core/farmSlotAdapterAnalysis";
+import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/panelAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
 import {
   buildAssetRollbackSnapshotName,
@@ -23,13 +24,17 @@ import {
 import {
   backgroundReadabilityStyleConfigRelativePath,
   buildBackgroundReadabilityStyleConfig,
+  buildPanelStyleConfig,
   buildRollbackSnapshotName,
   buildSlotCardStyleConfig,
   loadBackgroundReadabilityStyleConfigFromText,
+  loadPanelStyleConfigFromText,
+  panelStyleConfigRelativePath,
   loadSlotCardStyleConfigFromText
 } from "../core/visualSurfaceConfig";
 import { detectMonsterFarmAssetTargets, monsterFarmAssetTargets } from "../core/monsterFarmAssetTargets";
 import { backgroundReadabilityPresets, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
+import { defaultPanelStyle, panelStylePresets } from "../presets/panelStylePresets";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { slotCardPresets } from "../presets/slotCardPresets";
 import { InspectedFile } from "../types/audit";
@@ -315,6 +320,118 @@ assert.ok(assetScope.forbiddenFiles.includes("src/gameplay/rules.ts"));
 assert.strictEqual(
   buildAssetRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), "src/assets/monsters/monster.png", "monster_art"),
   "2026-06-24T10-11-12-123Z-monster_art-monster.png"
+);
+
+assert.deepStrictEqual(panelStylePresets.map((preset) => preset.name), [
+  "Cozy Card",
+  "Clean Mobile Panel",
+  "Magic Frame",
+  "Dark Arcade Panel"
+]);
+assert.strictEqual(defaultPanelStyle.fillColor, "#3a2a1f");
+assert.strictEqual(defaultPanelStyle.titleTextSize, 18);
+
+const validPanelConfig = buildPanelStyleConfig("Cozy Card", panelStylePresets[0].values);
+const validPanelLoad = loadPanelStyleConfigFromText(JSON.stringify(validPanelConfig));
+assert.strictEqual(validPanelLoad.status, "valid");
+assert.strictEqual(validPanelLoad.existingConfigDetected, true);
+assert.strictEqual(validPanelLoad.initializedFromExistingConfig, true);
+assert.strictEqual(validPanelLoad.config.surfaceType, "panel");
+
+const missingPanelLoad = loadPanelStyleConfigFromText(undefined);
+assert.strictEqual(missingPanelLoad.status, "missing");
+assert.strictEqual(missingPanelLoad.existingConfigDetected, false);
+assert.strictEqual(missingPanelLoad.config.values.fillColor, panelStylePresets[0].values.fillColor);
+
+const invalidPanelJsonLoad = loadPanelStyleConfigFromText("{ nope");
+assert.strictEqual(invalidPanelJsonLoad.status, "invalid_json");
+assert.strictEqual(invalidPanelJsonLoad.existingConfigDetected, true);
+assert.strictEqual(invalidPanelJsonLoad.initializedFromExistingConfig, false);
+assert.ok(invalidPanelJsonLoad.warning?.includes("invalid JSON"));
+
+const invalidPanelSchemaLoad = loadPanelStyleConfigFromText(JSON.stringify({ schemaVersion: 99 }));
+assert.strictEqual(invalidPanelSchemaLoad.status, "schema_invalid");
+assert.strictEqual(invalidPanelSchemaLoad.initializedFromExistingConfig, false);
+assert.ok(invalidPanelSchemaLoad.warning?.includes("unsupported schema"));
+
+const panelScope = checkV05VisualScope([
+  panelStyleConfigRelativePath,
+  ".game-polish-lab/rollback/2026-06-24-panel-style.json",
+  "src/config/panelStyle.ts",
+  "src/ui/HatchPanelView.ts",
+  "src/ui/NextQuestWidgetView.ts",
+  "src/state/hatchState.ts",
+  "src/state/questState.ts",
+  "src/navigation/routes.ts",
+  "src/gameplay/rules.ts"
+], { throughAdapter: true });
+assert.ok(panelScope.allowedFiles.includes(panelStyleConfigRelativePath));
+assert.ok(panelScope.allowedFiles.includes("src/config/panelStyle.ts"));
+assert.ok(panelScope.adapterOnlyFiles.includes("src/ui/HatchPanelView.ts"));
+assert.ok(panelScope.adapterOnlyFiles.includes("src/ui/NextQuestWidgetView.ts"));
+assert.ok(panelScope.forbiddenFiles.includes("src/state/hatchState.ts"));
+assert.ok(panelScope.forbiddenFiles.includes("src/state/questState.ts"));
+assert.ok(panelScope.forbiddenFiles.includes("src/navigation/routes.ts"));
+assert.ok(panelScope.forbiddenFiles.includes("src/gameplay/rules.ts"));
+
+const disconnectedPanelFiles = [
+  {
+    relativePath: "src/ui/NavigationMenuPanelView.ts",
+    text: "export class NavigationMenuPanelView { openMenu() { this.navigate('hatch'); } }"
+  },
+  {
+    relativePath: "src/ui/HatchPanelView.ts",
+    text: "export class HatchPanelView { draw() { return 'hatch cooldown'; } }"
+  },
+  {
+    relativePath: "src/ui/NextQuestWidgetView.ts",
+    text: "export class NextQuestWidgetView { draw() { return 'quest reward'; } }"
+  },
+  {
+    relativePath: "src/config/panelStyle.ts",
+    text: "export const PANEL_STYLE = {};"
+  }
+];
+const panelDetection = analyzePanelDetection(disconnectedPanelFiles);
+assert.strictEqual(panelDetection.target, "idle_monster_farm.panels");
+assert.strictEqual(panelDetection.detected, true);
+assert.strictEqual(panelDetection.confidence, "high");
+assert.deepStrictEqual(panelDetection.targetPanels, ["hatch_panel", "navigation_panel", "quest_panel"]);
+assert.ok(panelDetection.ownerFiles.includes("src/ui/NavigationMenuPanelView.ts"));
+assert.ok(panelDetection.reasons.some((reason) => reason.includes("dedicated panel")));
+assert.ok(panelDetection.warnings.some((warning) => warning.includes("navigation logic")));
+assert.ok(panelDetection.warnings.some((warning) => warning.includes("hatch logic")));
+assert.ok(panelDetection.warnings.some((warning) => warning.includes("quest logic")));
+
+const disconnectedPanel = analyzePanelStyleConnection(disconnectedPanelFiles);
+assert.strictEqual(disconnectedPanel.connected, false);
+assert.strictEqual(disconnectedPanel.connectionType, "none");
+assert.ok(disconnectedPanel.missingPieces.some((piece) => piece.includes("Panel owner/rendering files")));
+
+const connectedPanelFiles = [
+  {
+    relativePath: "src/ui/PanelChrome.ts",
+    text: "import { PANEL_STYLE } from '../config/panelStyle'; export function drawPanel() { return PANEL_STYLE.fillColor; }"
+  },
+  {
+    relativePath: "src/config/panelStyle.ts",
+    text: "export const PANEL_STYLE = { fillColor: '#000000' };"
+  }
+];
+const connectedPanelDetection = analyzePanelDetection(connectedPanelFiles);
+assert.strictEqual(connectedPanelDetection.detected, true);
+assert.strictEqual(connectedPanelDetection.confidence, "high");
+const connectedPanel = analyzePanelStyleConnection(connectedPanelFiles);
+assert.strictEqual(connectedPanel.connected, true);
+assert.strictEqual(connectedPanel.connectionType, "style_module");
+assert.deepStrictEqual(connectedPanel.connectedFiles, ["src/ui/PanelChrome.ts"]);
+const connectedPanelAfterRepeatedApply = analyzePanelStyleConnection(connectedPanelFiles);
+assert.strictEqual(connectedPanelAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedPanelAfterRepeatedApply.connectionType, "style_module");
+
+assert.strictEqual(
+  buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), panelStyleConfigRelativePath),
+  "2026-06-24T10-11-12-123Z-panel-style.json"
 );
 
 const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([

@@ -1,5 +1,5 @@
-export type VisualSurfaceType = "slot_card" | "background_readability" | "asset_replacement";
-export type VisualSurfaceAdapterTarget = "idle_monster_farm.farm_slots" | "idle_monster_farm.background" | "idle_monster_farm.assets";
+export type VisualSurfaceType = "slot_card" | "background_readability" | "asset_replacement" | "panel";
+export type VisualSurfaceAdapterTarget = "idle_monster_farm.farm_slots" | "idle_monster_farm.background" | "idle_monster_farm.assets" | "idle_monster_farm.panels";
 
 export interface SlotCardStyleValues {
   slotWidth: number;
@@ -89,4 +89,38 @@ export interface AssetReplacementTarget {
   assignmentMode: AssetReplacementAssignmentMode;
   directApplySupported: boolean;
   warnings: string[];
+}
+
+export interface PanelStyleValues {
+  fillColor: string;
+  fillOpacity: number;
+  borderColor: string;
+  borderWidth: number;
+  cornerRadius: number;
+  headerAccentColor: string;
+  headerAccentHeight: number;
+  padding: number;
+  contentGap: number;
+  dividerColor: string;
+  dividerOpacity: number;
+  dividerThickness: number;
+  shadowStrength: number;
+  glowStrength: number;
+  titleTextSize: number;
+  bodyTextSize: number;
+  disabledOpacity: number;
+}
+
+export interface PanelStyleConfig {
+  schemaVersion: 1;
+  surfaceType: "panel";
+  adapterTarget: "idle_monster_farm.panels";
+  presetName: string;
+  updatedAt: string;
+  values: PanelStyleValues;
+}
+
+export interface PanelPreset {
+  name: string;
+  values: PanelStyleValues;
 }

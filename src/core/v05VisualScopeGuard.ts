@@ -4,13 +4,17 @@ const forbiddenPathTerms = [
   "savestate",
   "/economy",
   "/progression",
-  "/hatch",
+  "/state/hatch",
+  "/systems/hatch",
+  "hatchstate",
+  "hatchsystem",
   "/merge",
   "mergesystem",
   "monstermerge",
-  "/quest",
+  "/state/quest",
+  "/systems/quest",
+  "/data/quest",
   "queststate",
-  "questwidget",
   "/ads",
   "/ad/",
   "admob",
@@ -27,7 +31,10 @@ const forbiddenPathTerms = [
   "camera",
   "loader",
   "gameplay",
-  "rules"
+  "rules",
+  "navigation/",
+  "routing",
+  "routes"
 ];
 
 const allowedStylePathTerms = [
@@ -58,7 +65,13 @@ const farmSlotRenderingTerms = [
   "background",
   "backdrop",
   "environment",
-  "worldview"
+  "worldview",
+  "panel",
+  "modal",
+  "navigationmenu",
+  "navigationcontrol",
+  "hatchpanel",
+  "questwidget"
 ];
 
 export interface V05ScopeGuardResult {

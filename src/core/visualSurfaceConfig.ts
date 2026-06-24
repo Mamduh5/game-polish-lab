@@ -1,8 +1,9 @@
 import * as path from "path";
 
 import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
+import { defaultPanelStyle, panelStyleBounds, panelStylePresets } from "../presets/panelStylePresets";
 import { defaultSlotCardStyle, slotCardStyleBounds, slotCardPresets } from "../presets/slotCardPresets";
-import { BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues, SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
+import { BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues, PanelStyleConfig, PanelStyleValues, SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
 
 export type StyleConfigLoadStatus = "valid" | "missing" | "invalid_json" | "schema_invalid";
 
@@ -16,6 +17,7 @@ export interface StyleConfigLoadResult {
 
 export const farmSlotStyleConfigRelativePath = ".game-polish-lab/styles/farm-slot-style.json";
 export const backgroundReadabilityStyleConfigRelativePath = ".game-polish-lab/styles/background-readability-style.json";
+export const panelStyleConfigRelativePath = ".game-polish-lab/styles/panel-style.json";
 
 export function loadSlotCardStyleConfigFromText(text: string | undefined): StyleConfigLoadResult {
   if (text === undefined) {
@@ -100,6 +102,14 @@ export interface BackgroundStyleConfigLoadResult {
   warning?: string;
 }
 
+export interface PanelStyleConfigLoadResult {
+  status: StyleConfigLoadStatus;
+  config: PanelStyleConfig;
+  existingConfigDetected: boolean;
+  initializedFromExistingConfig: boolean;
+  warning?: string;
+}
+
 export function buildBackgroundReadabilityStyleConfig(presetName: string, values: BackgroundReadabilityStyleValues): BackgroundReadabilityStyleConfig {
   return {
     schemaVersion: 1,
@@ -108,6 +118,49 @@ export function buildBackgroundReadabilityStyleConfig(presetName: string, values
     presetName,
     updatedAt: new Date().toISOString(),
     values: normalizeBackgroundReadabilityStyleValues(values)
+  };
+}
+
+export function loadPanelStyleConfigFromText(text: string | undefined): PanelStyleConfigLoadResult {
+  if (text === undefined) {
+    return {
+      status: "missing",
+      config: buildPanelStyleConfig(panelStylePresets[0].name, panelStylePresets[0].values),
+      existingConfigDetected: false,
+      initializedFromExistingConfig: false
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return invalidPanelConfigResult("Existing panel style config is invalid JSON. The editor was reset to the default v0.54 preset.");
+  }
+
+  if (!isPanelStyleConfigShape(parsed)) {
+    return invalidPanelConfigResult("Existing panel style config has an unsupported schema. The editor was reset to the default v0.54 preset.");
+  }
+
+  return {
+    status: "valid",
+    config: {
+      ...parsed,
+      values: normalizePanelStyleValues(parsed.values)
+    },
+    existingConfigDetected: true,
+    initializedFromExistingConfig: true
+  };
+}
+
+export function buildPanelStyleConfig(presetName: string, values: PanelStyleValues): PanelStyleConfig {
+  return {
+    schemaVersion: 1,
+    surfaceType: "panel",
+    adapterTarget: "idle_monster_farm.panels",
+    presetName,
+    updatedAt: new Date().toISOString(),
+    values: normalizePanelStyleValues(values)
   };
 }
 
@@ -143,6 +196,28 @@ export function normalizeBackgroundReadabilityStyleValues(values: BackgroundRead
   };
 }
 
+export function normalizePanelStyleValues(values: PanelStyleValues): PanelStyleValues {
+  return {
+    fillColor: normalizeColor(values.fillColor, defaultPanelStyle.fillColor),
+    fillOpacity: clampPanelNumber(values.fillOpacity, "fillOpacity"),
+    borderColor: normalizeColor(values.borderColor, defaultPanelStyle.borderColor),
+    borderWidth: clampPanelNumber(values.borderWidth, "borderWidth"),
+    cornerRadius: clampPanelNumber(values.cornerRadius, "cornerRadius"),
+    headerAccentColor: normalizeColor(values.headerAccentColor, defaultPanelStyle.headerAccentColor),
+    headerAccentHeight: clampPanelNumber(values.headerAccentHeight, "headerAccentHeight"),
+    padding: clampPanelNumber(values.padding, "padding"),
+    contentGap: clampPanelNumber(values.contentGap, "contentGap"),
+    dividerColor: normalizeColor(values.dividerColor, defaultPanelStyle.dividerColor),
+    dividerOpacity: clampPanelNumber(values.dividerOpacity, "dividerOpacity"),
+    dividerThickness: clampPanelNumber(values.dividerThickness, "dividerThickness"),
+    shadowStrength: clampPanelNumber(values.shadowStrength, "shadowStrength"),
+    glowStrength: clampPanelNumber(values.glowStrength, "glowStrength"),
+    titleTextSize: clampPanelNumber(values.titleTextSize, "titleTextSize"),
+    bodyTextSize: clampPanelNumber(values.bodyTextSize, "bodyTextSize"),
+    disabledOpacity: clampPanelNumber(values.disabledOpacity, "disabledOpacity")
+  };
+}
+
 export function buildRollbackSnapshotName(date: Date, affectedRelativePath: string): string {
   const timestamp = date.toISOString().replace(/[:.]/g, "-");
   const basename = path.basename(affectedRelativePath).replace(/[^a-zA-Z0-9._-]/g, "-") || "snapshot.txt";
@@ -163,6 +238,16 @@ function invalidBackgroundConfigResult(warning: string): BackgroundStyleConfigLo
   return {
     status: warning.includes("invalid JSON") ? "invalid_json" : "schema_invalid",
     config: buildBackgroundReadabilityStyleConfig(backgroundReadabilityPresets[0].name, backgroundReadabilityPresets[0].values),
+    existingConfigDetected: true,
+    initializedFromExistingConfig: false,
+    warning
+  };
+}
+
+function invalidPanelConfigResult(warning: string): PanelStyleConfigLoadResult {
+  return {
+    status: warning.includes("invalid JSON") ? "invalid_json" : "schema_invalid",
+    config: buildPanelStyleConfig(panelStylePresets[0].name, panelStylePresets[0].values),
     existingConfigDetected: true,
     initializedFromExistingConfig: false,
     warning
@@ -231,6 +316,43 @@ function isBackgroundReadabilityStyleValuesShape(value: unknown): value is Backg
     && typeof candidate.contrast === "number";
 }
 
+function isPanelStyleConfigShape(value: unknown): value is PanelStyleConfig {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<PanelStyleConfig>;
+  return candidate.schemaVersion === 1
+    && candidate.surfaceType === "panel"
+    && candidate.adapterTarget === "idle_monster_farm.panels"
+    && typeof candidate.presetName === "string"
+    && typeof candidate.updatedAt === "string"
+    && isPanelStyleValuesShape(candidate.values);
+}
+
+function isPanelStyleValuesShape(value: unknown): value is PanelStyleValues {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<PanelStyleValues>;
+  return typeof candidate.fillColor === "string"
+    && typeof candidate.fillOpacity === "number"
+    && typeof candidate.borderColor === "string"
+    && typeof candidate.borderWidth === "number"
+    && typeof candidate.cornerRadius === "number"
+    && typeof candidate.headerAccentColor === "string"
+    && typeof candidate.headerAccentHeight === "number"
+    && typeof candidate.padding === "number"
+    && typeof candidate.contentGap === "number"
+    && typeof candidate.dividerColor === "string"
+    && typeof candidate.dividerOpacity === "number"
+    && typeof candidate.dividerThickness === "number"
+    && typeof candidate.shadowStrength === "number"
+    && typeof candidate.glowStrength === "number"
+    && typeof candidate.titleTextSize === "number"
+    && typeof candidate.bodyTextSize === "number"
+    && typeof candidate.disabledOpacity === "number";
+}
+
 function clampNumber(value: number, key: keyof typeof slotCardStyleBounds): number {
   const bounds = slotCardStyleBounds[key];
   const numericValue = Number.isFinite(value) ? value : defaultSlotCardStyle[key];
@@ -240,6 +362,12 @@ function clampNumber(value: number, key: keyof typeof slotCardStyleBounds): numb
 function clampBackgroundNumber(value: number, key: keyof typeof backgroundReadabilityStyleBounds): number {
   const bounds = backgroundReadabilityStyleBounds[key];
   const numericValue = Number.isFinite(value) ? value : defaultBackgroundReadabilityStyle[key];
+  return Math.min(bounds.max, Math.max(bounds.min, numericValue));
+}
+
+function clampPanelNumber(value: number, key: keyof typeof panelStyleBounds): number {
+  const bounds = panelStyleBounds[key];
+  const numericValue = Number.isFinite(value) ? value : defaultPanelStyle[key];
   return Math.min(bounds.max, Math.max(bounds.min, numericValue));
 }
 
