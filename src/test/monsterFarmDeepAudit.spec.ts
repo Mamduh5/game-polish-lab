@@ -11,7 +11,9 @@ import {
   renderMonsterFarmPromptGuardrail,
   splitMonsterFarmProjectTypeEvidence
 } from "../core/monsterFarmDeepAudit";
+import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
+import { slotCardPresets } from "../presets/slotCardPresets";
 import { InspectedFile } from "../types/audit";
 
 const fixtureRoot = path.join(process.cwd(), "fixtures", "phaser-idle-monster-farm-sample");
@@ -33,6 +35,28 @@ assert.strictEqual(audit.detected.quest, true);
 assert.strictEqual(audit.detected.boss, true);
 assert.strictEqual(audit.detected.coinBug, true);
 assert.ok(sections.includes("- FarmScene detected: yes"));
+
+assert.deepStrictEqual(slotCardPresets.map((preset) => preset.name), [
+  "Cozy Wood",
+  "Magic Glow",
+  "Chunky Pixel",
+  "Clean Mobile"
+]);
+
+const v05Scope = checkV05VisualScope([
+  ".game-polish-lab/styles/farm-slot-style.json",
+  ".game-polish-lab/rollback/2026-06-24-farm-slot-style.json",
+  "src/config/farmSlotStyle.ts",
+  "src/state/farmSlotState.ts",
+  "src/systems/monsterMergeSystem.ts",
+  "src/services/rewardedAdService.ts"
+], { throughAdapter: true });
+assert.ok(v05Scope.allowedFiles.includes(".game-polish-lab/styles/farm-slot-style.json"));
+assert.ok(v05Scope.allowedFiles.includes("src/config/farmSlotStyle.ts"));
+assert.ok(v05Scope.forbiddenFiles.includes("src/state/farmSlotState.ts"));
+assert.ok(v05Scope.forbiddenFiles.includes("src/systems/monsterMergeSystem.ts"));
+assert.ok(v05Scope.forbiddenFiles.includes("src/services/rewardedAdService.ts"));
+assert.strictEqual(isForbiddenV05Path("src/ui/Leaderboard.ts"), false);
 
 const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([
   {

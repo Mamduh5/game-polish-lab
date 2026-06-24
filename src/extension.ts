@@ -20,6 +20,7 @@ import { openTrialReports } from "./commands/openTrialReports";
 import { runPhaserPixelAudit } from "./commands/runPhaserPixelAudit";
 import { setPerformanceMode } from "./commands/setPerformanceMode";
 import { showPerformanceDiagnostics } from "./commands/showPerformanceDiagnostics";
+import { tuneVisualSurface } from "./commands/tuneVisualSurface";
 import { updateTrialResult } from "./commands/updateTrialResult";
 import { disposeOutputChannel, getOutputChannel } from "./core/output";
 import { clearScanCache } from "./core/workspaceScanner";
@@ -47,6 +48,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.createVisualDiagnosisTask", createVisualDiagnosisTask),
     vscode.commands.registerCommand("gamePolishLab.createTuningExperiment", createTuningExperiment),
     vscode.commands.registerCommand("gamePolishLab.createRollbackPrompt", createRollbackPrompt),
+    vscode.commands.registerCommand("gamePolishLab.tuneVisualSurface", () => tuneVisualSurface(context)),
     vscode.commands.registerCommand("gamePolishLab.addFieldNote", addFieldNote)
   );
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => clearScanCache()));
