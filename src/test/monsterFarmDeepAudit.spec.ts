@@ -11,7 +11,9 @@ import {
   renderMonsterFarmPromptGuardrail,
   splitMonsterFarmProjectTypeEvidence
 } from "../core/monsterFarmDeepAudit";
+import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection } from "../core/farmSlotAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
+import { buildRollbackSnapshotName, buildSlotCardStyleConfig, loadSlotCardStyleConfigFromText } from "../core/visualSurfaceConfig";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { slotCardPresets } from "../presets/slotCardPresets";
 import { InspectedFile } from "../types/audit";
@@ -36,6 +38,31 @@ assert.strictEqual(audit.detected.boss, true);
 assert.strictEqual(audit.detected.coinBug, true);
 assert.ok(sections.includes("- FarmScene detected: yes"));
 
+const validFarmSlotConfig = buildSlotCardStyleConfig("Cozy Wood", slotCardPresets[0].values);
+const validConfigLoad = loadSlotCardStyleConfigFromText(JSON.stringify(validFarmSlotConfig));
+assert.strictEqual(validConfigLoad.status, "valid");
+assert.strictEqual(validConfigLoad.existingConfigDetected, true);
+assert.strictEqual(validConfigLoad.initializedFromExistingConfig, true);
+assert.strictEqual(validConfigLoad.config.surfaceType, "slot_card");
+
+const missingConfigLoad = loadSlotCardStyleConfigFromText(undefined);
+assert.strictEqual(missingConfigLoad.status, "missing");
+assert.strictEqual(missingConfigLoad.existingConfigDetected, false);
+assert.strictEqual(missingConfigLoad.initializedFromExistingConfig, false);
+assert.strictEqual(missingConfigLoad.config.values.slotWidth, slotCardPresets[0].values.slotWidth);
+
+const invalidJsonConfigLoad = loadSlotCardStyleConfigFromText("{ nope");
+assert.strictEqual(invalidJsonConfigLoad.status, "invalid_json");
+assert.strictEqual(invalidJsonConfigLoad.existingConfigDetected, true);
+assert.strictEqual(invalidJsonConfigLoad.initializedFromExistingConfig, false);
+assert.ok(invalidJsonConfigLoad.warning?.includes("invalid JSON"));
+
+const invalidSchemaConfigLoad = loadSlotCardStyleConfigFromText(JSON.stringify({ schemaVersion: 99 }));
+assert.strictEqual(invalidSchemaConfigLoad.status, "schema_invalid");
+assert.strictEqual(invalidSchemaConfigLoad.existingConfigDetected, true);
+assert.strictEqual(invalidSchemaConfigLoad.initializedFromExistingConfig, false);
+assert.ok(invalidSchemaConfigLoad.warning?.includes("unsupported schema"));
+
 assert.deepStrictEqual(slotCardPresets.map((preset) => preset.name), [
   "Cozy Wood",
   "Magic Glow",
@@ -57,6 +84,57 @@ assert.ok(v05Scope.forbiddenFiles.includes("src/state/farmSlotState.ts"));
 assert.ok(v05Scope.forbiddenFiles.includes("src/systems/monsterMergeSystem.ts"));
 assert.ok(v05Scope.forbiddenFiles.includes("src/services/rewardedAdService.ts"));
 assert.strictEqual(isForbiddenV05Path("src/ui/Leaderboard.ts"), false);
+
+const disconnectedFiles = [
+  {
+    relativePath: "src/scenes/FarmScene.ts",
+    text: "import { farmSlotState } from '../state/farmSlotState'; const slots = farmSlotState.slots; monsterMergeSystem.findMergeCandidate(farmSlotState); writeSaveData({ farmSlotState });"
+  },
+  {
+    relativePath: "src/config/farmSlotStyle.ts",
+    text: "export const FARM_SLOT_STYLE = {};"
+  }
+];
+const detection = analyzeFarmSlotDetection(disconnectedFiles);
+assert.strictEqual(detection.target, "idle_monster_farm.farm_slots");
+assert.strictEqual(detection.detected, true);
+assert.strictEqual(detection.confidence, "medium");
+assert.deepStrictEqual(detection.ownerFiles, ["src/scenes/FarmScene.ts"]);
+assert.ok(detection.reasons.some((reason) => reason.includes("FarmScene")));
+assert.ok(detection.warnings.some((warning) => warning.includes("save schema")));
+assert.ok(detection.warnings.some((warning) => warning.includes("merge behavior")));
+
+const disconnected = analyzeFarmSlotStyleConnection(disconnectedFiles);
+assert.strictEqual(disconnected.connected, false);
+assert.strictEqual(disconnected.connectionType, "none");
+assert.deepStrictEqual(disconnected.connectedFiles, []);
+assert.ok(disconnected.missingPieces.some((piece) => piece.includes("owner/rendering files")));
+
+const connectedFiles = [
+  {
+    relativePath: "src/ui/FarmSlotView.ts",
+    text: "import { FARM_SLOT_STYLE } from '../config/farmSlotStyle'; export function drawSlot() { return FARM_SLOT_STYLE.slotWidth; }"
+  },
+  {
+    relativePath: "src/config/farmSlotStyle.ts",
+    text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };"
+  }
+];
+const connectedDetection = analyzeFarmSlotDetection(connectedFiles);
+assert.strictEqual(connectedDetection.detected, true);
+assert.strictEqual(connectedDetection.confidence, "high");
+const connected = analyzeFarmSlotStyleConnection(connectedFiles);
+assert.strictEqual(connected.connected, true);
+assert.strictEqual(connected.connectionType, "style_module");
+assert.deepStrictEqual(connected.connectedFiles, ["src/ui/FarmSlotView.ts"]);
+const connectedAfterRepeatedApply = analyzeFarmSlotStyleConnection(connectedFiles);
+assert.strictEqual(connectedAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedAfterRepeatedApply.connectionType, "style_module");
+
+assert.strictEqual(
+  buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), ".game-polish-lab/styles/farm-slot-style.json"),
+  "2026-06-24T10-11-12-123Z-farm-slot-style.json"
+);
 
 const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([
   {

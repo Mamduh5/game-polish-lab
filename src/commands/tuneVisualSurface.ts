@@ -1,14 +1,26 @@
 import * as vscode from "vscode";
 
-import { applyIdleMonsterFarmFarmSlotStyle, detectIdleMonsterFarmFarmSlotAdapter, summarizeFarmSlotApplyResult } from "../adapters/idleMonsterFarm/farmSlotAdapter";
+import {
+  applyIdleMonsterFarmFarmSlotStyle,
+  getIdleMonsterFarmFarmSlotAdapterState,
+  setupIdleMonsterFarmFarmSlotBridge,
+  summarizeFarmSlotApplyResult
+} from "../adapters/idleMonsterFarm/farmSlotAdapter";
 import { checkV05VisualScope } from "../core/v05VisualScopeGuard";
 import { logCommandEnd, logCommandStart, logError, logInfo, logWarn } from "../core/output";
-import { ensureDirectory, labUri, pathExists, readJsonFileIfExists, readTextFile, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
+import {
+  buildRollbackSnapshotName,
+  buildSlotCardStyleConfig,
+  farmSlotStyleConfigRelativePath,
+  loadSlotCardStyleConfigFromText,
+  StyleConfigLoadResult
+} from "../core/visualSurfaceConfig";
+import { ensureDirectory, labUri, pathExists, readTextFile, readTextFileIfExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
 import { defaultSlotCardStyle, slotCardPresets, slotCardStyleBounds } from "../presets/slotCardPresets";
 import { SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
 
 interface SaveMessage {
-  command: "saveAndApply";
+  command: "saveAndApply" | "setupBridge";
   presetName: string;
   values: SlotCardStyleValues;
 }
@@ -17,14 +29,12 @@ interface SaveResultMessage {
   command: "saveResult";
   ok: boolean;
   configPath?: string;
-  rollbackPath?: string;
+  rollbackPaths?: string[];
   checklist?: string[];
   applySummary?: string[];
   warnings?: string[];
   error?: string;
 }
-
-const styleConfigRelativePath = ".game-polish-lab/styles/farm-slot-style.json";
 
 export async function tuneVisualSurface(context: vscode.ExtensionContext): Promise<void> {
   const folder = requireWorkspaceFolder();
@@ -34,8 +44,12 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
   logCommandStart("gamePolishLab.tuneVisualSurface", folder.uri.fsPath);
 
   try {
-    const existingConfig = await readJsonFileIfExists<SlotCardStyleConfig>(labUri(folder, "styles", "farm-slot-style.json"));
-    const adapterDetection = await detectIdleMonsterFarmFarmSlotAdapter(folder);
+    const configLoad = loadSlotCardStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "farm-slot-style.json")));
+    if (configLoad.warning) {
+      logWarn(configLoad.warning);
+      vscode.window.showWarningMessage(configLoad.warning);
+    }
+    const adapterState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
     const panel = vscode.window.createWebviewPanel(
       "gamePolishLab.tuneVisualSurface",
       "Tune Visual Surface",
@@ -48,17 +62,20 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
     );
 
     panel.webview.html = renderTuneVisualSurfaceHtml(panel.webview, {
-      initialConfig: normalizeConfig(existingConfig),
-      adapterLikelyFiles: adapterDetection.likelyFiles,
-      adapterWarnings: adapterDetection.warnings
+      configLoad,
+      adapterState
     });
 
     panel.webview.onDidReceiveMessage(async (message: SaveMessage) => {
-      if (message.command !== "saveAndApply") {
+      if (message.command === "saveAndApply") {
+        const result = await saveAndApply(folder, message, configLoad);
+        await panel.webview.postMessage(result);
         return;
       }
-      const result = await saveAndApply(folder, message);
-      await panel.webview.postMessage(result);
+      if (message.command === "setupBridge") {
+        const result = await setupBridge(folder, message, configLoad);
+        await panel.webview.postMessage(result);
+      }
     });
   } catch (error) {
     logError("tune visual surface failed:", error);
@@ -68,20 +85,20 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
   }
 }
 
-async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage, initialLoad: StyleConfigLoadResult): Promise<SaveResultMessage> {
   try {
-    const config = buildConfig(message.presetName, message.values);
+    const config = buildSlotCardStyleConfig(message.presetName, message.values);
     const configUri = labUri(folder, "styles", "farm-slot-style.json");
-    const plannedConfigFiles = [styleConfigRelativePath];
+    const plannedConfigFiles = [farmSlotStyleConfigRelativePath];
     const scope = checkV05VisualScope(plannedConfigFiles, { throughAdapter: false });
     if (!scope.ok) {
-      const error = `v0.5 scope guard blocked config save: ${scope.forbiddenFiles.join(", ")}`;
+      const error = `v0.51 scope guard blocked config save: ${scope.forbiddenFiles.join(", ")}`;
       logWarn(error);
       return { command: "saveResult", ok: false, error, warnings: scope.warnings };
     }
 
     await ensureDirectory(labUri(folder, "styles"));
-    const rollbackPath = await createRollbackSnapshotIfNeeded(folder, configUri);
+    const rollbackPaths = await createRollbackSnapshotIfNeeded(folder, configUri, farmSlotStyleConfigRelativePath);
     await writeJsonFile(configUri, config);
 
     const applyResult = await applyIdleMonsterFarmFarmSlotStyle(folder, config);
@@ -93,17 +110,26 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
       logWarn(warning);
     }
 
-    const checklist = buildManualChecklist(Boolean(rollbackPath), applyResult.changedFiles);
+    const allRollbackPaths = [...rollbackPaths, ...applyResult.rollbackPaths];
+    const checklist = buildManualChecklist({
+      configLoad: initialLoad,
+      rollbackCreated: allRollbackPaths.length > 0,
+      adapterChangedFiles: applyResult.changedFiles,
+      applySummary,
+      connected: applyResult.connection.connected,
+      setupOffered: applyResult.setupOffered,
+      ownerFilesDetected: applyResult.detection.ownerFiles.length > 0
+    });
     logChecklist(checklist);
     vscode.window.showInformationMessage(applyResult.applied
       ? "Game Polish Lab style saved and applied through the farm slot adapter."
-      : "Game Polish Lab style saved. Direct apply was blocked or unsafe; see Game Polish Lab output.");
+      : "Game Polish Lab style saved. One-time adapter setup may be needed; see Game Polish Lab output.");
 
     return {
       command: "saveResult",
       ok: true,
-      configPath: styleConfigRelativePath,
-      rollbackPath,
+      configPath: farmSlotStyleConfigRelativePath,
+      rollbackPaths: allRollbackPaths,
       checklist,
       applySummary,
       warnings: applyResult.warnings
@@ -118,80 +144,94 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
   }
 }
 
-async function createRollbackSnapshotIfNeeded(folder: vscode.WorkspaceFolder, configUri: vscode.Uri): Promise<string | undefined> {
+async function setupBridge(folder: vscode.WorkspaceFolder, message: SaveMessage, initialLoad: StyleConfigLoadResult): Promise<SaveResultMessage> {
+  try {
+    const config = buildSlotCardStyleConfig(message.presetName, message.values);
+    const setupResult = await setupIdleMonsterFarmFarmSlotBridge(folder, config);
+    const applySummary = [
+      `adapter target: idle_monster_farm.farm_slots`,
+      `one-time setup: ${setupResult.setupApplied ? "applied" : "blocked"}`,
+      `intended files: ${setupResult.intendedFiles.length > 0 ? setupResult.intendedFiles.join(", ") : "none"}`,
+      `changed files: ${setupResult.changedFiles.length > 0 ? setupResult.changedFiles.join(", ") : "none"}`,
+      `rollback snapshots: ${setupResult.rollbackPaths.length > 0 ? setupResult.rollbackPaths.join(", ") : "none"}`,
+      `connected after setup: ${setupResult.connection.connected ? "yes" : "no"} (${setupResult.connection.connectionType})`,
+      ...setupResult.warnings.map((warning) => `warning: ${warning}`),
+      ...setupResult.connection.missingPieces.map((piece) => `missing: ${piece}`),
+      ...setupResult.blockedFiles.map((file) => `blocked: ${file}`)
+    ];
+    for (const line of applySummary) {
+      logInfo(line);
+    }
+    for (const warning of setupResult.warnings) {
+      logWarn(warning);
+    }
+    const checklist = buildManualChecklist({
+      configLoad: initialLoad,
+      rollbackCreated: setupResult.rollbackPaths.length > 0,
+      adapterChangedFiles: setupResult.changedFiles,
+      applySummary,
+      connected: setupResult.connection.connected,
+      setupOffered: true,
+      ownerFilesDetected: setupResult.detection.ownerFiles.length > 0
+    });
+    logChecklist(checklist);
+    return {
+      command: "saveResult",
+      ok: setupResult.blockedFiles.length === 0,
+      configPath: farmSlotStyleConfigRelativePath,
+      rollbackPaths: setupResult.rollbackPaths,
+      checklist,
+      applySummary,
+      warnings: setupResult.warnings,
+      error: setupResult.blockedFiles.length > 0 ? `Setup blocked: ${setupResult.blockedFiles.join(", ")}` : undefined
+    };
+  } catch (error) {
+    logError("setup farm slot bridge failed:", error);
+    return {
+      command: "saveResult",
+      ok: false,
+      error: errorToMessage(error)
+    };
+  }
+}
+
+async function createRollbackSnapshotIfNeeded(folder: vscode.WorkspaceFolder, configUri: vscode.Uri, affectedRelativePath: string): Promise<string[]> {
   if (!(await pathExists(configUri))) {
-    return undefined;
+    return [];
   }
 
   const existingText = await readTextFile(configUri);
   await ensureDirectory(labUri(folder, "rollback"));
-  const fileName = `${new Date().toISOString().replace(/[:.]/g, "-")}-farm-slot-style.json`;
+  const fileName = buildRollbackSnapshotName(new Date(), affectedRelativePath);
   const rollbackUri = labUri(folder, "rollback", fileName);
   await writeTextFile(rollbackUri, existingText);
-  return `.game-polish-lab/rollback/${fileName}`;
+  return [`.game-polish-lab/rollback/${fileName}`];
 }
 
-function normalizeConfig(config: SlotCardStyleConfig | undefined): SlotCardStyleConfig {
-  if (!config || config.schemaVersion !== 1 || config.surfaceType !== "slot_card" || config.adapterTarget !== "idle_monster_farm.farm_slots") {
-    return buildConfig(slotCardPresets[0].name, slotCardPresets[0].values);
-  }
-  return {
-    ...config,
-    values: normalizeValues(config.values)
-  };
-}
-
-function buildConfig(presetName: string, values: SlotCardStyleValues): SlotCardStyleConfig {
-  return {
-    schemaVersion: 1,
-    surfaceType: "slot_card",
-    adapterTarget: "idle_monster_farm.farm_slots",
-    presetName,
-    updatedAt: new Date().toISOString(),
-    values: normalizeValues(values)
-  };
-}
-
-function normalizeValues(values: SlotCardStyleValues): SlotCardStyleValues {
-  return {
-    slotWidth: clampNumber(values.slotWidth, "slotWidth"),
-    slotHeight: clampNumber(values.slotHeight, "slotHeight"),
-    gap: clampNumber(values.gap, "gap"),
-    borderWidth: clampNumber(values.borderWidth, "borderWidth"),
-    cornerRadius: clampNumber(values.cornerRadius, "cornerRadius"),
-    fillColor: normalizeColor(values.fillColor, defaultSlotCardStyle.fillColor),
-    borderColor: normalizeColor(values.borderColor, defaultSlotCardStyle.borderColor),
-    selectedGlowStrength: clampNumber(values.selectedGlowStrength, "selectedGlowStrength"),
-    lockedOverlayOpacity: clampNumber(values.lockedOverlayOpacity, "lockedOverlayOpacity"),
-    emptySlotOpacity: clampNumber(values.emptySlotOpacity, "emptySlotOpacity"),
-    mergeCandidatePulseScale: clampNumber(values.mergeCandidatePulseScale, "mergeCandidatePulseScale"),
-    monsterDisplayScale: clampNumber(values.monsterDisplayScale, "monsterDisplayScale"),
-    monsterVerticalOffset: clampNumber(values.monsterVerticalOffset, "monsterVerticalOffset")
-  };
-}
-
-function clampNumber(value: number, key: keyof typeof slotCardStyleBounds): number {
-  const bounds = slotCardStyleBounds[key];
-  const numericValue = Number.isFinite(value) ? value : defaultSlotCardStyle[key];
-  return Math.min(bounds.max, Math.max(bounds.min, numericValue));
-}
-
-function normalizeColor(value: string, fallback: string): string {
-  return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
-}
-
-function buildManualChecklist(rollbackCreated: boolean, adapterChangedFiles: string[]): string[] {
+function buildManualChecklist(input: {
+  configLoad: StyleConfigLoadResult;
+  rollbackCreated: boolean;
+  adapterChangedFiles: string[];
+  applySummary: string[];
+  connected: boolean;
+  setupOffered: boolean;
+  ownerFilesDetected: boolean;
+}): string[] {
   return [
+    input.configLoad.existingConfigDetected ? "existing style config detected" : "existing style config was missing and a default config was created",
+    input.configLoad.initializedFromExistingConfig ? "editor initialized from existing config" : "editor initialized from safe default values",
+    input.ownerFilesDetected ? "farm slot owner files detected" : "farm slot owner files were not detected",
+    input.connected ? "connected status reported: connected" : "connected status reported: not connected",
+    input.connected ? "updated values applied without integration changes" : "one-time setup path was offered instead of unsafe patching",
+    input.setupOffered ? "one-time setup path was offered through the adapter" : "one-time setup was not required for this apply",
+    input.rollbackCreated ? "rollback snapshot created before overwrite" : "rollback snapshot was not needed because no existing target was overwritten",
     "empty slot preview works",
     "occupied slot preview works",
     "selected slot glow works",
     "locked overlay works",
-    "merge candidate pulse style is visible",
-    "monster scale and vertical offset are applied visually",
-    "config saved to .game-polish-lab/styles/farm-slot-style.json",
-    rollbackCreated ? "rollback snapshot was created before overwrite" : "rollback snapshot was not needed because no previous config existed",
+    "merge-candidate state still renders",
     "no save/economy/hatch/progression/merge/quest/ad files were changed",
-    adapterChangedFiles.length > 0 ? `adapter changed visual/style files only: ${adapterChangedFiles.join(", ")}` : "adapter did not change source files"
+    input.adapterChangedFiles.length > 0 ? `adapter changed visual/style files only: ${input.adapterChangedFiles.join(", ")}` : "adapter did not change source files"
   ];
 }
 
@@ -203,18 +243,17 @@ function logChecklist(checklist: string[]): void {
 }
 
 function renderTuneVisualSurfaceHtml(webview: vscode.Webview, input: {
-  initialConfig: SlotCardStyleConfig;
-  adapterLikelyFiles: string[];
-  adapterWarnings: string[];
+  configLoad: StyleConfigLoadResult;
+  adapterState: Awaited<ReturnType<typeof getIdleMonsterFarmFarmSlotAdapterState>>;
 }): string {
   const nonce = createNonce();
   const payload = JSON.stringify({
     presets: slotCardPresets,
     bounds: slotCardStyleBounds,
     beforeValues: defaultSlotCardStyle,
-    initialConfig: input.initialConfig,
-    adapterLikelyFiles: input.adapterLikelyFiles,
-    adapterWarnings: input.adapterWarnings
+    initialConfig: input.configLoad.config,
+    configLoad: input.configLoad,
+    adapterState: input.adapterState
   }).replace(/</g, "\\u003c");
 
   return `<!DOCTYPE html>
@@ -223,7 +262,7 @@ function renderTuneVisualSurfaceHtml(webview: vscode.Webview, input: {
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Game Polish Lab v0.5</title>
+  <title>Game Polish Lab v0.51</title>
   <style nonce="${nonce}">
     :root {
       color-scheme: light dark;
@@ -420,7 +459,7 @@ function renderTuneVisualSurfaceHtml(webview: vscode.Webview, input: {
 <body>
   <div class="header">
     <div>
-      <h1>Game Polish Lab v0.5: Visual Tuning Proof</h1>
+      <h1>Game Polish Lab v0.51: Farm Slot Integration</h1>
       <p class="meta">Surface: <strong>slot_card</strong> - Adapter target: <strong>idle_monster_farm.farm_slots</strong></p>
     </div>
   </div>
@@ -436,6 +475,7 @@ function renderTuneVisualSurfaceHtml(webview: vscode.Webview, input: {
       </div>
       <div class="actions">
         <button class="secondary" id="reset">Reset</button>
+        <button class="secondary" id="setup" style="display:none;">One-Time Setup</button>
         <button id="save">Save & Apply</button>
       </div>
       <div id="status" class="status"></div>
@@ -488,6 +528,7 @@ function renderTuneVisualSurfaceHtml(webview: vscode.Webview, input: {
     };
     let presetName = data.initialConfig.presetName;
     let values = structuredClone(data.initialConfig.values);
+    let lastApplyNeedsSetup = false;
 
     const presetSelect = document.getElementById("preset");
     const controls = document.getElementById("controls");
@@ -585,6 +626,11 @@ function renderTuneVisualSurfaceHtml(webview: vscode.Webview, input: {
       vscode.postMessage({ command: "saveAndApply", presetName, values });
     });
 
+    document.getElementById("setup").addEventListener("click", () => {
+      status.textContent = "Running one-time adapter setup after scope guard checks...";
+      vscode.postMessage({ command: "setupBridge", presetName, values });
+    });
+
     window.addEventListener("message", (event) => {
       const message = event.data;
       if (message.command !== "saveResult") return;
@@ -592,9 +638,11 @@ function renderTuneVisualSurfaceHtml(webview: vscode.Webview, input: {
         status.textContent = "Save/apply failed: " + message.error;
         return;
       }
+      lastApplyNeedsSetup = (message.applySummary ?? []).some((line) => line.includes("setup offered: yes") || line.includes("one-time setup: blocked"));
+      document.getElementById("setup").style.display = lastApplyNeedsSetup ? "inline-block" : "none";
       const lines = [
         "Saved: " + message.configPath,
-        message.rollbackPath ? "Rollback: " + message.rollbackPath : "Rollback: not needed on first save",
+        message.rollbackPaths && message.rollbackPaths.length > 0 ? "Rollback: " + message.rollbackPaths.join(", ") : "Rollback: no existing target overwritten",
         "",
         "Adapter:",
         ...(message.applySummary ?? []),
@@ -655,14 +703,23 @@ function renderTuneVisualSurfaceHtml(webview: vscode.Webview, input: {
 
     const adapterList = document.getElementById("adapter");
     const adapterLines = [
-      ...(data.adapterLikelyFiles.length > 0 ? data.adapterLikelyFiles : ["No likely farm slot files detected."]),
-      ...data.adapterWarnings.map((warning) => "Warning: " + warning)
+      "Config: " + data.configLoad.status,
+      data.configLoad.warning ? "Warning: " + data.configLoad.warning : "",
+      "Detected: " + data.adapterState.detection.detected + " (" + data.adapterState.detection.confidence + ")",
+      "Owners: " + (data.adapterState.detection.ownerFiles.length > 0 ? data.adapterState.detection.ownerFiles.join(", ") : "none"),
+      "Connected: " + data.adapterState.connection.connected + " (" + data.adapterState.connection.connectionType + ")",
+      "Connected files: " + (data.adapterState.connection.connectedFiles.length > 0 ? data.adapterState.connection.connectedFiles.join(", ") : "none"),
+      ...data.adapterState.detection.reasons.map((reason) => "Reason: " + reason),
+      ...data.adapterState.connection.missingPieces.map((piece) => "Missing: " + piece),
+      ...data.adapterState.detection.warnings.map((warning) => "Warning: " + warning)
     ];
-    for (const line of adapterLines) {
+    for (const line of adapterLines.filter(Boolean)) {
       const item = document.createElement("li");
       item.textContent = line;
       adapterList.append(item);
     }
+    document.getElementById("setup").style.display = lastApplyNeedsSetup ? "inline-block" : "none";
+    status.textContent = data.configLoad.warning ? data.configLoad.warning : "";
 
     buildControls();
     render();
