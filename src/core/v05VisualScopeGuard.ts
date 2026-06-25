@@ -51,7 +51,6 @@ const forbiddenPathTerms = [
   "levels",
   "worldbounds",
   "camera",
-  "loader",
   "gameplay",
   "rules",
   "navigation/",
@@ -62,6 +61,7 @@ const forbiddenPathTerms = [
 const allowedStylePathTerms = [
   ".game-polish-lab/styles/",
   ".game-polish-lab/visual-recipes/",
+  ".game-polish-lab/fallback-tasks/",
   ".game-polish-lab/rollback/",
   ".game-polish-lab/assets/",
   "src/assets/",
@@ -112,7 +112,13 @@ const farmSlotRenderingTerms = [
   "controls",
   "panelcontrols",
   "upgradepanel",
-  "upgrade-panel"
+  "upgrade-panel",
+  "scene",
+  "preload",
+  "loader",
+  "rendering",
+  "render",
+  "ui/"
 ];
 
 export interface V05ScopeGuardResult {
@@ -146,6 +152,9 @@ export function checkV05VisualScope(files: string[], options: { throughAdapter: 
 
 export function isForbiddenV05Path(filePath: string): boolean {
   const normalized = normalizeWorkspacePath(filePath).toLowerCase();
+  if (normalized.startsWith(".game-polish-lab/")) {
+    return false;
+  }
   if (normalized.includes("gameplayactionbarview")) {
     return false;
   }

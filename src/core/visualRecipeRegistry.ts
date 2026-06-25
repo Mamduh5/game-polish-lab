@@ -27,6 +27,22 @@ export interface VisualRecipeValidationResult {
 
 const updatedAt = "2026-06-25T00:00:00.000Z";
 
+const genericStyleConfigPaths: Record<Exclude<VisualSurfaceType, "asset_replacement">, string> = {
+  slot_card: ".game-polish-lab/styles/generic-slot-card-style.json",
+  background_readability: ".game-polish-lab/styles/generic-background-readability-style.json",
+  panel: ".game-polish-lab/styles/generic-panel-style.json",
+  reward_toast: ".game-polish-lab/styles/generic-reward-toast-style.json",
+  button: ".game-polish-lab/styles/generic-button-style.json"
+};
+
+const genericStyleModulePaths: Record<Exclude<VisualSurfaceType, "asset_replacement">, string> = {
+  slot_card: "src/config/gamePolishLab/genericSlotCardStyle.ts",
+  background_readability: "src/config/gamePolishLab/genericBackgroundReadabilityStyle.ts",
+  panel: "src/config/gamePolishLab/genericPanelStyle.ts",
+  reward_toast: "src/config/gamePolishLab/genericRewardToastStyle.ts",
+  button: "src/config/gamePolishLab/genericButtonStyle.ts"
+};
+
 const tokenLabels: Record<string, string> = {
   slotWidth: "Slot width",
   slotHeight: "Slot height",
@@ -181,7 +197,7 @@ const unitByToken: Record<string, VisualStyleToken["unit"]> = {
   activePressScale: "scale"
 };
 
-export const assetReplacementRecipeNote = "asset_replacement remains an asset replacement model in v0.57 because it depends on file validation, copy destinations, and assignment modes rather than a normal style-token config.";
+export const assetReplacementRecipeNote = "asset_replacement remains an asset replacement model because it depends on file validation, copy destinations, and assignment modes rather than a normal style-token config.";
 export const visualSurfacePickerOrder: VisualSurfaceType[] = ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"];
 
 export const visualSurfaceRecipes: VisualSurfaceRecipe[] = [
@@ -423,7 +439,7 @@ function buildRecipe(input: {
     statePreviews: input.statePreviews,
     configPath: input.configPath,
     generatedStyleModulePath: input.generatedStyleModulePath,
-    adapterMappings: [input.mapping],
+    adapterMappings: [input.mapping, genericPhaserMapping(input.surfaceType)],
     directApply: {
       supported: true,
       requiresConnection: true,
@@ -439,6 +455,51 @@ function buildRecipe(input: {
       exactScopeSummary: "Only visual style config/module files and adapter-approved rendering files may be changed; gameplay, data, economy, save, progression, ad, inventory/state, and rule files remain forbidden."
     },
     updatedAt
+  };
+}
+
+function genericPhaserMapping(surfaceType: Exclude<VisualSurfaceType, "asset_replacement">): VisualRecipeAdapterMapping {
+  return {
+    adapterId: "generic_phaser",
+    targetId: "manual_target",
+    targetLabel: "Generic Phaser Manual Target",
+    targetSurface: `${surfaceType} manual visual target`,
+    detectionKind: "manual_scope",
+    ownerFileHints: [],
+    safeFileScopes: [
+      genericStyleConfigPaths[surfaceType],
+      genericStyleModulePaths[surfaceType],
+      ".game-polish-lab/visual-recipes/*",
+      ".game-polish-lab/fallback-tasks/*",
+      ".game-polish-lab/rollback/*"
+    ],
+    suspiciousFileScopes: ["src/scenes/*", "src/rendering/*", "src/ui/*", "preload/loader files"],
+    forbiddenFileScopes: [
+      "save files",
+      "economy files",
+      "hatch/upgrade/quest logic files",
+      "progression/unlock files",
+      "ad/monetization files",
+      "inventory/state files",
+      "data model/schema files",
+      "level data",
+      "gameplay rules",
+      "input/action dispatch files",
+      "package scripts/dependency changes"
+    ],
+    configPath: genericStyleConfigPaths[surfaceType],
+    generatedStyleModulePath: genericStyleModulePaths[surfaceType],
+    supportedConnectionTypes: ["style_module", "json_config"],
+    directApplySupported: true,
+    setupSupported: false,
+    manualTestChecklist: [
+      "Generic Phaser adapter selected",
+      "Phaser project detection result shown",
+      "target file scope selected by user",
+      "fallback task includes exact selected file scope",
+      "unsupported loader/manifest changes were not patched automatically",
+      "no gameplay/save/economy/progression/ad files changed"
+    ]
   };
 }
 

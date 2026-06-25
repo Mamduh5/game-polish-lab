@@ -18,6 +18,16 @@ import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/pane
 import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
 import {
+  buildGenericAssetTarget,
+  buildGenericFallbackTask,
+  detectGenericPhaserProject,
+  genericFallbackTaskRelativePath,
+  genericGeneratedStyleModulePath,
+  genericStyleConfigRelativePath,
+  normalizeGenericSelectedFiles,
+  shouldOfferGenericPhaserAdapter
+} from "../core/genericPhaserAdapterModel";
+import {
   assetReplacementRecipeNote,
   getVisualSurfaceRecipe,
   getVisualSurfaceRecipes,
@@ -730,12 +740,19 @@ for (const recipe of recipes) {
   assert.strictEqual(recipe.schemaVersion, visualRecipeSchemaVersion);
   assert.ok(recipe.configPath.startsWith(".game-polish-lab/styles/"));
   assert.ok(recipe.generatedStyleModulePath?.startsWith("src/config/"));
-  assert.strictEqual(recipe.adapterMappings.length, 1);
-  assert.strictEqual(recipe.adapterMappings[0].adapterId, "idle_monster_farm");
-  assert.ok(recipe.adapterMappings[0].targetLabel.includes("Monster Farm"));
-  assert.ok(recipe.adapterMappings[0].targetSurface.length > 0);
-  assert.strictEqual(recipe.adapterMappings[0].configPath, recipe.configPath);
-  assert.strictEqual(recipe.adapterMappings[0].generatedStyleModulePath, recipe.generatedStyleModulePath);
+  assert.strictEqual(recipe.adapterMappings.length, 2);
+  const monsterFarmMapping = recipe.adapterMappings.find((mapping) => mapping.adapterId === "idle_monster_farm");
+  const genericMapping = recipe.adapterMappings.find((mapping) => mapping.adapterId === "generic_phaser");
+  assert.ok(monsterFarmMapping);
+  assert.ok(genericMapping);
+  assert.ok(monsterFarmMapping.targetLabel.includes("Monster Farm"));
+  assert.ok(monsterFarmMapping.targetSurface.length > 0);
+  assert.strictEqual(monsterFarmMapping.configPath, recipe.configPath);
+  assert.strictEqual(monsterFarmMapping.generatedStyleModulePath, recipe.generatedStyleModulePath);
+  assert.ok(genericMapping.configPath.startsWith(".game-polish-lab/styles/generic-"));
+  assert.ok(genericMapping.generatedStyleModulePath?.startsWith("src/config/gamePolishLab/generic"));
+  assert.strictEqual(genericMapping.setupSupported, false);
+  assert.ok(genericMapping.manualTestChecklist.some((item) => item.includes("Generic Phaser")));
   assert.ok(recipe.fallbackTaskMetadata.userVisibleMessage.length > 0);
   assert.strictEqual(recipe.fallbackTaskMetadata.requiredConsent, true);
   assert.ok(recipe.fallbackTaskMetadata.exactScopeSummary.includes("gameplay"));
@@ -773,6 +790,100 @@ const buttonRecipe = getVisualSurfaceRecipe("button")!;
 assert.strictEqual(buttonRecipe.recipeId, "button");
 assert.strictEqual(buttonRecipe.configPath, buttonStyleConfigRelativePath);
 assert.ok(buttonRecipe.supportedStyleTokens.some((token) => token.tokenId === "activePressScale" && token.unit === "scale"));
+
+const genericDetected = detectGenericPhaserProject([
+  { relativePath: "package.json", text: JSON.stringify({ dependencies: { phaser: "^3.90.0" } }) },
+  { relativePath: "src/main.ts", text: "import Phaser from 'phaser';" },
+  { relativePath: "src/scenes/BootScene.ts", text: "export class BootScene extends Phaser.Scene {}" },
+  { relativePath: "public/assets/sprites/slime.png", text: "" }
+]);
+assert.strictEqual(genericDetected.detected, true);
+assert.strictEqual(genericDetected.confidence, "high");
+assert.ok(genericDetected.likelySceneFiles.includes("src/scenes/BootScene.ts"));
+assert.ok(genericDetected.likelyAssetFolders.includes("public/assets"));
+
+const genericSceneUsage = detectGenericPhaserProject([
+  { relativePath: "src/scenes/MenuScene.ts", text: "export class MenuScene extends Phaser.Scene {}" }
+]);
+assert.strictEqual(genericSceneUsage.detected, true);
+assert.strictEqual(genericSceneUsage.confidence, "medium");
+assert.deepStrictEqual(genericSceneUsage.likelySceneFiles, ["src/scenes/MenuScene.ts"]);
+
+const genericPartial = detectGenericPhaserProject([
+  { relativePath: "src/main.ts", text: "bootstrap();" }
+]);
+assert.strictEqual(genericPartial.detected, true);
+assert.strictEqual(genericPartial.confidence, "low");
+assert.ok(genericPartial.warnings.some((warning) => warning.includes("partial")));
+
+assert.strictEqual(shouldOfferGenericPhaserAdapter({ knownAdapterDetected: false }), true);
+assert.strictEqual(shouldOfferGenericPhaserAdapter({ knownAdapterDetected: true, knownAdapterConfidence: "low" }), true);
+assert.strictEqual(shouldOfferGenericPhaserAdapter({ knownAdapterDetected: true, knownAdapterConfidence: "high" }), false);
+assert.strictEqual(shouldOfferGenericPhaserAdapter({ knownAdapterDetected: true, knownAdapterConfidence: "high", manualSelected: true }), true);
+
+assert.deepStrictEqual(normalizeGenericSelectedFiles([" src/scenes/A.ts ", "src/scenes/A.ts", "src/ui/ButtonView.ts"]), [
+  "src/scenes/A.ts",
+  "src/ui/ButtonView.ts"
+]);
+assert.strictEqual(genericStyleConfigRelativePath("button"), ".game-polish-lab/styles/generic-button-style.json");
+assert.strictEqual(genericGeneratedStyleModulePath("slot_card"), "src/config/gamePolishLab/genericSlotCardStyle.ts");
+assert.ok(genericFallbackTaskRelativePath(new Date("2026-06-25T01:02:03.004Z"), "button", "Action Buttons").includes("generic-button-action-buttons.json"));
+
+const genericFallback = buildGenericFallbackTask({
+  surfaceType: "button",
+  targetLabel: "Action Buttons",
+  selectedFiles: ["src/ui/ButtonView.ts"],
+  generatedStyleConfigPath: genericStyleConfigRelativePath("button"),
+  generatedStyleModulePath: genericGeneratedStyleModulePath("button")
+});
+assert.strictEqual(genericFallback.ok, true);
+assert.ok(genericFallback.task?.allowedFiles.includes("src/ui/ButtonView.ts"));
+assert.strictEqual(genericFallback.task?.allowedFiles.includes("src/ui/OtherButtonView.ts"), false);
+assert.ok(genericFallback.task?.codexMustNotDo.some((line) => line.includes("loaders/manifests")));
+
+const vagueGenericFallback = buildGenericFallbackTask({
+  surfaceType: "panel",
+  targetLabel: "Panels",
+  selectedFiles: ["src/scenes/*.ts"],
+  generatedStyleConfigPath: genericStyleConfigRelativePath("panel"),
+  generatedStyleModulePath: genericGeneratedStyleModulePath("panel")
+});
+assert.strictEqual(vagueGenericFallback.ok, false);
+assert.ok(vagueGenericFallback.errors.some((error) => error.includes("wildcards")));
+
+const emptyGenericFallback = buildGenericFallbackTask({
+  surfaceType: "reward_toast",
+  targetLabel: "Toast",
+  selectedFiles: [],
+  generatedStyleConfigPath: genericStyleConfigRelativePath("reward_toast"),
+  generatedStyleModulePath: genericGeneratedStyleModulePath("reward_toast")
+});
+assert.strictEqual(emptyGenericFallback.ok, false);
+assert.ok(emptyGenericFallback.errors.some((error) => error.includes("At least one selected")));
+
+const genericAssetTarget = buildGenericAssetTarget("src/assets/ui");
+const validGenericAsset = validateReplacementAsset({ fileName: "button.png", bytes: Buffer.from("not-real-png") }, genericAssetTarget);
+assert.strictEqual(validGenericAsset.model.destinationPath, "src/assets/ui/button.png");
+const genericAssetTraversal = validateReplacementAsset({ fileName: "../button.png", bytes: Buffer.from("not-real-png") }, genericAssetTarget);
+assert.strictEqual(genericAssetTraversal.ok, false);
+assert.ok(genericAssetTraversal.model.validationErrors.some((error) => error.includes("path traversal")));
+
+const genericFallbackScope = checkV05VisualScope([
+  ".game-polish-lab/fallback-tasks/2026-generic-button-action-buttons.json",
+  genericStyleConfigRelativePath("button"),
+  genericGeneratedStyleModulePath("button")
+], { throughAdapter: true });
+assert.strictEqual(genericFallbackScope.ok, true);
+
+const unsafeGenericDirectScope = checkV05VisualScope([
+  "src/scenes/MenuScene.ts",
+  "src/rendering/ButtonView.ts",
+  "src/scenes/PreloadScene.ts"
+], { throughAdapter: false });
+assert.strictEqual(unsafeGenericDirectScope.ok, false);
+assert.ok(unsafeGenericDirectScope.forbiddenFiles.includes("src/scenes/MenuScene.ts"));
+assert.ok(unsafeGenericDirectScope.forbiddenFiles.includes("src/rendering/ButtonView.ts"));
+assert.ok(unsafeGenericDirectScope.forbiddenFiles.includes("src/scenes/PreloadScene.ts"));
 
 const recipeScope = checkV05VisualScope([
   ".game-polish-lab/visual-recipes/slot-card.json",
