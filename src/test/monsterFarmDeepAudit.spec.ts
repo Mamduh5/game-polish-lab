@@ -41,6 +41,14 @@ import {
   visualTuningResultStatuses
 } from "../core/tuningAttemptModel";
 import {
+  buildDashboardRow,
+  buildVisualTuningDashboardModel,
+  calculateAppliedStatus,
+  configPathForDashboard,
+  dashboardManualChecklist,
+  recipeFileStatus
+} from "../core/visualTuningDashboardModel";
+import {
   assetReplacementRecipeNote,
   getVisualSurfaceRecipe,
   getVisualSurfaceRecipes,
@@ -965,6 +973,175 @@ const appendedFieldNotes = `${existingFieldNotes.trimEnd()}\n\n${fieldNoteEntry}
 assert.ok(appendedFieldNotes.includes("Existing note"));
 assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
+
+const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
+assert.strictEqual(packageJson.version, "0.6.0");
+assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
+assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
+
+const dashboardSlotRecipe = getVisualSurfaceRecipe("slot_card")!;
+const dashboardButtonRecipe = getVisualSurfaceRecipe("button")!;
+const validRecipeFile = recipeFileStatus(dashboardSlotRecipe, true);
+const missingRecipeFile = recipeFileStatus(dashboardButtonRecipe, false);
+assert.strictEqual(validRecipeFile.status, "valid");
+assert.strictEqual(missingRecipeFile.status, "missing");
+assert.strictEqual(configPathForDashboard("idle_monster_farm", "slot_card", dashboardSlotRecipe), farmSlotStyleConfigRelativePath);
+assert.strictEqual(configPathForDashboard("generic_phaser", "button", dashboardButtonRecipe), genericStyleConfigRelativePath("button"));
+assert.strictEqual(configPathForDashboard("idle_monster_farm", "asset_replacement"), "src/config/monsterFarmAssetManifest.ts");
+
+const connectedIdleSlotSurface = {
+  surfaceType: "slot_card" as const,
+  displayName: "Farm Slots",
+  adapter: {
+    adapterId: "idle_monster_farm" as const,
+    targetId: "farm_slots",
+    targetLabel: "Monster Farm farm slots",
+    connectedState: "connected" as const,
+    detected: true,
+    confidence: "high" as const,
+    directApplySupported: true,
+    generatedStyleModulePath: "src/config/farmSlotStyle.ts",
+    ownerFiles: ["src/scenes/FarmScene.ts"],
+    warnings: []
+  },
+  recipe: dashboardSlotRecipe,
+  config: { status: "valid" as const, path: farmSlotStyleConfigRelativePath, exists: true },
+  recipeFile: validRecipeFile,
+  fallbackTaskCount: 1,
+  scopeFiles: [farmSlotStyleConfigRelativePath, "src/config/farmSlotStyle.ts", "src/scenes/FarmScene.ts", visualRecipeRelativePath("slot-card")]
+};
+const connectedIdleSlotRow = buildDashboardRow(connectedIdleSlotSurface, attemptIndex);
+assert.strictEqual(connectedIdleSlotRow.appliedStatus, "applied");
+assert.strictEqual(connectedIdleSlotRow.configStatus, "valid");
+assert.strictEqual(connectedIdleSlotRow.recipeStatus, "valid");
+assert.strictEqual(connectedIdleSlotRow.connectedState, "connected");
+assert.strictEqual(connectedIdleSlotRow.actions.tune.enabled, true);
+assert.strictEqual(connectedIdleSlotRow.actions.openConfig.enabled, true);
+assert.strictEqual(connectedIdleSlotRow.actions.directApply.enabled, true);
+assert.strictEqual(connectedIdleSlotRow.actions.runScopeCheck.enabled, true);
+assert.strictEqual(connectedIdleSlotRow.fallbackTaskCount, 1);
+
+const genericButtonSurface = {
+  surfaceType: "button" as const,
+  displayName: "Generic Button",
+  adapter: {
+    adapterId: "generic_phaser" as const,
+    targetId: "manual_target",
+    targetLabel: "Action Buttons",
+    connectedState: "unknown" as const,
+    detected: true,
+    confidence: "low" as const,
+    directApplySupported: true,
+    generatedStyleModulePath: genericGeneratedStyleModulePath("button"),
+    ownerFiles: ["src/ui/ButtonView.ts"],
+    warnings: ["Only partial Phaser evidence was found."]
+  },
+  recipe: dashboardButtonRecipe,
+  config: { status: "valid" as const, path: genericStyleConfigRelativePath("button"), exists: true },
+  recipeFile: missingRecipeFile,
+  fallbackTaskCount: 2,
+  scopeFiles: [genericStyleConfigRelativePath("button"), genericGeneratedStyleModulePath("button"), "src/ui/ButtonView.ts", visualRecipeRelativePath("button")]
+};
+const genericButtonRow = buildDashboardRow(genericButtonSurface, attemptIndex);
+assert.strictEqual(genericButtonRow.appliedStatus, "config_only");
+assert.strictEqual(genericButtonRow.lastTunedAt, "2026-06-25T02:08:04.005Z");
+assert.strictEqual(genericButtonRow.lastResult, "mixed");
+assert.ok(genericButtonRow.knownBad.some((note) => note.includes("Magic Glow")));
+assert.ok(genericButtonRow.knownBad.some((note) => note.includes("no meaningful effect")));
+assert.ok(genericButtonRow.knownMixed.some((note) => note.includes("Dark Arcade")));
+assert.strictEqual(genericButtonRow.actions.directApply.enabled, false);
+assert.ok(genericButtonRow.actions.directApply.reason?.includes("not connected"));
+assert.strictEqual(genericButtonRow.actions.generateFallbackTask.enabled, true);
+assert.strictEqual(genericButtonRow.actions.markLatestResult.enabled, true);
+
+const disconnectedIdlePanelSurface = {
+  ...connectedIdleSlotSurface,
+  surfaceType: "panel" as const,
+  displayName: "Panels",
+  adapter: {
+    ...connectedIdleSlotSurface.adapter,
+    targetId: "panels",
+    targetLabel: "Monster Farm panels",
+    connectedState: "not_connected" as const,
+    generatedStyleModulePath: "src/config/panelStyle.ts"
+  },
+  recipe: getVisualSurfaceRecipe("panel")!,
+  config: { status: "valid" as const, path: panelStyleConfigRelativePath, exists: true },
+  recipeFile: recipeFileStatus(getVisualSurfaceRecipe("panel")!, true),
+  fallbackTaskCount: 0,
+  scopeFiles: [panelStyleConfigRelativePath, "src/config/panelStyle.ts", "src/ui/PanelChrome.ts", visualRecipeRelativePath("panel")]
+};
+const disconnectedPanelRow = buildDashboardRow(disconnectedIdlePanelSurface, attemptIndex);
+assert.strictEqual(disconnectedPanelRow.appliedStatus, "config_only");
+assert.strictEqual(disconnectedPanelRow.actions.directApply.enabled, false);
+assert.strictEqual(disconnectedPanelRow.actions.generateFallbackTask.enabled, true);
+
+const invalidButtonSurface = {
+  ...genericButtonSurface,
+  config: { status: "invalid_json" as const, path: genericStyleConfigRelativePath("button"), exists: true }
+};
+assert.strictEqual(buildDashboardRow(invalidButtonSurface, attemptIndex).appliedStatus, "invalid");
+
+const unsupportedAssetSurface = {
+  surfaceType: "asset_replacement" as const,
+  displayName: "Generic Asset Replacement",
+  adapter: {
+    adapterId: "generic_phaser" as const,
+    targetId: "manual_target",
+    targetLabel: "Generic Asset Replacement",
+    connectedState: "not_applicable" as const,
+    detected: true,
+    confidence: "low" as const,
+    directApplySupported: false,
+    ownerFiles: [],
+    warnings: []
+  },
+  config: { status: "not_applicable" as const, exists: false },
+  recipeFile: { status: "not_applicable" as const, exists: false },
+  fallbackTaskCount: 0,
+  scopeFiles: []
+};
+assert.strictEqual(buildDashboardRow(unsupportedAssetSurface, attemptIndex).appliedStatus, "unsupported");
+
+const unknownSurface = {
+  ...connectedIdleSlotSurface,
+  adapter: {
+    ...connectedIdleSlotSurface.adapter,
+    connectedState: "unknown" as const,
+    detected: false,
+    confidence: "low" as const
+  },
+  config: { status: "missing" as const, path: farmSlotStyleConfigRelativePath, exists: false }
+};
+assert.strictEqual(buildDashboardRow(unknownSurface, attemptIndex).appliedStatus, "unknown");
+
+assert.strictEqual(calculateAppliedStatus(connectedIdleSlotSurface, connectedIdleSlotRow.scopeSummary), "applied");
+assert.strictEqual(calculateAppliedStatus(disconnectedIdlePanelSurface, disconnectedPanelRow.scopeSummary), "config_only");
+assert.strictEqual(calculateAppliedStatus(invalidButtonSurface, buildDashboardRow(invalidButtonSurface, attemptIndex).scopeSummary), "invalid");
+
+const dashboardModel = buildVisualTuningDashboardModel({
+  workspaceFolder: "D:/sample",
+  generatedAt: new Date("2026-06-25T03:00:00.000Z"),
+  phaserDetected: true,
+  detectedAdapter: "idle_monster_farm",
+  adapterConfidence: "high",
+  surfaces: [connectedIdleSlotSurface, genericButtonSurface, disconnectedIdlePanelSurface, unsupportedAssetSurface],
+  attemptIndex
+});
+assert.strictEqual(dashboardModel.schemaVersion, "visual-tuning-dashboard/v1");
+assert.strictEqual(dashboardModel.summary.totalSurfaces, 4);
+assert.strictEqual(dashboardModel.summary.appliedCount, 1);
+assert.strictEqual(dashboardModel.summary.configOnlyCount, 2);
+assert.ok(dashboardModel.summary.warningCount > 0);
+assert.strictEqual(dashboardModel.fieldNotes.fieldNotesPath, ".game-polish-lab/field-notes.md");
+assert.ok(dashboardModel.fieldNotes.knownBad.some((note) => note.includes("Magic Glow")));
+assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard opens without writing files")));
+assert.strictEqual(getVisualSurfaceRecipes().length, 5);
+assert.deepStrictEqual(visualSurfacePickerOrder, ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"]);
+assert.ok(dashboardModel.rows.some((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "slot_card"));
+assert.ok(dashboardModel.rows.some((row) => row.adapterId === "generic_phaser" && row.surfaceType === "button"));
+assert.ok(genericButtonRow.scopeSummary.allowedFiles.includes(genericStyleConfigRelativePath("button")));
+assert.ok(genericButtonRow.scopeSummary.forbiddenFiles.includes("src/ui/ButtonView.ts") || genericButtonRow.scopeSummary.suspiciousFiles.includes("src/ui/ButtonView.ts"));
 
 const vagueGenericFallback = buildGenericFallbackTask({
   surfaceType: "panel",

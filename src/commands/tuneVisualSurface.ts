@@ -46,6 +46,12 @@ import { VisualTuningApplyMode, VisualTuningAttemptIndex, VisualTuningConnection
 
 type SurfaceValues = SlotCardStyleValues | BackgroundReadabilityStyleValues | PanelStyleValues | RewardToastStyleValues | ButtonStyleValues | Record<string, never>;
 
+export interface TuneVisualSurfaceInitialState {
+  surfaceType?: VisualSurfaceType;
+  adapterId?: "idle_monster_farm" | "generic_phaser";
+  targetLabel?: string;
+}
+
 interface SaveMessage {
   command: "saveAndApply" | "setupBridge" | "applyAsset" | "markResult";
   surfaceType: VisualSurfaceType;
@@ -82,7 +88,7 @@ interface SaveResultMessage {
   error?: string;
 }
 
-export async function tuneVisualSurface(context: vscode.ExtensionContext): Promise<void> {
+export async function tuneVisualSurface(context: vscode.ExtensionContext, initialState: TuneVisualSurfaceInitialState = {}): Promise<void> {
   const folder = requireWorkspaceFolder();
   if (!folder) {
     return;
@@ -141,6 +147,7 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
       buttonState,
       genericPhaserState,
       tuningAttemptIndex,
+      initialState,
       recipes: getVisualSurfaceRecipes(),
       assetTargets
     });
@@ -715,6 +722,7 @@ function renderHtml(input: {
   buttonState: Awaited<ReturnType<typeof getIdleMonsterFarmButtonAdapterState>>;
   genericPhaserState: GenericPhaserDetection;
   tuningAttemptIndex: VisualTuningAttemptIndex;
+  initialState: TuneVisualSurfaceInitialState;
   recipes: ReturnType<typeof getVisualSurfaceRecipes>;
   assetTargets: ReturnType<typeof getIdleMonsterFarmAssetTargets>;
 }): string {
@@ -731,6 +739,7 @@ function renderHtml(input: {
     surfaceOrder: visualSurfacePickerOrder,
     genericPhaser: input.genericPhaserState,
     tuningAttemptIndex: input.tuningAttemptIndex,
+    initialState: input.initialState,
     assetTargets: input.assetTargets
   }).replace(/</g, "\\u003c");
 
@@ -759,10 +768,11 @@ function renderHtml(input: {
     const recipesBySurface=Object.fromEntries(data.recipes.map(r=>[r.surfaceType,r]));
     const labels={},numeric={},colors={};
     for(const recipe of data.recipes){numeric[recipe.surfaceType]=[];colors[recipe.surfaceType]=[];for(const token of recipe.supportedStyleTokens){labels[token.tokenId]=token.label;if(token.valueType==="number")numeric[recipe.surfaceType].push(token.tokenId);if(token.valueType==="color")colors[recipe.surfaceType].push(token.tokenId);}}
-    let surfaceType="slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceData.initialConfig.presetName, values=structuredClone(surfaceData.initialConfig.values), selectedAsset=null, needsSetup=false, adapterId="idle_monster_farm", currentAttemptPath="";
+    let surfaceType=data.initialState.surfaceType&&data.surfaceOrder.includes(data.initialState.surfaceType)?data.initialState.surfaceType:"slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName, values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values), selectedAsset=null, needsSetup=false, adapterId=data.initialState.adapterId||"idle_monster_farm", currentAttemptPath="";
     const surface=document.getElementById("surface"), preset=document.getElementById("preset"), controls=document.getElementById("controls"), status=document.getElementById("status"), adapterMode=document.getElementById("adapterMode"), genericFields=document.getElementById("genericFields"), genericTarget=document.getElementById("genericTarget"), genericFiles=document.getElementById("genericFiles"), genericAssetFolder=document.getElementById("genericAssetFolder"), genericDirect=document.getElementById("genericDirect");
-    genericFiles.value=(data.genericPhaser.likelySceneFiles||[]).join("\\n");genericAssetFolder.value=(data.genericPhaser.likelyAssetFolders&&data.genericPhaser.likelyAssetFolders[0])||"src/assets";
-    for(const id of data.surfaceOrder){const option=document.createElement("option");option.value=id;option.textContent=recipesBySurface[id]?recipesBySurface[id].displayName:id;surface.append(option);}
+    genericTarget.value=data.initialState.targetLabel||genericTarget.value;genericFiles.value=(data.genericPhaser.likelySceneFiles||[]).join("\\n");genericAssetFolder.value=(data.genericPhaser.likelyAssetFolders&&data.genericPhaser.likelyAssetFolders[0])||"src/assets";
+    for(const id of data.surfaceOrder){const option=document.createElement("option");option.value=id;option.textContent=recipesBySurface[id]?recipesBySurface[id].displayName:id;option.selected=id===surfaceType;surface.append(option);}
+    adapterMode.value=adapterId;
     surface.addEventListener("change",()=>{surfaceType=surface.value;surfaceData=data.surfaces[surfaceType];presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName;values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values);needsSetup=false;rebuild();});
     adapterMode.addEventListener("change",()=>{adapterId=adapterMode.value;needsSetup=false;rebuild();});
     [genericTarget,genericFiles,genericAssetFolder,genericDirect].forEach(el=>el.addEventListener("input",renderAdapter));
