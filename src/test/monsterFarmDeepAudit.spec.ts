@@ -93,7 +93,14 @@ import { buttonStylePresets, defaultButtonStyle } from "../presets/buttonStylePr
 import { defaultPanelStyle, panelStylePresets } from "../presets/panelStylePresets";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { defaultRewardToastStyle, rewardToastPresets } from "../presets/rewardToastPresets";
-import { defaultSlotCardStyle, slotCardPresets } from "../presets/slotCardPresets";
+import { defaultSlotCardStyle, slotCardPresets, slotCardStyleBounds } from "../presets/slotCardPresets";
+import {
+  applyVisualStylePresetToDraft,
+  getVisualStylePresetByName,
+  getVisualStylePresetsForSurface,
+  visualPresetLibrary,
+  visualStylePresetFamilies
+} from "../presets/visualStylePresetLibrary";
 import { InspectedFile } from "../types/audit";
 import { visualRecipeSchemaVersion } from "../types/visualRecipe";
 
@@ -146,8 +153,81 @@ assert.deepStrictEqual(slotCardPresets.map((preset) => preset.name), [
   "Cozy Wood",
   "Magic Glow",
   "Chunky Pixel",
-  "Clean Mobile"
+  "Clean Mobile",
+  "Dark Arcade",
+  "Soft Pastel",
+  "Premium Idle UI"
 ]);
+
+const requiredStylePresetFamilies = [
+  "Cozy Wood",
+  "Chunky Pixel",
+  "Magic Glow",
+  "Clean Mobile",
+  "Dark Arcade",
+  "Soft Pastel",
+  "Premium Idle UI"
+];
+assert.deepStrictEqual(visualStylePresetFamilies.map((family) => family.name), requiredStylePresetFamilies);
+assert.deepStrictEqual(
+  [...getVisualStylePresetsForSurface("slot_card").map((preset) => preset.familyName)].sort(),
+  [...requiredStylePresetFamilies].sort()
+);
+assert.strictEqual(visualPresetLibrary.presets.length, requiredStylePresetFamilies.length);
+for (const familyName of requiredStylePresetFamilies) {
+  const preset = getVisualStylePresetsForSurface("slot_card").find((candidate) => candidate.familyName === familyName);
+  assert.ok(preset, `missing slot_card preset for ${familyName}`);
+  assert.strictEqual(preset.supportedSurfaces.some((support) => support.surfaceType === "slot_card"), true);
+  assert.strictEqual(typeof preset.description, "string");
+  assert.ok(preset.description.length > 0);
+  const stylePatch = preset.stylePatch as typeof defaultSlotCardStyle;
+  for (const key of Object.keys(defaultSlotCardStyle) as Array<keyof typeof defaultSlotCardStyle>) {
+    assert.ok(key in stylePatch, `${familyName} missing ${key}`);
+    const value = stylePatch[key];
+    if (key === "fillColor" || key === "borderColor") {
+      assert.strictEqual(typeof value, "string");
+      assert.match(String(value), /^#[0-9a-f]{6}$/i);
+    } else {
+      const bound = slotCardStyleBounds[key];
+      assert.strictEqual(typeof value, "number");
+      assert.ok(Number(value) >= bound.min, `${familyName} ${key} below min`);
+      assert.ok(Number(value) <= bound.max, `${familyName} ${key} above max`);
+    }
+  }
+}
+assert.strictEqual(getVisualStylePresetByName("Cozy Wood", "slot_card")?.displayName, "Cozy Wood");
+assert.strictEqual(getVisualStylePresetByName("Magic Glow", "slot_card")?.displayName, "Magic Glow");
+assert.strictEqual(getVisualStylePresetByName("Chunky Pixel", "slot_card")?.displayName, "Chunky Pixel");
+assert.strictEqual(getVisualStylePresetByName("Clean Mobile", "slot_card")?.displayName, "Clean Mobile");
+const draftBeforePreset = { ...defaultSlotCardStyle, slotWidth: 72 };
+const appliedBeforePreset = { ...defaultSlotCardStyle, fillColor: "#111111" };
+const presetDraftApply = applyVisualStylePresetToDraft({
+  surfaceType: "slot_card",
+  draftStyle: draftBeforePreset,
+  presetName: "Dark Arcade"
+});
+assert.strictEqual(presetDraftApply.applied, true);
+assert.strictEqual(presetDraftApply.draftStyle.slotWidth, (getVisualStylePresetByName("Dark Arcade", "slot_card")?.stylePatch as typeof defaultSlotCardStyle | undefined)?.slotWidth);
+assert.strictEqual(draftBeforePreset.slotWidth, 72);
+assert.strictEqual(appliedBeforePreset.fillColor, "#111111");
+const presetPreviewRequest = buildVisualPreviewRenderRequest({
+  surfaceType: "slot_card",
+  adapterId: "idle_monster_farm.farm_slots",
+  currentStyle: appliedBeforePreset,
+  draftStyle: presetDraftApply.draftStyle,
+  appliedStyleExists: true
+});
+assert.strictEqual(presetPreviewRequest.comparison.beforeStyle, appliedBeforePreset);
+assert.strictEqual(presetPreviewRequest.comparison.afterStyle, presetDraftApply.draftStyle);
+assert.deepStrictEqual(getVisualStylePresetsForSurface("background_readability"), []);
+assert.deepStrictEqual(getVisualStylePresetsForSurface("asset_replacement"), []);
+const unsupportedPresetApply = applyVisualStylePresetToDraft({
+  surfaceType: "panel",
+  draftStyle: { fillColor: "#000000" },
+  presetName: "Dark Arcade"
+});
+assert.strictEqual(unsupportedPresetApply.applied, false);
+assert.deepStrictEqual(unsupportedPresetApply.draftStyle, { fillColor: "#000000" });
 
 const v05Scope = checkV05VisualScope([
   ".game-polish-lab/styles/farm-slot-style.json",
@@ -981,9 +1061,13 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.1");
+assert.strictEqual(packageJson.version, "0.6.2");
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
+const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
+assert.ok(tuneVisualSurfaceSource.includes("stylePresetLibrary: visualPresetLibrary"));
+assert.ok(tuneVisualSurfaceSource.includes("presetDescription"));
+assert.ok(tuneVisualSurfaceSource.includes("Game Polish Lab v0.62"));
 
 const desktopPreviewFrame = visualPreviewViewports.find((frame) => frame.mode === "desktop")!;
 const mobilePreviewFrame = visualPreviewViewports.find((frame) => frame.mode === "mobile")!;
