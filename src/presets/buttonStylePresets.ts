@@ -1,0 +1,141 @@
+import { ButtonPreset, ButtonStyleValues } from "../types/visualSurface";
+
+export const buttonStyleBounds: Record<keyof Omit<ButtonStyleValues, "fillColor" | "borderColor" | "labelColor">, { min: number; max: number; step: number }> = {
+  width: { min: 72, max: 220, step: 1 },
+  height: { min: 32, max: 88, step: 1 },
+  fillOpacity: { min: 0.1, max: 1, step: 0.01 },
+  borderWidth: { min: 0, max: 8, step: 1 },
+  cornerRadius: { min: 0, max: 28, step: 1 },
+  labelTextSize: { min: 10, max: 28, step: 1 },
+  iconScale: { min: 0.5, max: 2, step: 0.01 },
+  labelScale: { min: 0.75, max: 1.5, step: 0.01 },
+  contentGap: { min: 0, max: 20, step: 1 },
+  paddingX: { min: 4, max: 28, step: 1 },
+  paddingY: { min: 2, max: 18, step: 1 },
+  hoverGlowStrength: { min: 0, max: 1, step: 0.01 },
+  hoverLift: { min: 0, max: 10, step: 1 },
+  activePressScale: { min: 0.82, max: 1.05, step: 0.01 },
+  activePressDurationMs: { min: 40, max: 360, step: 10 },
+  activeDarkenOpacity: { min: 0, max: 0.6, step: 0.01 },
+  disabledOpacity: { min: 0.15, max: 0.9, step: 0.01 },
+  disabledSaturation: { min: 0, max: 1, step: 0.01 },
+  shadowStrength: { min: 0, max: 1, step: 0.01 },
+  glowStrength: { min: 0, max: 1, step: 0.01 }
+};
+
+export const defaultButtonStyle: ButtonStyleValues = {
+  width: 126,
+  height: 46,
+  fillColor: "#2f4650",
+  fillOpacity: 0.94,
+  borderColor: "#d8e6eb",
+  borderWidth: 1,
+  cornerRadius: 8,
+  labelColor: "#ffffff",
+  labelTextSize: 15,
+  iconScale: 0.96,
+  labelScale: 1,
+  contentGap: 8,
+  paddingX: 12,
+  paddingY: 8,
+  hoverGlowStrength: 0.22,
+  hoverLift: 2,
+  activePressScale: 0.94,
+  activePressDurationMs: 120,
+  activeDarkenOpacity: 0.18,
+  disabledOpacity: 0.45,
+  disabledSaturation: 0.15,
+  shadowStrength: 0.22,
+  glowStrength: 0.06
+};
+
+export const buttonStylePresets: ButtonPreset[] = [
+  {
+    name: "Clean Mobile Button",
+    values: defaultButtonStyle
+  },
+  {
+    name: "Chunky Game Button",
+    values: {
+      width: 138,
+      height: 54,
+      fillColor: "#4f6b3f",
+      fillOpacity: 0.96,
+      borderColor: "#f3c85b",
+      borderWidth: 3,
+      cornerRadius: 6,
+      labelColor: "#fff7d6",
+      labelTextSize: 17,
+      iconScale: 1.12,
+      labelScale: 1.06,
+      contentGap: 9,
+      paddingX: 14,
+      paddingY: 9,
+      hoverGlowStrength: 0.42,
+      hoverLift: 3,
+      activePressScale: 0.9,
+      activePressDurationMs: 110,
+      activeDarkenOpacity: 0.24,
+      disabledOpacity: 0.38,
+      disabledSaturation: 0.08,
+      shadowStrength: 0.4,
+      glowStrength: 0.18
+    }
+  },
+  {
+    name: "Cozy Action Bar",
+    values: {
+      width: 132,
+      height: 48,
+      fillColor: "#3a2a1f",
+      fillOpacity: 0.92,
+      borderColor: "#d7a75a",
+      borderWidth: 2,
+      cornerRadius: 12,
+      labelColor: "#fff2d0",
+      labelTextSize: 15,
+      iconScale: 1,
+      labelScale: 1,
+      contentGap: 8,
+      paddingX: 13,
+      paddingY: 8,
+      hoverGlowStrength: 0.28,
+      hoverLift: 2,
+      activePressScale: 0.93,
+      activePressDurationMs: 140,
+      activeDarkenOpacity: 0.2,
+      disabledOpacity: 0.42,
+      disabledSaturation: 0.18,
+      shadowStrength: 0.32,
+      glowStrength: 0.1
+    }
+  },
+  {
+    name: "Magic Press",
+    values: {
+      width: 136,
+      height: 50,
+      fillColor: "#27324e",
+      fillOpacity: 0.9,
+      borderColor: "#91e4ff",
+      borderWidth: 2,
+      cornerRadius: 14,
+      labelColor: "#f4fbff",
+      labelTextSize: 16,
+      iconScale: 1.08,
+      labelScale: 1.02,
+      contentGap: 9,
+      paddingX: 14,
+      paddingY: 8,
+      hoverGlowStrength: 0.58,
+      hoverLift: 4,
+      activePressScale: 0.91,
+      activePressDurationMs: 150,
+      activeDarkenOpacity: 0.22,
+      disabledOpacity: 0.4,
+      disabledSaturation: 0.1,
+      shadowStrength: 0.34,
+      glowStrength: 0.42
+    }
+  }
+];

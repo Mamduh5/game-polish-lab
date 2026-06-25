@@ -1,10 +1,11 @@
 import * as path from "path";
 
 import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
+import { buttonStyleBounds, buttonStylePresets, defaultButtonStyle } from "../presets/buttonStylePresets";
 import { defaultPanelStyle, panelStyleBounds, panelStylePresets } from "../presets/panelStylePresets";
 import { defaultRewardToastStyle, rewardToastPresets, rewardToastStyleBounds } from "../presets/rewardToastPresets";
 import { defaultSlotCardStyle, slotCardStyleBounds, slotCardPresets } from "../presets/slotCardPresets";
-import { BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues, PanelStyleConfig, PanelStyleValues, RewardToastStyleConfig, RewardToastStyleValues, SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
+import { BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues, ButtonStyleConfig, ButtonStyleValues, PanelStyleConfig, PanelStyleValues, RewardToastStyleConfig, RewardToastStyleValues, SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
 
 export type StyleConfigLoadStatus = "valid" | "missing" | "invalid_json" | "schema_invalid";
 
@@ -20,6 +21,7 @@ export const farmSlotStyleConfigRelativePath = ".game-polish-lab/styles/farm-slo
 export const backgroundReadabilityStyleConfigRelativePath = ".game-polish-lab/styles/background-readability-style.json";
 export const panelStyleConfigRelativePath = ".game-polish-lab/styles/panel-style.json";
 export const rewardToastStyleConfigRelativePath = ".game-polish-lab/styles/reward-toast-style.json";
+export const buttonStyleConfigRelativePath = ".game-polish-lab/styles/button-style.json";
 
 export function loadSlotCardStyleConfigFromText(text: string | undefined): StyleConfigLoadResult {
   if (text === undefined) {
@@ -115,6 +117,14 @@ export interface PanelStyleConfigLoadResult {
 export interface RewardToastStyleConfigLoadResult {
   status: StyleConfigLoadStatus;
   config: RewardToastStyleConfig;
+  existingConfigDetected: boolean;
+  initializedFromExistingConfig: boolean;
+  warning?: string;
+}
+
+export interface ButtonStyleConfigLoadResult {
+  status: StyleConfigLoadStatus;
+  config: ButtonStyleConfig;
   existingConfigDetected: boolean;
   initializedFromExistingConfig: boolean;
   warning?: string;
@@ -217,6 +227,49 @@ export function buildRewardToastStyleConfig(presetName: string, values: RewardTo
   };
 }
 
+export function loadButtonStyleConfigFromText(text: string | undefined): ButtonStyleConfigLoadResult {
+  if (text === undefined) {
+    return {
+      status: "missing",
+      config: buildButtonStyleConfig(buttonStylePresets[0].name, buttonStylePresets[0].values),
+      existingConfigDetected: false,
+      initializedFromExistingConfig: false
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return invalidButtonConfigResult("Existing button style config is invalid JSON. The editor was reset to the default v0.56 preset.");
+  }
+
+  if (!isButtonStyleConfigShape(parsed)) {
+    return invalidButtonConfigResult("Existing button style config has an unsupported schema. The editor was reset to the default v0.56 preset.");
+  }
+
+  return {
+    status: "valid",
+    config: {
+      ...parsed,
+      values: normalizeButtonStyleValues(parsed.values)
+    },
+    existingConfigDetected: true,
+    initializedFromExistingConfig: true
+  };
+}
+
+export function buildButtonStyleConfig(presetName: string, values: ButtonStyleValues): ButtonStyleConfig {
+  return {
+    schemaVersion: 1,
+    surfaceType: "button",
+    adapterTarget: "idle_monster_farm.buttons",
+    presetName,
+    updatedAt: new Date().toISOString(),
+    values: normalizeButtonStyleValues(values)
+  };
+}
+
 export function normalizeSlotCardStyleValues(values: SlotCardStyleValues): SlotCardStyleValues {
   return {
     slotWidth: clampNumber(values.slotWidth, "slotWidth"),
@@ -295,6 +348,34 @@ export function normalizeRewardToastStyleValues(values: RewardToastStyleValues):
   };
 }
 
+export function normalizeButtonStyleValues(values: ButtonStyleValues): ButtonStyleValues {
+  return {
+    width: clampButtonNumber(values.width, "width"),
+    height: clampButtonNumber(values.height, "height"),
+    fillColor: normalizeColor(values.fillColor, defaultButtonStyle.fillColor),
+    fillOpacity: clampButtonNumber(values.fillOpacity, "fillOpacity"),
+    borderColor: normalizeColor(values.borderColor, defaultButtonStyle.borderColor),
+    borderWidth: clampButtonNumber(values.borderWidth, "borderWidth"),
+    cornerRadius: clampButtonNumber(values.cornerRadius, "cornerRadius"),
+    labelColor: normalizeColor(values.labelColor, defaultButtonStyle.labelColor),
+    labelTextSize: clampButtonNumber(values.labelTextSize, "labelTextSize"),
+    iconScale: clampButtonNumber(values.iconScale, "iconScale"),
+    labelScale: clampButtonNumber(values.labelScale, "labelScale"),
+    contentGap: clampButtonNumber(values.contentGap, "contentGap"),
+    paddingX: clampButtonNumber(values.paddingX, "paddingX"),
+    paddingY: clampButtonNumber(values.paddingY, "paddingY"),
+    hoverGlowStrength: clampButtonNumber(values.hoverGlowStrength, "hoverGlowStrength"),
+    hoverLift: clampButtonNumber(values.hoverLift, "hoverLift"),
+    activePressScale: clampButtonNumber(values.activePressScale, "activePressScale"),
+    activePressDurationMs: clampButtonNumber(values.activePressDurationMs, "activePressDurationMs"),
+    activeDarkenOpacity: clampButtonNumber(values.activeDarkenOpacity, "activeDarkenOpacity"),
+    disabledOpacity: clampButtonNumber(values.disabledOpacity, "disabledOpacity"),
+    disabledSaturation: clampButtonNumber(values.disabledSaturation, "disabledSaturation"),
+    shadowStrength: clampButtonNumber(values.shadowStrength, "shadowStrength"),
+    glowStrength: clampButtonNumber(values.glowStrength, "glowStrength")
+  };
+}
+
 export function buildRollbackSnapshotName(date: Date, affectedRelativePath: string): string {
   const timestamp = date.toISOString().replace(/[:.]/g, "-");
   const basename = path.basename(affectedRelativePath).replace(/[^a-zA-Z0-9._-]/g, "-") || "snapshot.txt";
@@ -335,6 +416,16 @@ function invalidRewardToastConfigResult(warning: string): RewardToastStyleConfig
   return {
     status: warning.includes("invalid JSON") ? "invalid_json" : "schema_invalid",
     config: buildRewardToastStyleConfig(rewardToastPresets[0].name, rewardToastPresets[0].values),
+    existingConfigDetected: true,
+    initializedFromExistingConfig: false,
+    warning
+  };
+}
+
+function invalidButtonConfigResult(warning: string): ButtonStyleConfigLoadResult {
+  return {
+    status: warning.includes("invalid JSON") ? "invalid_json" : "schema_invalid",
+    config: buildButtonStyleConfig(buttonStylePresets[0].name, buttonStylePresets[0].values),
     existingConfigDetected: true,
     initializedFromExistingConfig: false,
     warning
@@ -479,6 +570,49 @@ function isRewardToastStyleValuesShape(value: unknown): value is RewardToastStyl
     && typeof candidate.glowStrength === "number";
 }
 
+function isButtonStyleConfigShape(value: unknown): value is ButtonStyleConfig {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<ButtonStyleConfig>;
+  return candidate.schemaVersion === 1
+    && candidate.surfaceType === "button"
+    && candidate.adapterTarget === "idle_monster_farm.buttons"
+    && typeof candidate.presetName === "string"
+    && typeof candidate.updatedAt === "string"
+    && isButtonStyleValuesShape(candidate.values);
+}
+
+function isButtonStyleValuesShape(value: unknown): value is ButtonStyleValues {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<ButtonStyleValues>;
+  return typeof candidate.width === "number"
+    && typeof candidate.height === "number"
+    && typeof candidate.fillColor === "string"
+    && typeof candidate.fillOpacity === "number"
+    && typeof candidate.borderColor === "string"
+    && typeof candidate.borderWidth === "number"
+    && typeof candidate.cornerRadius === "number"
+    && typeof candidate.labelColor === "string"
+    && typeof candidate.labelTextSize === "number"
+    && typeof candidate.iconScale === "number"
+    && typeof candidate.labelScale === "number"
+    && typeof candidate.contentGap === "number"
+    && typeof candidate.paddingX === "number"
+    && typeof candidate.paddingY === "number"
+    && typeof candidate.hoverGlowStrength === "number"
+    && typeof candidate.hoverLift === "number"
+    && typeof candidate.activePressScale === "number"
+    && typeof candidate.activePressDurationMs === "number"
+    && typeof candidate.activeDarkenOpacity === "number"
+    && typeof candidate.disabledOpacity === "number"
+    && typeof candidate.disabledSaturation === "number"
+    && typeof candidate.shadowStrength === "number"
+    && typeof candidate.glowStrength === "number";
+}
+
 function clampNumber(value: number, key: keyof typeof slotCardStyleBounds): number {
   const bounds = slotCardStyleBounds[key];
   const numericValue = Number.isFinite(value) ? value : defaultSlotCardStyle[key];
@@ -500,6 +634,12 @@ function clampPanelNumber(value: number, key: keyof typeof panelStyleBounds): nu
 function clampRewardToastNumber(value: number, key: keyof typeof rewardToastStyleBounds): number {
   const bounds = rewardToastStyleBounds[key];
   const numericValue = Number.isFinite(value) ? value : defaultRewardToastStyle[key];
+  return Math.min(bounds.max, Math.max(bounds.min, numericValue));
+}
+
+function clampButtonNumber(value: number, key: keyof typeof buttonStyleBounds): number {
+  const bounds = buttonStyleBounds[key];
+  const numericValue = Number.isFinite(value) ? value : defaultButtonStyle[key];
   return Math.min(bounds.max, Math.max(bounds.min, numericValue));
 }
 

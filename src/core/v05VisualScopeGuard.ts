@@ -9,7 +9,22 @@ const forbiddenPathTerms = [
   "reward-config",
   "rewardtable",
   "reward-table",
+  "buttonaction",
+  "button-action",
+  "actiondispatch",
+  "action-dispatch",
+  "commanddispatch",
+  "command-dispatch",
+  "inputdispatch",
+  "input-dispatch",
+  "inputhandler",
+  "input-handler",
+  "/input/",
   "/progression",
+  "/state/upgrade",
+  "/systems/upgrade",
+  "upgradestate",
+  "upgradesystem",
   "/state/hatch",
   "/systems/hatch",
   "hatchstate",
@@ -89,7 +104,14 @@ const farmSlotRenderingTerms = [
   "coinfeedback",
   "coin-feedback",
   "rewardicon",
-  "reward-icon"
+  "reward-icon",
+  "button",
+  "actionbar",
+  "action-bar",
+  "controls",
+  "panelcontrols",
+  "upgradepanel",
+  "upgrade-panel"
 ];
 
 export interface V05ScopeGuardResult {
@@ -123,6 +145,9 @@ export function checkV05VisualScope(files: string[], options: { throughAdapter: 
 
 export function isForbiddenV05Path(filePath: string): boolean {
   const normalized = normalizeWorkspacePath(filePath).toLowerCase();
+  if (normalized.includes("gameplayactionbarview")) {
+    return false;
+  }
   return forbiddenPathTerms.some((term) => normalized.includes(term));
 }
 

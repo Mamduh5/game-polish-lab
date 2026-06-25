@@ -1,5 +1,5 @@
-export type VisualSurfaceType = "slot_card" | "background_readability" | "asset_replacement" | "panel" | "reward_toast";
-export type VisualSurfaceAdapterTarget = "idle_monster_farm.farm_slots" | "idle_monster_farm.background" | "idle_monster_farm.assets" | "idle_monster_farm.panels" | "idle_monster_farm.reward_toast";
+export type VisualSurfaceType = "slot_card" | "background_readability" | "asset_replacement" | "panel" | "reward_toast" | "button";
+export type VisualSurfaceAdapterTarget = "idle_monster_farm.farm_slots" | "idle_monster_farm.background" | "idle_monster_farm.assets" | "idle_monster_farm.panels" | "idle_monster_farm.reward_toast" | "idle_monster_farm.buttons";
 
 export interface SlotCardStyleValues {
   slotWidth: number;
@@ -159,4 +159,44 @@ export interface RewardToastStyleConfig {
 export interface RewardToastPreset {
   name: string;
   values: RewardToastStyleValues;
+}
+
+export interface ButtonStyleValues {
+  width: number;
+  height: number;
+  fillColor: string;
+  fillOpacity: number;
+  borderColor: string;
+  borderWidth: number;
+  cornerRadius: number;
+  labelColor: string;
+  labelTextSize: number;
+  iconScale: number;
+  labelScale: number;
+  contentGap: number;
+  paddingX: number;
+  paddingY: number;
+  hoverGlowStrength: number;
+  hoverLift: number;
+  activePressScale: number;
+  activePressDurationMs: number;
+  activeDarkenOpacity: number;
+  disabledOpacity: number;
+  disabledSaturation: number;
+  shadowStrength: number;
+  glowStrength: number;
+}
+
+export interface ButtonStyleConfig {
+  schemaVersion: 1;
+  surfaceType: "button";
+  adapterTarget: "idle_monster_farm.buttons";
+  presetName: string;
+  updatedAt: string;
+  values: ButtonStyleValues;
+}
+
+export interface ButtonPreset {
+  name: string;
+  values: ButtonStyleValues;
 }

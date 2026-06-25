@@ -12,6 +12,7 @@ import {
   splitMonsterFarmProjectTypeEvidence
 } from "../core/monsterFarmDeepAudit";
 import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
+import { analyzeButtonDetection, analyzeButtonStyleConnection } from "../core/buttonAdapterAnalysis";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection } from "../core/farmSlotAdapterAnalysis";
 import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/panelAdapterAnalysis";
 import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
@@ -25,19 +26,23 @@ import {
 import {
   backgroundReadabilityStyleConfigRelativePath,
   buildBackgroundReadabilityStyleConfig,
+  buildButtonStyleConfig,
   buildPanelStyleConfig,
   buildRewardToastStyleConfig,
   buildRollbackSnapshotName,
   buildSlotCardStyleConfig,
   loadBackgroundReadabilityStyleConfigFromText,
+  loadButtonStyleConfigFromText,
   loadPanelStyleConfigFromText,
   panelStyleConfigRelativePath,
+  buttonStyleConfigRelativePath,
   rewardToastStyleConfigRelativePath,
   loadRewardToastStyleConfigFromText,
   loadSlotCardStyleConfigFromText
 } from "../core/visualSurfaceConfig";
 import { detectMonsterFarmAssetTargets, monsterFarmAssetTargets } from "../core/monsterFarmAssetTargets";
 import { backgroundReadabilityPresets, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
+import { buttonStylePresets, defaultButtonStyle } from "../presets/buttonStylePresets";
 import { defaultPanelStyle, panelStylePresets } from "../presets/panelStylePresets";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { defaultRewardToastStyle, rewardToastPresets } from "../presets/rewardToastPresets";
@@ -559,6 +564,142 @@ assert.strictEqual(connectedRewardToastAfterRepeatedApply.connectionType, "style
 assert.strictEqual(
   buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), rewardToastStyleConfigRelativePath),
   "2026-06-24T10-11-12-123Z-reward-toast-style.json"
+);
+
+assert.deepStrictEqual(buttonStylePresets.map((preset) => preset.name), [
+  "Clean Mobile Button",
+  "Chunky Game Button",
+  "Cozy Action Bar",
+  "Magic Press"
+]);
+assert.strictEqual(defaultButtonStyle.width, 126);
+assert.strictEqual(defaultButtonStyle.fillColor, "#2f4650");
+
+const validButtonConfig = buildButtonStyleConfig("Clean Mobile Button", buttonStylePresets[0].values);
+const validButtonLoad = loadButtonStyleConfigFromText(JSON.stringify(validButtonConfig));
+assert.strictEqual(validButtonLoad.status, "valid");
+assert.strictEqual(validButtonLoad.existingConfigDetected, true);
+assert.strictEqual(validButtonLoad.initializedFromExistingConfig, true);
+assert.strictEqual(validButtonLoad.config.surfaceType, "button");
+
+const missingButtonLoad = loadButtonStyleConfigFromText(undefined);
+assert.strictEqual(missingButtonLoad.status, "missing");
+assert.strictEqual(missingButtonLoad.existingConfigDetected, false);
+assert.strictEqual(missingButtonLoad.initializedFromExistingConfig, false);
+assert.strictEqual(missingButtonLoad.config.values.width, buttonStylePresets[0].values.width);
+
+const invalidButtonJsonLoad = loadButtonStyleConfigFromText("{ nope");
+assert.strictEqual(invalidButtonJsonLoad.status, "invalid_json");
+assert.strictEqual(invalidButtonJsonLoad.existingConfigDetected, true);
+assert.strictEqual(invalidButtonJsonLoad.initializedFromExistingConfig, false);
+assert.ok(invalidButtonJsonLoad.warning?.includes("invalid JSON"));
+
+const invalidButtonSchemaLoad = loadButtonStyleConfigFromText(JSON.stringify({ schemaVersion: 99 }));
+assert.strictEqual(invalidButtonSchemaLoad.status, "schema_invalid");
+assert.strictEqual(invalidButtonSchemaLoad.initializedFromExistingConfig, false);
+assert.ok(invalidButtonSchemaLoad.warning?.includes("unsupported schema"));
+
+for (const preset of buttonStylePresets) {
+  const loadedPreset = loadButtonStyleConfigFromText(JSON.stringify(buildButtonStyleConfig(preset.name, preset.values)));
+  assert.strictEqual(loadedPreset.status, "valid");
+  assert.strictEqual(typeof loadedPreset.config.values.activePressScale, "number");
+  assert.strictEqual(typeof loadedPreset.config.values.hoverGlowStrength, "number");
+}
+
+const buttonScope = checkV05VisualScope([
+  buttonStyleConfigRelativePath,
+  ".game-polish-lab/rollback/2026-06-24-button-style.json",
+  "src/config/buttonStyle.ts",
+  "src/ui/GameplayActionBarView.ts",
+  "src/ui/HatchPanelView.ts",
+  "src/ui/UpgradePanelView.ts",
+  "src/input/buttonActions.ts",
+  "src/systems/saveSystem.ts",
+  "src/data/economy.ts",
+  "src/systems/progressionSystem.ts",
+  "src/state/hatchState.ts",
+  "src/systems/upgradeSystem.ts",
+  "src/data/quests.ts",
+  "src/services/rewardedAdService.ts",
+  "src/state/inventoryState.ts",
+  "src/gameplay/rules.ts"
+], { throughAdapter: true });
+assert.ok(buttonScope.allowedFiles.includes(buttonStyleConfigRelativePath));
+assert.ok(buttonScope.allowedFiles.includes("src/config/buttonStyle.ts"));
+assert.ok(buttonScope.adapterOnlyFiles.includes("src/ui/GameplayActionBarView.ts"));
+assert.ok(buttonScope.adapterOnlyFiles.includes("src/ui/HatchPanelView.ts"));
+assert.ok(buttonScope.adapterOnlyFiles.includes("src/ui/UpgradePanelView.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/input/buttonActions.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/systems/saveSystem.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/data/economy.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/systems/progressionSystem.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/state/hatchState.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/systems/upgradeSystem.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/data/quests.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/services/rewardedAdService.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/state/inventoryState.ts"));
+assert.ok(buttonScope.forbiddenFiles.includes("src/gameplay/rules.ts"));
+
+const disconnectedButtonFiles = [
+  {
+    relativePath: "src/ui/GameplayActionBarView.ts",
+    text: "export class GameplayActionBarView { drawActionBarButton(label: string) { return label; } }"
+  },
+  {
+    relativePath: "src/ui/HatchPanelView.ts",
+    text: "export class HatchPanelView { drawHatchButton() { return 'hatch cooldown locked'; } }"
+  },
+  {
+    relativePath: "src/ui/UpgradePanelView.ts",
+    text: "export class UpgradePanelView { drawUpgradeButton() { return 'buy upgrade disabled'; } }"
+  },
+  {
+    relativePath: "src/config/buttonStyle.ts",
+    text: "export const BUTTON_STYLE = {};"
+  }
+];
+const buttonDetection = analyzeButtonDetection(disconnectedButtonFiles);
+assert.strictEqual(buttonDetection.target, "idle_monster_farm.buttons");
+assert.strictEqual(buttonDetection.detected, true);
+assert.strictEqual(buttonDetection.confidence, "high");
+assert.ok(buttonDetection.ownerFiles.includes("src/ui/GameplayActionBarView.ts"));
+assert.ok(buttonDetection.targetButtons.includes("action_bar_button"));
+assert.ok(buttonDetection.targetButtons.includes("hatch_button"));
+assert.ok(buttonDetection.targetButtons.includes("upgrade_button"));
+assert.ok(buttonDetection.targetButtons.includes("disabled_locked_button"));
+assert.ok(buttonDetection.reasons.some((reason) => reason.includes("action-bar button")));
+assert.ok(buttonDetection.warnings.some((warning) => warning.includes("hatch logic")));
+assert.ok(buttonDetection.warnings.some((warning) => warning.includes("upgrade logic")));
+
+const disconnectedButton = analyzeButtonStyleConnection(disconnectedButtonFiles);
+assert.strictEqual(disconnectedButton.connected, false);
+assert.strictEqual(disconnectedButton.connectionType, "none");
+assert.ok(disconnectedButton.missingPieces.some((piece) => piece.includes("Button/action-bar owner/rendering files")));
+
+const connectedButtonFiles = [
+  {
+    relativePath: "src/ui/GameplayActionBarView.ts",
+    text: "import { BUTTON_STYLE } from '../config/buttonStyle'; export class GameplayActionBarView { draw() { return BUTTON_STYLE.width; } }"
+  },
+  {
+    relativePath: "src/config/buttonStyle.ts",
+    text: "export const BUTTON_STYLE = { width: 126 };"
+  }
+];
+const connectedButtonDetection = analyzeButtonDetection(connectedButtonFiles);
+assert.strictEqual(connectedButtonDetection.detected, true);
+assert.strictEqual(connectedButtonDetection.confidence, "high");
+const connectedButton = analyzeButtonStyleConnection(connectedButtonFiles);
+assert.strictEqual(connectedButton.connected, true);
+assert.strictEqual(connectedButton.connectionType, "style_module");
+assert.deepStrictEqual(connectedButton.connectedFiles, ["src/ui/GameplayActionBarView.ts"]);
+const connectedButtonAfterRepeatedApply = analyzeButtonStyleConnection(connectedButtonFiles);
+assert.strictEqual(connectedButtonAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedButtonAfterRepeatedApply.connectionType, "style_module");
+
+assert.strictEqual(
+  buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), buttonStyleConfigRelativePath),
+  "2026-06-24T10-11-12-123Z-button-style.json"
 );
 
 const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([
