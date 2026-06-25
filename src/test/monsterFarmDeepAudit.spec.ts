@@ -49,6 +49,12 @@ import {
   recipeFileStatus
 } from "../core/visualTuningDashboardModel";
 import {
+  buildVisualPreviewRenderRequest,
+  getVisualPreviewAnimations,
+  getVisualPreviewStates,
+  visualPreviewViewports
+} from "../core/visualPreviewModel";
+import {
   assetReplacementRecipeNote,
   getVisualSurfaceRecipe,
   getVisualSurfaceRecipes,
@@ -87,7 +93,7 @@ import { buttonStylePresets, defaultButtonStyle } from "../presets/buttonStylePr
 import { defaultPanelStyle, panelStylePresets } from "../presets/panelStylePresets";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { defaultRewardToastStyle, rewardToastPresets } from "../presets/rewardToastPresets";
-import { slotCardPresets } from "../presets/slotCardPresets";
+import { defaultSlotCardStyle, slotCardPresets } from "../presets/slotCardPresets";
 import { InspectedFile } from "../types/audit";
 import { visualRecipeSchemaVersion } from "../types/visualRecipe";
 
@@ -975,9 +981,55 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.0");
+assert.strictEqual(packageJson.version, "0.6.1");
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
+
+const desktopPreviewFrame = visualPreviewViewports.find((frame) => frame.mode === "desktop")!;
+const mobilePreviewFrame = visualPreviewViewports.find((frame) => frame.mode === "mobile")!;
+assert.strictEqual(desktopPreviewFrame.orientation, "landscape");
+assert.strictEqual(mobilePreviewFrame.orientation, "portrait");
+assert.ok(desktopPreviewFrame.width > mobilePreviewFrame.width);
+assert.ok(mobilePreviewFrame.height > desktopPreviewFrame.height);
+
+const slotPreviewStates = getVisualPreviewStates("slot_card");
+assert.deepStrictEqual(slotPreviewStates.map((state) => state.stateId), ["empty", "occupied", "selected", "locked", "merge_candidate"]);
+assert.ok(slotPreviewStates.every((state) => state.supported));
+const customPreviewStates = getVisualPreviewStates("slot_card", ["empty", "boss warning"]);
+assert.strictEqual(customPreviewStates[0].supported, true);
+assert.strictEqual(customPreviewStates[1].stateId, "boss_warning");
+assert.strictEqual(customPreviewStates[1].supported, false);
+
+const slotPreviewAnimations = getVisualPreviewAnimations("slot_card");
+assert.strictEqual(slotPreviewAnimations[0].kind, "merge_candidate_pulse");
+assert.ok(slotPreviewAnimations[0].tokenIds.includes("mergeCandidatePulseScale"));
+assert.strictEqual(slotPreviewAnimations[0].defaultEnabled, true);
+
+const baselinePreviewRequest = buildVisualPreviewRenderRequest({
+  surfaceType: "slot_card",
+  adapterId: "idle_monster_farm.farm_slots",
+  targetId: "farm_slots",
+  targetLabel: "Monster Farm Slots",
+  currentStyle: defaultSlotCardStyle,
+  draftStyle: slotCardPresets[1].values,
+  appliedStyleExists: false
+});
+assert.strictEqual(baselinePreviewRequest.comparison.beforeSource, "baseline_default");
+assert.strictEqual(baselinePreviewRequest.comparison.beforeLabel, "Before: baseline default");
+assert.strictEqual(baselinePreviewRequest.defaultFrameMode, "desktop");
+assert.strictEqual(baselinePreviewRequest.states.some((state) => state.stateId === "merge_candidate"), true);
+
+const appliedPreviewRequest = buildVisualPreviewRenderRequest({
+  surfaceType: "slot_card",
+  adapterId: "idle_monster_farm.farm_slots",
+  targetId: "farm_slots",
+  targetLabel: "Monster Farm Slots",
+  currentStyle: validFarmSlotConfig.values,
+  draftStyle: slotCardPresets[1].values,
+  appliedStyleExists: true
+});
+assert.strictEqual(appliedPreviewRequest.comparison.beforeSource, "applied_config");
+assert.strictEqual(appliedPreviewRequest.comparison.beforeStyle, validFarmSlotConfig.values);
 
 const dashboardSlotRecipe = getVisualSurfaceRecipe("slot_card")!;
 const dashboardButtonRecipe = getVisualSurfaceRecipe("button")!;
