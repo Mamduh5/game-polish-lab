@@ -28,6 +28,19 @@ import {
   shouldOfferGenericPhaserAdapter
 } from "../core/genericPhaserAdapterModel";
 import {
+  buildVisualTuningAttemptIndex,
+  createVisualTuningAttempt,
+  escapeMarkdown,
+  extractFieldNoteTreatmentSummary,
+  fieldNoteGuidanceForFallback,
+  queryAttemptIndex,
+  renderVisualTuningFieldNote,
+  safeAttemptRelativePath,
+  updateAttemptResultModel,
+  validateVisualTuningAttempt,
+  visualTuningResultStatuses
+} from "../core/tuningAttemptModel";
+import {
   assetReplacementRecipeNote,
   getVisualSurfaceRecipe,
   getVisualSurfaceRecipes,
@@ -834,12 +847,124 @@ const genericFallback = buildGenericFallbackTask({
   targetLabel: "Action Buttons",
   selectedFiles: ["src/ui/ButtonView.ts"],
   generatedStyleConfigPath: genericStyleConfigRelativePath("button"),
-  generatedStyleModulePath: genericGeneratedStyleModulePath("button")
+  generatedStyleModulePath: genericGeneratedStyleModulePath("button"),
+  fieldNoteGuidance: {
+    preserve: ["Clean Mobile on button/Action Buttons"],
+    avoid: ["Magic Glow on button/Action Buttons"],
+    mixed: ["Dark Arcade Panel on button/Action Buttons"]
+  }
 });
 assert.strictEqual(genericFallback.ok, true);
 assert.ok(genericFallback.task?.allowedFiles.includes("src/ui/ButtonView.ts"));
 assert.strictEqual(genericFallback.task?.allowedFiles.includes("src/ui/OtherButtonView.ts"), false);
 assert.ok(genericFallback.task?.codexMustNotDo.some((line) => line.includes("loaders/manifests")));
+assert.ok(genericFallback.task?.codexMayDo.some((line) => line.includes("Preserve prior proven-good")));
+assert.ok(genericFallback.task?.codexMustNotDo.some((line) => line.includes("Avoid prior failed")));
+assert.ok(genericFallback.task?.fieldNoteGuidance?.avoid.includes("Magic Glow on button/Action Buttons"));
+
+const directAttempt = createVisualTuningAttempt({
+  createdAt: new Date("2026-06-25T02:03:04.005Z"),
+  attemptId: "attempt-direct",
+  adapterId: "idle_monster_farm",
+  surfaceType: "button",
+  targetLabel: "Monster Farm buttons",
+  recipeId: "button",
+  configPath: buttonStyleConfigRelativePath,
+  presetName: "Clean Mobile Button",
+  styleSnapshot: { width: 120, fillColor: "#112233" },
+  applyMode: "direct_apply",
+  connectionState: "connected",
+  rollbackPaths: [".game-polish-lab/rollback/button.json"],
+  manualChecklist: ["direct apply metadata recorded"]
+});
+assert.strictEqual(validateVisualTuningAttempt(directAttempt).ok, true);
+assert.strictEqual(directAttempt.resultStatus, "unreviewed");
+assert.deepStrictEqual(directAttempt.changedTokens, ["fillColor", "width"]);
+assert.ok(directAttempt.styleValueSummary?.includes("width=120"));
+
+const fallbackAttempt = createVisualTuningAttempt({
+  createdAt: new Date("2026-06-25T02:04:04.005Z"),
+  attemptId: "attempt-fallback",
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  targetLabel: "Action Buttons",
+  recipeId: "button",
+  configPath: genericStyleConfigRelativePath("button"),
+  generatedStyleModulePath: genericGeneratedStyleModulePath("button"),
+  fallbackTaskPath: ".game-polish-lab/fallback-tasks/task.json",
+  presetName: "Magic Glow",
+  styleSnapshot: { glowStrength: 0.9 },
+  applyMode: "fallback_task",
+  connectionState: "unknown",
+  warnings: ["Previous field notes marked Magic Glow worse."]
+});
+assert.strictEqual(validateVisualTuningAttempt(fallbackAttempt).ok, true);
+assert.strictEqual(fallbackAttempt.fallbackTaskPath, ".game-polish-lab/fallback-tasks/task.json");
+
+assert.deepStrictEqual(visualTuningResultStatuses, ["unreviewed", "better", "worse", "same", "mixed"]);
+assert.strictEqual(validateVisualTuningAttempt({ ...directAttempt, resultStatus: "bad" }).ok, false);
+assert.strictEqual(
+  safeAttemptRelativePath(new Date("2026-06-25T02:03:04.005Z"), "button", "Action Buttons", "attempt-direct"),
+  ".game-polish-lab/tuning-attempts/2026-06-25T02-03-04-005Z-button-action-buttons-t-direct.json"
+);
+
+const betterAttempt = updateAttemptResultModel(directAttempt, "better", "Clean mobile button improved repeat taps.", new Date("2026-06-25T02:05:04.005Z"));
+const worseAttempt = updateAttemptResultModel(fallbackAttempt, "worse", "Magic glow reduced readability.", new Date("2026-06-25T02:06:04.005Z"));
+const sameAttempt = updateAttemptResultModel(createVisualTuningAttempt({
+  createdAt: new Date("2026-06-25T02:07:04.005Z"),
+  attemptId: "attempt-same",
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  targetLabel: "Action Buttons",
+  presetName: "Flat Gray",
+  applyMode: "fallback_task",
+  connectionState: "unknown"
+}), "same", "No meaningful button contrast change.");
+const mixedAttempt = updateAttemptResultModel(createVisualTuningAttempt({
+  createdAt: new Date("2026-06-25T02:08:04.005Z"),
+  attemptId: "attempt-mixed",
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  targetLabel: "Action Buttons",
+  presetName: "Dark Arcade",
+  applyMode: "fallback_task",
+  connectionState: "unknown"
+}), "mixed", "Hover improved but disabled state got muddy.");
+assert.deepStrictEqual(betterAttempt.resultNotes, ["Clean mobile button improved repeat taps."]);
+
+const attemptIndex = buildVisualTuningAttemptIndex([
+  { attempt: betterAttempt, attemptPath: ".game-polish-lab/tuning-attempts/better.json" },
+  { attempt: worseAttempt, attemptPath: ".game-polish-lab/tuning-attempts/worse.json" },
+  { attempt: sameAttempt, attemptPath: ".game-polish-lab/tuning-attempts/same.json" },
+  { attempt: mixedAttempt, attemptPath: ".game-polish-lab/tuning-attempts/mixed.json" }
+], new Date("2026-06-25T02:09:04.005Z"));
+assert.strictEqual(attemptIndex.schemaVersion, "visual-tuning-attempt-index/v1");
+assert.strictEqual(attemptIndex.attempts.length, 4);
+assert.strictEqual(queryAttemptIndex(attemptIndex, { surfaceType: "button", adapterId: "generic_phaser", targetLabel: "Action Buttons" }).length, 3);
+assert.strictEqual(queryAttemptIndex(attemptIndex, { resultStatus: "worse", presetName: "Magic Glow" })[0].attemptId, "attempt-fallback");
+
+const treatmentSummary = extractFieldNoteTreatmentSummary(attemptIndex, { surfaceType: "button", adapterId: "generic_phaser", targetLabel: "Action Buttons" });
+assert.strictEqual(treatmentSummary.knownBad.length, 1);
+assert.strictEqual(treatmentSummary.noMeaningfulEffect.length, 1);
+assert.strictEqual(treatmentSummary.mixed.length, 1);
+assert.ok(treatmentSummary.warnings.some((warning) => warning.includes("worse")));
+assert.ok(treatmentSummary.warnings.some((warning) => warning.includes("no meaningful")));
+
+const directTreatmentSummary = extractFieldNoteTreatmentSummary(attemptIndex, { surfaceType: "button", adapterId: "idle_monster_farm" });
+assert.strictEqual(directTreatmentSummary.knownGood.length, 1);
+assert.ok(directTreatmentSummary.successes.some((success) => success.includes("better")));
+
+const fallbackGuidance = fieldNoteGuidanceForFallback(attemptIndex, { surfaceType: "button", adapterId: "generic_phaser", targetLabel: "Action Buttons" });
+assert.ok(fallbackGuidance.avoid.some((line) => line.includes("Magic Glow")));
+assert.ok(fallbackGuidance.avoid.some((line) => line.includes("no meaningful effect")));
+assert.ok(fallbackGuidance.mixed.some((line) => line.includes("Dark Arcade")));
+
+const fieldNoteEntry = renderVisualTuningFieldNote(worseAttempt, ".game-polish-lab/tuning-attempts/worse.json", "Magic glow reduced readability.");
+const existingFieldNotes = "# Game Polish Lab Field Notes\n\nExisting note\n";
+const appendedFieldNotes = `${existingFieldNotes.trimEnd()}\n\n${fieldNoteEntry}`;
+assert.ok(appendedFieldNotes.includes("Existing note"));
+assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
+assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const vagueGenericFallback = buildGenericFallbackTask({
   surfaceType: "panel",
@@ -870,10 +995,14 @@ assert.ok(genericAssetTraversal.model.validationErrors.some((error) => error.inc
 
 const genericFallbackScope = checkV05VisualScope([
   ".game-polish-lab/fallback-tasks/2026-generic-button-action-buttons.json",
+  ".game-polish-lab/tuning-attempts/2026-button-action-buttons.json",
+  ".game-polish-lab/field-notes.md",
   genericStyleConfigRelativePath("button"),
   genericGeneratedStyleModulePath("button")
 ], { throughAdapter: true });
 assert.strictEqual(genericFallbackScope.ok, true);
+assert.ok(genericFallbackScope.allowedFiles.includes(".game-polish-lab/tuning-attempts/2026-button-action-buttons.json"));
+assert.ok(genericFallbackScope.allowedFiles.includes(".game-polish-lab/field-notes.md"));
 
 const unsafeGenericDirectScope = checkV05VisualScope([
   "src/scenes/MenuScene.ts",

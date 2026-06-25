@@ -25,6 +25,11 @@ export interface GenericFallbackTask {
   selectedFiles: string[];
   generatedStyleConfigPath: string;
   generatedStyleModulePath?: string;
+  fieldNoteGuidance?: {
+    preserve: string[];
+    avoid: string[];
+    mixed: string[];
+  };
   allowedFiles: string[];
   forbiddenFiles: string[];
   codexMayDo: string[];
@@ -135,6 +140,11 @@ export function buildGenericFallbackTask(input: {
   generatedStyleConfigPath: string;
   generatedStyleModulePath?: string;
   assetDestinationFolder?: string;
+  fieldNoteGuidance?: {
+    preserve: string[];
+    avoid: string[];
+    mixed: string[];
+  };
 }): { ok: boolean; task?: GenericFallbackTask; errors: string[] } {
   const selectedFiles = normalizeGenericSelectedFiles(input.selectedFiles);
   const errors: string[] = [];
@@ -165,6 +175,7 @@ export function buildGenericFallbackTask(input: {
       selectedFiles,
       generatedStyleConfigPath: input.generatedStyleConfigPath,
       generatedStyleModulePath: input.generatedStyleModulePath,
+      fieldNoteGuidance: input.fieldNoteGuidance,
       allowedFiles: [
         input.generatedStyleConfigPath,
         ".game-polish-lab/visual-recipes/*",
@@ -190,12 +201,15 @@ export function buildGenericFallbackTask(input: {
       codexMayDo: [
         "Wire the generated visual style config/module into the exact selected rendering files only.",
         "Keep changes visual-only and reversible.",
-        "Add no new gameplay behavior."
+        "Add no new gameplay behavior.",
+        ...((input.fieldNoteGuidance?.preserve ?? []).map((note) => `Preserve prior proven-good visual treatment: ${note}`))
       ],
       codexMustNotDo: [
         "Do not edit files outside the selected file scope.",
         "Do not change loaders/manifests unless the user explicitly adds those files to scope.",
-        "Do not change gameplay, save, economy, progression, quest, hatch, merge, upgrade, ads, inventory/state, input dispatch, or package scripts."
+        "Do not change gameplay, save, economy, progression, quest, hatch, merge, upgrade, ads, inventory/state, input dispatch, or package scripts.",
+        ...((input.fieldNoteGuidance?.avoid ?? []).map((note) => `Avoid prior failed visual treatment: ${note}`)),
+        ...((input.fieldNoteGuidance?.mixed ?? []).map((note) => `Treat prior mixed result carefully: ${note}`))
       ],
       manualTestChecklist: [
         "Phaser project detection result shown",

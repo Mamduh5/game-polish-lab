@@ -60,6 +60,8 @@ const forbiddenPathTerms = [
 
 const allowedStylePathTerms = [
   ".game-polish-lab/styles/",
+  ".game-polish-lab/tuning-attempts/",
+  ".game-polish-lab/field-notes.md",
   ".game-polish-lab/visual-recipes/",
   ".game-polish-lab/fallback-tasks/",
   ".game-polish-lab/rollback/",

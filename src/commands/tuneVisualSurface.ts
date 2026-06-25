@@ -9,8 +9,9 @@ import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdap
 import { logCommandEnd, logCommandStart, logError, logInfo, logWarn } from "../core/output";
 import { applyGenericPhaserAsset, applyGenericPhaserStyle, getGenericPhaserAdapterState, GenericPhaserDetection, GenericPhaserSurfaceType } from "../core/genericPhaserAdapter";
 import { checkV05VisualScope } from "../core/v05VisualScopeGuard";
+import { createTuningAttempt, getFallbackFieldNoteGuidance, getTreatmentSummary, loadTuningAttemptIndex, updateTuningAttemptResult } from "../core/tuningAttempts";
 import { ensureVisualRecipeFiles } from "../core/visualRecipeFiles";
-import { getVisualSurfaceRecipes, visualSurfacePickerOrder } from "../core/visualRecipeRegistry";
+import { getVisualSurfaceRecipe, getVisualSurfaceRecipes, visualSurfacePickerOrder } from "../core/visualRecipeRegistry";
 import {
   backgroundReadabilityStyleConfigRelativePath,
   BackgroundStyleConfigLoadResult,
@@ -41,11 +42,12 @@ import { defaultPanelStyle, panelStyleBounds, panelStylePresets } from "../prese
 import { defaultRewardToastStyle, rewardToastPresets, rewardToastStyleBounds } from "../presets/rewardToastPresets";
 import { defaultSlotCardStyle, slotCardPresets, slotCardStyleBounds } from "../presets/slotCardPresets";
 import { AssetReplacementTargetId, BackgroundReadabilityStyleValues, ButtonStyleValues, PanelStyleValues, RewardToastStyleValues, SlotCardStyleValues, VisualSurfaceType } from "../types/visualSurface";
+import { VisualTuningApplyMode, VisualTuningAttemptIndex, VisualTuningConnectionState, VisualTuningResultStatus } from "../types/visualTuningAttempt";
 
 type SurfaceValues = SlotCardStyleValues | BackgroundReadabilityStyleValues | PanelStyleValues | RewardToastStyleValues | ButtonStyleValues | Record<string, never>;
 
 interface SaveMessage {
-  command: "saveAndApply" | "setupBridge" | "applyAsset";
+  command: "saveAndApply" | "setupBridge" | "applyAsset" | "markResult";
   surfaceType: VisualSurfaceType;
   presetName: string;
   values: SurfaceValues;
@@ -57,13 +59,22 @@ interface SaveMessage {
   assetTargetId?: AssetReplacementTargetId;
   fileName?: string;
   dataBase64?: string;
+  attemptPath?: string;
+  resultStatus?: VisualTuningResultStatus;
+  resultNote?: string;
 }
 
 interface SaveResultMessage {
-  command: "saveResult";
+  command: "saveResult" | "resultMarked";
   ok: boolean;
   surfaceType?: VisualSurfaceType;
   configPath?: string;
+  generatedStyleModulePath?: string;
+  assetPath?: string;
+  fallbackTaskPath?: string;
+  attemptId?: string;
+  attemptPath?: string;
+  resultStatus?: VisualTuningResultStatus;
   rollbackPaths?: string[];
   checklist?: string[];
   applySummary?: string[];
@@ -109,6 +120,7 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
     const buttonState = await getIdleMonsterFarmButtonAdapterState(folder);
     const genericPhaserState = await getGenericPhaserAdapterState(folder);
     const assetTargets = getIdleMonsterFarmAssetTargets();
+    const tuningAttemptIndex = await loadTuningAttemptIndex(folder);
 
     const panel = vscode.window.createWebviewPanel("gamePolishLab.tuneVisualSurface", "Tune Visual Surface", vscode.ViewColumn.One, {
       enableScripts: true,
@@ -128,12 +140,15 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
       rewardToastState,
       buttonState,
       genericPhaserState,
+      tuningAttemptIndex,
       recipes: getVisualSurfaceRecipes(),
       assetTargets
     });
 
     panel.webview.onDidReceiveMessage(async (message: SaveMessage) => {
-      const result = message.command === "applyAsset"
+      const result = message.command === "markResult"
+        ? await markAttemptResult(folder, message)
+        : message.command === "applyAsset"
         ? await applyAsset(folder, message)
         : message.command === "setupBridge"
         ? await setupBridge(folder, message, slotLoad, backgroundLoad, panelLoad, rewardToastLoad, buttonLoad)
@@ -154,55 +169,70 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
       if (message.surfaceType === "asset_replacement") {
         return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Use asset apply for Generic Phaser asset replacement." };
       }
+      const targetLabel = message.targetLabel ?? "Generic target";
+      const fieldNoteGuidance = await getFallbackFieldNoteGuidance(folder, {
+        surfaceType: message.surfaceType,
+        adapterId: "generic_phaser",
+        targetLabel
+      });
       const result = await applyGenericPhaserStyle(folder, {
         surfaceType: message.surfaceType as GenericPhaserSurfaceType,
-        targetLabel: message.targetLabel ?? "Generic target",
+        targetLabel,
         selectedFiles: message.selectedFiles ?? [],
         directApplyAllowed: Boolean(message.directApplyAllowed),
-        values: message.values as Record<string, string | number | boolean>
+        values: message.values as Record<string, string | number | boolean>,
+        fieldNoteGuidance
       });
       logSummary(genericApplySummary(result), result.warnings);
       logChecklist(`v0.58 generic_phaser ${message.surfaceType} manual test checklist:`, result.checklist);
-      return {
+      return recordTuningAttemptForResult(folder, message, {
         command: "saveResult",
         ok: result.ok,
         surfaceType: message.surfaceType,
         configPath: result.configPath,
+        generatedStyleModulePath: result.generatedStyleModulePath,
+        fallbackTaskPath: result.fallbackTaskPath,
         rollbackPaths: result.rollbackPaths,
         checklist: result.checklist,
         applySummary: genericApplySummary(result),
         warnings: result.warnings,
         error: result.errors.length > 0 ? result.errors.join(" ") : undefined
-      };
+      }, {
+        adapterId: "generic_phaser",
+        targetLabel,
+        applyMode: result.fallbackTaskPath ? "fallback_task" : result.generatedStyleModulePath ? "direct_apply" : "config_only",
+        connectionState: "unknown",
+        scopeSummary: result.changedFiles.length > 0 ? result.changedFiles.join(", ") : result.configPath
+      });
     }
     if (message.surfaceType === "background_readability") {
       const config = buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues);
       const result = await saveConfigAndApply(folder, "background_readability", backgroundReadabilityStyleConfigRelativePath, "background-readability-style.json", backgroundLoad, async () => summarizeBackgroundApplyResult(folder, await applyIdleMonsterFarmBackgroundStyle(folder, config)));
       await writeJsonFile(labUri(folder, "styles", "background-readability-style.json"), config);
-      return result;
+      return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability" });
     }
     if (message.surfaceType === "panel") {
       const config = buildPanelStyleConfig(message.presetName, message.values as PanelStyleValues);
       const result = await saveConfigAndApply(folder, "panel", panelStyleConfigRelativePath, "panel-style.json", panelLoad, async () => summarizePanelApplyResult(folder, await applyIdleMonsterFarmPanelStyle(folder, config)));
       await writeJsonFile(labUri(folder, "styles", "panel-style.json"), config);
-      return result;
+      return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm panels" });
     }
     if (message.surfaceType === "reward_toast") {
       const config = buildRewardToastStyleConfig(message.presetName, message.values as RewardToastStyleValues);
       const result = await saveConfigAndApply(folder, "reward_toast", rewardToastStyleConfigRelativePath, "reward-toast-style.json", rewardToastLoad, async () => summarizeRewardToastApplyResult(folder, await applyIdleMonsterFarmRewardToastStyle(folder, config)));
       await writeJsonFile(labUri(folder, "styles", "reward-toast-style.json"), config);
-      return result;
+      return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm reward toast" });
     }
     if (message.surfaceType === "button") {
       const config = buildButtonStyleConfig(message.presetName, message.values as ButtonStyleValues);
       const result = await saveConfigAndApply(folder, "button", buttonStyleConfigRelativePath, "button-style.json", buttonLoad, async () => summarizeButtonApplyResult(folder, await applyIdleMonsterFarmButtonStyle(folder, config)));
       await writeJsonFile(labUri(folder, "styles", "button-style.json"), config);
-      return result;
+      return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons" });
     }
     const config = buildSlotCardStyleConfig(message.presetName, message.values as SlotCardStyleValues);
     const result = await saveConfigAndApply(folder, "slot_card", farmSlotStyleConfigRelativePath, "farm-slot-style.json", slotLoad, async () => summarizeFarmSlotApplyResult(folder, await applyIdleMonsterFarmFarmSlotStyle(folder, config)));
     await writeJsonFile(labUri(folder, "styles", "farm-slot-style.json"), config);
-    return result;
+    return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm farm slots" });
   } catch (error) {
     logError("save/apply visual surface failed:", error);
     return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: errorToMessage(error) };
@@ -246,22 +276,22 @@ async function setupBridge(folder: vscode.WorkspaceFolder, message: SaveMessage,
   try {
     if (message.surfaceType === "background_readability") {
       const result = await setupIdleMonsterFarmBackgroundBridge(folder, buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues));
-      return setupResponse("background_readability", backgroundReadabilityStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("background_readability", backgroundLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.background", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings);
+      return recordTuningAttemptForResult(folder, message, setupResponse("background_readability", backgroundReadabilityStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("background_readability", backgroundLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.background", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability", applyMode: "direct_apply" });
     }
     if (message.surfaceType === "panel") {
       const result = await setupIdleMonsterFarmPanelBridge(folder, buildPanelStyleConfig(message.presetName, message.values as PanelStyleValues));
-      return setupResponse("panel", panelStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("panel", panelLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.panels", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings);
+      return recordTuningAttemptForResult(folder, message, setupResponse("panel", panelStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("panel", panelLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.panels", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm panels", applyMode: "direct_apply" });
     }
     if (message.surfaceType === "reward_toast") {
       const result = await setupIdleMonsterFarmRewardToastBridge(folder, buildRewardToastStyleConfig(message.presetName, message.values as RewardToastStyleValues));
-      return setupResponse("reward_toast", rewardToastStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("reward_toast", rewardToastLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.reward_toast", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings);
+      return recordTuningAttemptForResult(folder, message, setupResponse("reward_toast", rewardToastStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("reward_toast", rewardToastLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.reward_toast", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm reward toast", applyMode: "direct_apply" });
     }
     if (message.surfaceType === "button") {
       const result = await setupIdleMonsterFarmButtonBridge(folder, buildButtonStyleConfig(message.presetName, message.values as ButtonStyleValues));
-      return setupResponse("button", buttonStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("button", buttonLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.buttons", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings);
+      return recordTuningAttemptForResult(folder, message, setupResponse("button", buttonStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("button", buttonLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.buttons", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons", applyMode: "direct_apply" });
     }
     const result = await setupIdleMonsterFarmFarmSlotBridge(folder, buildSlotCardStyleConfig(message.presetName, message.values as SlotCardStyleValues));
-    return setupResponse("slot_card", farmSlotStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("slot_card", slotLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.farm_slots", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings);
+    return recordTuningAttemptForResult(folder, message, setupResponse("slot_card", farmSlotStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("slot_card", slotLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.farm_slots", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm farm slots", applyMode: "direct_apply" });
   } catch (error) {
     logError("setup visual bridge failed:", error);
     return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: errorToMessage(error) };
@@ -279,25 +309,39 @@ async function applyAsset(folder: vscode.WorkspaceFolder, message: SaveMessage):
       if (!message.fileName || !message.dataBase64 || !message.assetDestinationFolder) {
         return { command: "saveResult", ok: false, surfaceType: "asset_replacement", error: "Choose a PNG/WebP asset and Generic Phaser asset folder before applying." };
       }
+      const fieldNoteGuidance = await getFallbackFieldNoteGuidance(folder, {
+        surfaceType: "asset_replacement",
+        adapterId: "generic_phaser",
+        targetLabel: "Generic asset loader wiring"
+      });
       const result = await applyGenericPhaserAsset(folder, {
         fileName: message.fileName,
         bytes: Buffer.from(message.dataBase64, "base64"),
-        assetDestinationFolder: message.assetDestinationFolder
+        assetDestinationFolder: message.assetDestinationFolder,
+        fieldNoteGuidance
       });
       const applySummary = genericApplySummary(result);
       logSummary(applySummary, result.warnings);
       logChecklist("v0.58 generic_phaser asset manual test checklist:", result.checklist);
-      return {
+      return recordTuningAttemptForResult(folder, message, {
         command: "saveResult",
         ok: result.ok,
         surfaceType: "asset_replacement",
         configPath: result.configPath,
+        assetPath: result.configPath,
+        fallbackTaskPath: result.fallbackTaskPath,
         rollbackPaths: result.rollbackPaths,
         checklist: result.checklist,
         applySummary,
         warnings: result.warnings,
         error: result.errors.length > 0 ? result.errors.join(" ") : undefined
-      };
+      }, {
+        adapterId: "generic_phaser",
+        targetLabel: "Generic asset loader wiring",
+        applyMode: "asset_copy",
+        connectionState: "not_applicable",
+        scopeSummary: result.changedFiles.length > 0 ? result.changedFiles.join(", ") : result.configPath
+      });
     }
     if (!message.assetTargetId || !message.fileName || !message.dataBase64) {
       return { command: "saveResult", ok: false, surfaceType: "asset_replacement", error: "Choose a PNG/WebP asset before applying." };
@@ -321,21 +365,110 @@ async function applyAsset(folder: vscode.WorkspaceFolder, message: SaveMessage):
     ];
     logSummary(applySummary, result.warnings);
     logChecklist("v0.53 asset replacement manual test checklist:", result.checklist);
-    return {
+    return recordTuningAttemptForResult(folder, message, {
       command: "saveResult",
       ok: result.errors.length === 0,
       surfaceType: "asset_replacement",
       configPath: result.destinationPath,
+      assetPath: result.destinationPath,
       rollbackPaths: result.rollbackPaths,
       checklist: result.checklist,
       applySummary,
       warnings: result.warnings,
       error: result.errors.length > 0 ? result.errors.join(" ") : undefined
-    };
+    }, {
+      adapterId: "idle_monster_farm",
+      targetId: message.assetTargetId,
+      targetLabel: message.assetTargetId,
+      applyMode: "asset_copy",
+      connectionState: "not_applicable",
+      scopeSummary: result.changedFiles.length > 0 ? result.changedFiles.join(", ") : result.destinationPath ?? "asset copy"
+    });
   } catch (error) {
     logError("asset replacement apply failed:", error);
     return { command: "saveResult", ok: false, surfaceType: "asset_replacement", error: errorToMessage(error) };
   }
+}
+
+async function markAttemptResult(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  try {
+    if (!message.attemptPath || !message.resultStatus) {
+      return { command: "resultMarked", ok: false, surfaceType: message.surfaceType, error: "No tuning attempt was selected for result marking." };
+    }
+    const stored = await updateTuningAttemptResult(folder, message.attemptPath, message.resultStatus, message.resultNote);
+    logInfo(`v0.59 tuning attempt marked ${stored.attempt.resultStatus}: ${stored.attemptPath}`);
+    logChecklist("v0.59 result tracking manual test checklist:", resultTrackingChecklist());
+    return {
+      command: "resultMarked",
+      ok: true,
+      surfaceType: stored.attempt.surfaceType,
+      attemptId: stored.attempt.attemptId,
+      attemptPath: stored.attemptPath,
+      resultStatus: stored.attempt.resultStatus
+    };
+  } catch (error) {
+    logError("mark tuning result failed:", error);
+    return { command: "resultMarked", ok: false, surfaceType: message.surfaceType, error: errorToMessage(error) };
+  }
+}
+
+async function recordTuningAttemptForResult(
+  folder: vscode.WorkspaceFolder,
+  message: SaveMessage,
+  response: SaveResultMessage,
+  extra: {
+    adapterId: string;
+    targetId?: string;
+    targetLabel?: string;
+    applyMode?: VisualTuningApplyMode;
+    connectionState?: VisualTuningConnectionState;
+    scopeSummary?: string;
+  }
+): Promise<SaveResultMessage> {
+  if (!response.ok || response.command !== "saveResult" || !response.surfaceType) {
+    return response;
+  }
+  const recipe = response.surfaceType === "asset_replacement" ? undefined : getVisualSurfaceRecipe(response.surfaceType);
+  const treatmentSummary = await getTreatmentSummary(folder, {
+    surfaceType: response.surfaceType,
+    adapterId: extra.adapterId,
+    targetId: extra.targetId,
+    targetLabel: extra.targetLabel,
+    presetName: message.presetName || undefined,
+    recipeId: recipe?.recipeId
+  });
+  const stored = await createTuningAttempt(folder, {
+    adapterId: extra.adapterId,
+    surfaceType: response.surfaceType,
+    targetId: extra.targetId,
+    targetLabel: extra.targetLabel ?? message.targetLabel,
+    recipeId: recipe?.recipeId,
+    configPath: response.configPath,
+    generatedStyleModulePath: response.generatedStyleModulePath,
+    assetPath: response.assetPath,
+    fallbackTaskPath: response.fallbackTaskPath,
+    presetName: message.presetName || undefined,
+    styleSnapshot: message.surfaceType === "asset_replacement" ? { fileName: message.fileName, assetDestinationFolder: message.assetDestinationFolder } : message.values,
+    changedTokens: Object.keys(message.values ?? {}).sort(),
+    applyMode: extra.applyMode ?? inferApplyMode(response),
+    connectionState: extra.connectionState ?? inferConnectionState(response),
+    scopeSummary: extra.scopeSummary ?? summarizeResponseScope(response),
+    rollbackPaths: response.rollbackPaths ?? [],
+    manualChecklist: response.checklist ?? [],
+    warnings: [...(response.warnings ?? []), ...treatmentSummary.warnings],
+    tags: ["v0.59"]
+  });
+  const checklist = [...(response.checklist ?? []), ...resultTrackingChecklist()];
+  logInfo(`v0.59 tuning attempt created: ${stored.attemptPath}`);
+  logChecklist("v0.59 result tracking manual test checklist:", resultTrackingChecklist());
+  return {
+    ...response,
+    attemptId: stored.attempt.attemptId,
+    attemptPath: stored.attemptPath,
+    resultStatus: stored.attempt.resultStatus,
+    checklist,
+    warnings: [...(response.warnings ?? []), ...treatmentSummary.warnings]
+  };
 }
 
 async function createRollbackSnapshotIfNeeded(folder: vscode.WorkspaceFolder, configUri: vscode.Uri, affectedRelativePath: string): Promise<string[]> {
@@ -484,6 +617,60 @@ function checklistFor(surfaceType: Exclude<VisualSurfaceType, "asset_replacement
   ];
 }
 
+function resultTrackingChecklist(): string[] {
+  return [
+    "tuning attempt JSON created",
+    "attempt index updated",
+    "result status starts as unreviewed",
+    "user can mark better/worse/same/mixed",
+    "result note is saved",
+    "field notes appended",
+    "existing field notes are not overwritten",
+    "known-bad treatment warning appears on matching future surface/target",
+    "known-good treatment appears as prior success",
+    "fallback task metadata includes relevant avoid/preserve notes",
+    "no gameplay/save/economy/progression/ad files changed"
+  ];
+}
+
+function inferApplyMode(response: SaveResultMessage): VisualTuningApplyMode {
+  if (response.fallbackTaskPath) {
+    return "fallback_task";
+  }
+  if (response.surfaceType === "asset_replacement") {
+    return "asset_copy";
+  }
+  if ((response.applySummary ?? []).some((line) => line.includes("direct apply: applied") || line.includes("one-time setup: applied"))) {
+    return "direct_apply";
+  }
+  return "config_only";
+}
+
+function inferConnectionState(response: SaveResultMessage): VisualTuningConnectionState {
+  if (response.surfaceType === "asset_replacement") {
+    return "not_applicable";
+  }
+  const summary = response.applySummary ?? [];
+  if (summary.some((line) => line.includes("connected: yes") || line.includes("connected after setup: yes"))) {
+    return "connected";
+  }
+  if (summary.some((line) => line.includes("connected: no") || line.includes("connected after setup: no"))) {
+    return "not_connected";
+  }
+  return "unknown";
+}
+
+function summarizeResponseScope(response: SaveResultMessage): string {
+  const paths = [
+    response.configPath,
+    response.generatedStyleModulePath,
+    response.assetPath,
+    response.fallbackTaskPath,
+    ...(response.rollbackPaths ?? [])
+  ].filter((value): value is string => Boolean(value));
+  return paths.length > 0 ? paths.join(", ") : "visual tuning metadata";
+}
+
 function logSummary(lines: string[], warnings: string[]): void {
   for (const line of lines) {
     logInfo(line);
@@ -527,6 +714,7 @@ function renderHtml(input: {
   rewardToastState: Awaited<ReturnType<typeof getIdleMonsterFarmRewardToastAdapterState>>;
   buttonState: Awaited<ReturnType<typeof getIdleMonsterFarmButtonAdapterState>>;
   genericPhaserState: GenericPhaserDetection;
+  tuningAttemptIndex: VisualTuningAttemptIndex;
   recipes: ReturnType<typeof getVisualSurfaceRecipes>;
   assetTargets: ReturnType<typeof getIdleMonsterFarmAssetTargets>;
 }): string {
@@ -542,6 +730,7 @@ function renderHtml(input: {
     recipes: input.recipes,
     surfaceOrder: visualSurfacePickerOrder,
     genericPhaser: input.genericPhaserState,
+    tuningAttemptIndex: input.tuningAttemptIndex,
     assetTargets: input.assetTargets
   }).replace(/</g, "\\u003c");
 
@@ -551,7 +740,7 @@ function renderHtml(input: {
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Game Polish Lab v0.58</title>
+  <title>Game Polish Lab v0.59</title>
   <style nonce="${nonce}">
     :root{color-scheme:light dark;--panel:var(--vscode-editorWidget-background);--border:var(--vscode-panel-border);--text:var(--vscode-foreground);--muted:var(--vscode-descriptionForeground);--button:var(--vscode-button-background);--button-text:var(--vscode-button-foreground);--focus:var(--vscode-focusBorder)}
     *{box-sizing:border-box} body{margin:0;padding:18px;color:var(--text);font-family:var(--vscode-font-family);background:var(--vscode-editor-background)}
@@ -559,9 +748,9 @@ function renderHtml(input: {
   </style>
 </head>
 <body>
-  <div style="margin-bottom:16px"><h1>Game Polish Lab v0.58: Visual Surface Tuning</h1><p class="meta">Visual choice -> preview -> save config/assets -> direct apply for supported adapters.</p></div>
+  <div style="margin-bottom:16px"><h1>Game Polish Lab v0.59: Visual Surface Tuning</h1><p class="meta">Visual choice -> preview -> save config/assets -> direct apply for supported adapters -> record result.</p></div>
   <main>
-    <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"></select></div><div><label for="adapterMode">Adapter</label><select id="adapterMode"><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option></select></div><div id="genericFields" style="display:none"><label for="genericTarget">Manual target label</label><input id="genericTarget" type="text" value="Manual visual target"><label for="genericFiles">Selected target files</label><textarea id="genericFiles"></textarea><label for="genericAssetFolder">Asset destination folder</label><input id="genericAssetFolder" type="text" value="src/assets"><label><input id="genericDirect" type="checkbox"> Write generated style module</label></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="status" class="status"></div></section>
+    <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"></select></div><div><label for="adapterMode">Adapter</label><select id="adapterMode"><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option></select></div><div id="genericFields" style="display:none"><label for="genericTarget">Manual target label</label><input id="genericTarget" type="text" value="Manual visual target"><label for="genericFiles">Selected target files</label><textarea id="genericFiles"></textarea><label for="genericAssetFolder">Asset destination folder</label><input id="genericAssetFolder" type="text" value="src/assets"><label><input id="genericDirect" type="checkbox"> Write generated style module</label></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="resultPanel" style="display:none;margin-top:12px"><label for="resultNote">Result note</label><textarea id="resultNote" placeholder="What improved, got worse, or did not move?"></textarea><div class="actions"><button class="secondary" data-result="better">Mark Better</button><button class="secondary" data-result="worse">Mark Worse</button><button class="secondary" data-result="same">Mark Same</button><button class="secondary" data-result="mixed">Mark Mixed</button><button data-result="unreviewed">Add Note</button></div></div><div id="status" class="status"></div></section>
     <section class="preview-grid"><div><h2>Before</h2><div id="before"></div></div><div><h2>After</h2><div id="after"></div></div></section>
   </main>
   <section class="panel" style="margin-top:14px"><h3>Adapter Detection</h3><ul id="adapter" class="list"></ul></section>
@@ -570,7 +759,7 @@ function renderHtml(input: {
     const recipesBySurface=Object.fromEntries(data.recipes.map(r=>[r.surfaceType,r]));
     const labels={},numeric={},colors={};
     for(const recipe of data.recipes){numeric[recipe.surfaceType]=[];colors[recipe.surfaceType]=[];for(const token of recipe.supportedStyleTokens){labels[token.tokenId]=token.label;if(token.valueType==="number")numeric[recipe.surfaceType].push(token.tokenId);if(token.valueType==="color")colors[recipe.surfaceType].push(token.tokenId);}}
-    let surfaceType="slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceData.initialConfig.presetName, values=structuredClone(surfaceData.initialConfig.values), selectedAsset=null, needsSetup=false, adapterId="idle_monster_farm";
+    let surfaceType="slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceData.initialConfig.presetName, values=structuredClone(surfaceData.initialConfig.values), selectedAsset=null, needsSetup=false, adapterId="idle_monster_farm", currentAttemptPath="";
     const surface=document.getElementById("surface"), preset=document.getElementById("preset"), controls=document.getElementById("controls"), status=document.getElementById("status"), adapterMode=document.getElementById("adapterMode"), genericFields=document.getElementById("genericFields"), genericTarget=document.getElementById("genericTarget"), genericFiles=document.getElementById("genericFiles"), genericAssetFolder=document.getElementById("genericAssetFolder"), genericDirect=document.getElementById("genericDirect");
     genericFiles.value=(data.genericPhaser.likelySceneFiles||[]).join("\\n");genericAssetFolder.value=(data.genericPhaser.likelyAssetFolders&&data.genericPhaser.likelyAssetFolders[0])||"src/assets";
     for(const id of data.surfaceOrder){const option=document.createElement("option");option.value=id;option.textContent=recipesBySurface[id]?recipesBySurface[id].displayName:id;surface.append(option);}
@@ -579,7 +768,7 @@ function renderHtml(input: {
     [genericTarget,genericFiles,genericAssetFolder,genericDirect].forEach(el=>el.addEventListener("input",renderAdapter));
     function genericSelectedFiles(){return genericFiles.value.split(/\\r?\\n|,/).map(v=>v.trim()).filter(Boolean);}
     function rebuild(){genericFields.style.display=adapterId==="generic_phaser"?"block":"none";buildPreset();buildControls();render();renderAdapter();document.getElementById("setup").style.display=adapterId==="generic_phaser"?"none":needsSetup?"inline-block":"none";status.textContent=surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning?surfaceData.configLoad.warning:"";}
-    function buildPreset(){preset.textContent="";document.getElementById("presetRow").style.display=surfaceType==="asset_replacement"?"none":"block";if(surfaceType==="asset_replacement")return;for(const p of surfaceData.presets){const o=document.createElement("option");o.value=p.name;o.textContent=p.name;o.selected=p.name===presetName;preset.append(o);}}
+    function buildPreset(){preset.textContent="";document.getElementById("presetRow").style.display=surfaceType==="asset_replacement"?"none":"block";if(surfaceType==="asset_replacement")return;for(const p of surfaceData.presets){const o=document.createElement("option");o.value=p.name;const signal=signalForPreset(p.name);o.textContent=p.name+(signal?" - "+signal:"");o.selected=p.name===presetName;preset.append(o);}}
     function buildControls(){controls.textContent="";if(surfaceType==="asset_replacement"){buildAssetControls();return;}for(const key of numeric[surfaceType]){const wrap=document.createElement("div"),label=document.createElement("label"),row=document.createElement("div"),range=document.createElement("input"),num=document.createElement("input"),b=surfaceData.bounds[key];label.textContent=labels[key];row.className="control-row";range.type="range";range.min=b.min;range.max=b.max;range.step=b.step;range.value=values[key];num.type="number";num.min=b.min;num.max=b.max;num.step=b.step;num.value=values[key];range.addEventListener("input",()=>setNumber(key,range.value,num,range));num.addEventListener("input",()=>setNumber(key,num.value,num,range));row.append(range,num);wrap.append(label,row);controls.append(wrap);}for(const key of colors[surfaceType]){const wrap=document.createElement("div"),label=document.createElement("label"),input=document.createElement("input");label.textContent=labels[key];input.type="color";input.value=values[key];input.addEventListener("input",()=>{values[key]=input.value;render();});wrap.append(label,input);controls.append(wrap);}}
     function buildAssetControls(){const targetWrap=document.createElement("div"),label=document.createElement("label"),select=document.createElement("select");label.textContent="Asset target";select.id="assetTarget";for(const target of data.assetTargets.targets){const option=document.createElement("option");option.value=target.targetId;option.textContent=target.label+" ("+target.assignmentMode+")";select.append(option);}select.addEventListener("change",render);targetWrap.append(label,select);const fileWrap=document.createElement("div"),fileLabel=document.createElement("label"),drop=document.createElement("div"),file=document.createElement("input");fileLabel.textContent="PNG/WebP replacement";drop.className="drop-zone";drop.textContent="Drop PNG/WebP here or choose a file";file.type="file";file.accept="image/png,image/webp,.png,.webp";file.addEventListener("change",()=>{if(file.files&&file.files[0])readAsset(file.files[0]);});drop.addEventListener("dragover",e=>{e.preventDefault();});drop.addEventListener("drop",e=>{e.preventDefault();if(e.dataTransfer&&e.dataTransfer.files[0])readAsset(e.dataTransfer.files[0]);});fileWrap.append(fileLabel,drop,file);if(adapterId!=="generic_phaser")controls.append(targetWrap);controls.append(fileWrap);}
     function readAsset(file){if(!["image/png","image/webp"].includes(file.type)&&!/\\.(png|webp)$/i.test(file.name)){status.textContent="Unsupported file type. Choose PNG or WebP.";selectedAsset=null;render();return;}const reader=new FileReader();reader.onload=()=>{const dataUrl=String(reader.result);selectedAsset={name:file.name,dataUrl,dataBase64:dataUrl.split(",")[1]||""};status.textContent="Asset loaded for preview: "+file.name;render();};reader.readAsDataURL(file);}
@@ -588,7 +777,8 @@ function renderHtml(input: {
     document.getElementById("reset").addEventListener("click",()=>{if(surfaceType==="asset_replacement"){selectedAsset=null;render();return;}const p=surfaceData.presets.find(c=>c.name===presetName)||surfaceData.presets[0];values=structuredClone(p.values);buildControls();render();});
     document.getElementById("save").addEventListener("click",()=>{if(surfaceType==="asset_replacement"){if(!selectedAsset){status.textContent="Choose a PNG/WebP asset before applying.";return;}if(adapterId==="generic_phaser"){vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64,assetDestinationFolder:genericAssetFolder.value});return;}vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,assetTargetId:document.getElementById("assetTarget").value,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64});return;}vscode.postMessage({command:"saveAndApply",surfaceType,presetName,values,adapterId,targetLabel:genericTarget.value,selectedFiles:genericSelectedFiles(),directApplyAllowed:genericDirect.checked});});
     document.getElementById("setup").addEventListener("click",()=>vscode.postMessage({command:"setupBridge",surfaceType,presetName,values}));
-    window.addEventListener("message",event=>{const m=event.data;if(m.command!=="saveResult"||m.surfaceType!==surfaceType)return;if(!m.ok){status.textContent="Save/apply failed: "+m.error;return;}needsSetup=(m.applySummary||[]).some(line=>line.includes("setup offered: yes")||line.includes("one-time setup: blocked"));document.getElementById("setup").style.display=needsSetup?"inline-block":"none";status.textContent=["Saved: "+(m.configPath||""),m.rollbackPaths&&m.rollbackPaths.length?"Rollback: "+m.rollbackPaths.join(", "):"Rollback: no existing target overwritten","","Adapter:",...(m.applySummary||[]),"","Manual checklist:",...(m.checklist||[]).map(i=>"- "+i)].join("\\n");});
+    document.querySelectorAll("[data-result]").forEach(button=>button.addEventListener("click",()=>{if(!currentAttemptPath){status.textContent+="\\nNo saved tuning attempt is available to mark.";return;}vscode.postMessage({command:"markResult",surfaceType,presetName,values,attemptPath:currentAttemptPath,resultStatus:button.dataset.result,resultNote:document.getElementById("resultNote").value});}));
+    window.addEventListener("message",event=>{const m=event.data;if(m.command==="resultMarked"){if(!m.ok){status.textContent+="\\nResult update failed: "+m.error;return;}status.textContent+="\\nResult marked "+m.resultStatus+". Field notes appended.";document.getElementById("resultNote").value="";return;}if(m.command!=="saveResult"||m.surfaceType!==surfaceType)return;if(!m.ok){status.textContent="Save/apply failed: "+m.error;return;}currentAttemptPath=m.attemptPath||"";document.getElementById("resultPanel").style.display=currentAttemptPath?"block":"none";needsSetup=(m.applySummary||[]).some(line=>line.includes("setup offered: yes")||line.includes("one-time setup: blocked"));document.getElementById("setup").style.display=needsSetup?"inline-block":"none";status.textContent=["Saved: "+(m.configPath||""),currentAttemptPath?"Attempt: "+currentAttemptPath+" ("+(m.resultStatus||"unreviewed")+")":"Attempt: none",m.rollbackPaths&&m.rollbackPaths.length?"Rollback: "+m.rollbackPaths.join(", "):"Rollback: no existing target overwritten",(m.warnings&&m.warnings.length)?"":"",...(m.warnings||[]).map(w=>"Field note warning: "+w),"","Adapter:",...(m.applySummary||[]),"","Manual checklist:",...(m.checklist||[]).map(i=>"- "+i)].filter(line=>line!==undefined).join("\\n");});
     function render(){if(surfaceType==="asset_replacement"){renderAsset(document.getElementById("before"),null);renderAsset(document.getElementById("after"),selectedAsset);return;}if(surfaceType==="button"){renderButton(document.getElementById("before"),surfaceData.beforeValues);renderButton(document.getElementById("after"),values);return;}if(surfaceType==="reward_toast"){renderRewardToast(document.getElementById("before"),surfaceData.beforeValues);renderRewardToast(document.getElementById("after"),values);return;}if(surfaceType==="panel"){renderPanel(document.getElementById("before"),surfaceData.beforeValues);renderPanel(document.getElementById("after"),values);return;}if(surfaceType==="background_readability"){renderBackground(document.getElementById("before"),surfaceData.beforeValues);renderBackground(document.getElementById("after"),values);return;}renderSlot(document.getElementById("before"),surfaceData.beforeValues);renderSlot(document.getElementById("after"),values);}
     function baseBoard(container){container.className="board";container.textContent="";}
     function setSlotVars(el,style){el.style.setProperty("--slot-width",style.slotWidth+"px");el.style.setProperty("--slot-height",style.slotHeight+"px");el.style.setProperty("--slot-gap",style.gap+"px");el.style.setProperty("--border-width",style.borderWidth+"px");el.style.setProperty("--corner-radius",style.cornerRadius+"px");el.style.setProperty("--fill-color",style.fillColor);el.style.setProperty("--border-color",style.borderColor);el.style.setProperty("--selected-glow",style.selectedGlowStrength);el.style.setProperty("--locked-opacity",style.lockedOverlayOpacity);el.style.setProperty("--empty-opacity",style.emptySlotOpacity);el.style.setProperty("--monster-scale",style.monsterDisplayScale);el.style.setProperty("--monster-offset",style.monsterVerticalOffset+"px");}
@@ -604,7 +794,10 @@ function renderHtml(input: {
     function setButtonVars(el,style){el.style.setProperty("--button-width",style.width+"px");el.style.setProperty("--button-height",style.height+"px");el.style.setProperty("--button-fill",style.fillColor);el.style.setProperty("--button-opacity",style.fillOpacity);el.style.setProperty("--button-border",style.borderColor);el.style.setProperty("--button-border-width",style.borderWidth+"px");el.style.setProperty("--button-radius",style.cornerRadius+"px");el.style.setProperty("--button-label",style.labelColor);el.style.setProperty("--button-text-size",style.labelTextSize+"px");el.style.setProperty("--button-icon-scale",style.iconScale);el.style.setProperty("--button-label-scale",style.labelScale);el.style.setProperty("--button-gap",style.contentGap+"px");el.style.setProperty("--button-padding-x",style.paddingX+"px");el.style.setProperty("--button-padding-y",style.paddingY+"px");el.style.setProperty("--button-hover-glow",style.hoverGlowStrength);el.style.setProperty("--button-hover-lift",style.hoverLift+"px");el.style.setProperty("--button-active-scale",style.activePressScale);el.style.setProperty("--button-press-duration",style.activePressDurationMs+"ms");el.style.setProperty("--button-active-darken",style.activeDarkenOpacity);el.style.setProperty("--button-disabled-opacity",style.disabledOpacity);el.style.setProperty("--button-disabled-saturation",style.disabledSaturation);el.style.setProperty("--button-shadow",style.shadowStrength);el.style.setProperty("--button-glow",style.glowStrength);}
     function renderButton(container,style){baseBoard(container);container.classList.add("button-stage");setButtonVars(container,style);const group=document.createElement("div");group.className="button-preview-group";container.append(group);[["Action bar",["Feed","Hatch","Quest","Locked"]],["Hatch button",["Idle","Hover","Pressed","Disabled"]],["Upgrade button",["Buy","Hover","Press","Maxed"]]].forEach((mode,index)=>{const title=document.createElement("div");title.className="button-context";title.textContent=mode[0];const row=document.createElement("div");row.className="button-row";mode[1].forEach((label,stateIndex)=>row.append(buttonPreview(label,stateIndex)));group.append(title,row);});}
     function buttonPreview(label,index){const states=["idle","hover","active","disabled"],button=document.createElement("div");button.className="button-preview "+states[index];const icon=document.createElement("div");icon.className="button-icon";const text=document.createElement("div");text.className="button-label";text.textContent=label;button.append(icon,text);return button;}
-    function renderAdapter(){const list=document.getElementById("adapter");list.textContent="";if(adapterId==="generic_phaser"){["Adapter: generic_phaser","Detected: "+data.genericPhaser.detected+" ("+data.genericPhaser.confidence+")","Manual target: "+genericTarget.value,"Selected files: "+(genericSelectedFiles().join(", ")||"none"),"Asset folder: "+genericAssetFolder.value,"Direct module write: "+(genericDirect.checked?"yes":"no, fallback task"),...data.genericPhaser.evidence.map(r=>"Evidence: "+r),...data.genericPhaser.warnings.map(w=>"Warning: "+w)].filter(Boolean).forEach(add);return;}if(surfaceType==="asset_replacement"){["Adapter: idle_monster_farm.assets",...data.assetTargets.targets.map(t=>t.label+": "+t.assignmentMode+(t.directApplySupported?" direct":" manual_required")),...data.assetTargets.warnings.map(w=>"Warning: "+w)].forEach(add);return;}const adapter=surfaceData.adapterState;["Config: "+surfaceData.configLoad.status,surfaceData.configLoad.warning?"Warning: "+surfaceData.configLoad.warning:"","Detected: "+adapter.detection.detected+" ("+adapter.detection.confidence+")",adapter.detection.targetPanels?"Target panels: "+(adapter.detection.targetPanels.join(", ")||"none"):"",adapter.detection.targetFeedback?"Target feedback: "+(adapter.detection.targetFeedback.join(", ")||"none"):"",adapter.detection.targetButtons?"Target buttons: "+(adapter.detection.targetButtons.join(", ")||"none"):"","Owners: "+(adapter.detection.ownerFiles.length?adapter.detection.ownerFiles.join(", "):"none"),"Connected: "+adapter.connection.connected+" ("+adapter.connection.connectionType+")",...adapter.detection.reasons.map(r=>"Reason: "+r),...adapter.connection.missingPieces.map(p=>"Missing: "+p),...adapter.detection.warnings.map(w=>"Warning: "+w)].filter(Boolean).forEach(add);function add(text){const item=document.createElement("li");item.textContent=text;list.append(item);}}
+    function currentAttempts(){return (data.tuningAttemptIndex.attempts||[]).filter(a=>a.surfaceType===surfaceType&&a.adapterId===adapterId);}
+    function signalForPreset(name){const matches=currentAttempts().filter(a=>a.presetName===name);if(matches.some(a=>a.resultStatus==="worse"))return"field note: worse";if(matches.some(a=>a.resultStatus==="same"))return"field note: no effect";if(matches.some(a=>a.resultStatus==="mixed"))return"field note: mixed";if(matches.some(a=>a.resultStatus==="better"))return"prior success";return"";}
+    function fieldNoteLines(){return currentAttempts().filter(a=>a.resultStatus!=="unreviewed").slice(0,5).map(a=>{const label=(a.presetName?a.presetName+" on ":"")+a.surfaceType+(a.targetLabel?" / "+a.targetLabel:"");if(a.resultStatus==="better")return"Prior success: "+label+" was marked better.";if(a.resultStatus==="worse")return"Warning: "+label+" was marked worse; warn before reusing.";if(a.resultStatus==="same")return"Warning: "+label+" had no meaningful visual effect.";return"Mixed result: "+label+" improved some parts and worsened others.";});}
+    function renderAdapter(){const list=document.getElementById("adapter");list.textContent="";if(adapterId==="generic_phaser"){["Adapter: generic_phaser","Detected: "+data.genericPhaser.detected+" ("+data.genericPhaser.confidence+")","Manual target: "+genericTarget.value,"Selected files: "+(genericSelectedFiles().join(", ")||"none"),"Asset folder: "+genericAssetFolder.value,"Direct module write: "+(genericDirect.checked?"yes":"no, fallback task"),...fieldNoteLines(),...data.genericPhaser.evidence.map(r=>"Evidence: "+r),...data.genericPhaser.warnings.map(w=>"Warning: "+w)].filter(Boolean).forEach(add);return;}if(surfaceType==="asset_replacement"){["Adapter: idle_monster_farm.assets",...fieldNoteLines(),...data.assetTargets.targets.map(t=>t.label+": "+t.assignmentMode+(t.directApplySupported?" direct":" manual_required")),...data.assetTargets.warnings.map(w=>"Warning: "+w)].forEach(add);return;}const adapter=surfaceData.adapterState;["Config: "+surfaceData.configLoad.status,surfaceData.configLoad.warning?"Warning: "+surfaceData.configLoad.warning:"","Detected: "+adapter.detection.detected+" ("+adapter.detection.confidence+")",adapter.detection.targetPanels?"Target panels: "+(adapter.detection.targetPanels.join(", ")||"none"):"",adapter.detection.targetFeedback?"Target feedback: "+(adapter.detection.targetFeedback.join(", ")||"none"):"",adapter.detection.targetButtons?"Target buttons: "+(adapter.detection.targetButtons.join(", ")||"none"):"","Owners: "+(adapter.detection.ownerFiles.length?adapter.detection.ownerFiles.join(", "):"none"),"Connected: "+adapter.connection.connected+" ("+adapter.connection.connectionType+")",...fieldNoteLines(),...adapter.detection.reasons.map(r=>"Reason: "+r),...adapter.connection.missingPieces.map(p=>"Missing: "+p),...adapter.detection.warnings.map(w=>"Warning: "+w)].filter(Boolean).forEach(add);function add(text){const item=document.createElement("li");item.textContent=text;list.append(item);}}
     rebuild();
   </script>
 </body>

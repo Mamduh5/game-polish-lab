@@ -16,6 +16,7 @@ import { generateKitImplementationPrompt } from "./commands/generateKitImplement
 import { generateCodexPrompt } from "./commands/generateCodexPrompt";
 import { initializeProfile } from "./commands/initializeProfile";
 import { listPixelPolishKits } from "./commands/listPixelPolishKits";
+import { markLatestTuningResult } from "./commands/markLatestTuningResult";
 import { openTrialReports } from "./commands/openTrialReports";
 import { runPhaserPixelAudit } from "./commands/runPhaserPixelAudit";
 import { setPerformanceMode } from "./commands/setPerformanceMode";
@@ -49,6 +50,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.createTuningExperiment", createTuningExperiment),
     vscode.commands.registerCommand("gamePolishLab.createRollbackPrompt", createRollbackPrompt),
     vscode.commands.registerCommand("gamePolishLab.tuneVisualSurface", () => tuneVisualSurface(context)),
+    vscode.commands.registerCommand("gamePolishLab.markLatestTuningResult", markLatestTuningResult),
     vscode.commands.registerCommand("gamePolishLab.addFieldNote", addFieldNote)
   );
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => clearScanCache()));
