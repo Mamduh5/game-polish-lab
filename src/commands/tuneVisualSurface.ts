@@ -8,6 +8,8 @@ import { applyIdleMonsterFarmPanelStyle, getIdleMonsterFarmPanelAdapterState, se
 import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdapterState, setupIdleMonsterFarmRewardToastBridge, summarizeRewardToastApplyResult } from "../adapters/idleMonsterFarm/rewardToastAdapter";
 import { logCommandEnd, logCommandStart, logError, logInfo, logWarn } from "../core/output";
 import { checkV05VisualScope } from "../core/v05VisualScopeGuard";
+import { ensureVisualRecipeFiles } from "../core/visualRecipeFiles";
+import { getVisualSurfaceRecipes, visualSurfacePickerOrder } from "../core/visualRecipeRegistry";
 import {
   backgroundReadabilityStyleConfigRelativePath,
   BackgroundStyleConfigLoadResult,
@@ -76,6 +78,19 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
     const panelLoad = loadPanelStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "panel-style.json")));
     const rewardToastLoad = loadRewardToastStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "reward-toast-style.json")));
     const buttonLoad = loadButtonStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "button-style.json")));
+    const recipeWriteResults = await ensureVisualRecipeFiles(folder);
+    const writtenRecipes = recipeWriteResults.filter((result) => result.written);
+    if (writtenRecipes.length > 0) {
+      logChecklist("v0.57 visual recipe generation checklist:", visualRecipeChecklist(writtenRecipes.map((result) => result.relativePath)));
+    }
+    for (const result of recipeWriteResults) {
+      for (const warning of result.warnings) {
+        logWarn(`visual recipe ${result.recipeId}: ${warning}`);
+      }
+      for (const error of result.errors) {
+        logWarn(`visual recipe ${result.recipeId}: ${error}`);
+      }
+    }
     for (const warning of [slotLoad.warning, backgroundLoad.warning, panelLoad.warning, rewardToastLoad.warning, buttonLoad.warning].filter((value): value is string => Boolean(value))) {
       logWarn(warning);
       vscode.window.showWarningMessage(warning);
@@ -105,6 +120,7 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext): Promi
       panelState,
       rewardToastState,
       buttonState,
+      recipes: getVisualSurfaceRecipes(),
       assetTargets
     });
 
@@ -170,7 +186,7 @@ async function saveConfigAndApply(
 ): Promise<SaveResultMessage> {
   const scope = checkV05VisualScope([configRelativePath], { throughAdapter: false });
   if (!scope.ok) {
-    const error = `v0.56 scope guard blocked config save: ${scope.forbiddenFiles.join(", ")}`;
+    const error = `v0.57 scope guard blocked config save: ${scope.forbiddenFiles.join(", ")}`;
     logWarn(error);
     return { command: "saveResult", ok: false, surfaceType, error, warnings: scope.warnings };
   }
@@ -180,7 +196,7 @@ async function saveConfigAndApply(
   const applySummary = await apply();
   logSummary(applySummary, []);
   const checklist = checklistFor(surfaceType, load, configRollbacks.length > 0, applySummary);
-  logChecklist(`v0.56 ${surfaceType} manual test checklist:`, checklist);
+  logChecklist(`v0.57 ${surfaceType} manual test checklist:`, checklist);
   return {
     command: "saveResult",
     ok: true,
@@ -274,7 +290,7 @@ async function createRollbackSnapshotIfNeeded(folder: vscode.WorkspaceFolder, co
 
 function setupResponse(surfaceType: VisualSurfaceType, configPath: string, blockedFiles: string[], rollbackPaths: string[], checklist: string[], applySummary: string[], warnings: string[]): SaveResultMessage {
   logSummary(applySummary, warnings);
-  logChecklist(`v0.56 ${surfaceType} manual test checklist:`, checklist);
+  logChecklist(`v0.57 ${surfaceType} manual test checklist:`, checklist);
   return {
     command: "saveResult",
     ok: blockedFiles.length === 0,
@@ -303,8 +319,17 @@ function summarizeSetup(target: string, applied: boolean, intendedFiles: string[
 }
 
 function checklistFor(surfaceType: Exclude<VisualSurfaceType, "asset_replacement">, load: StyleConfigLoadResult | BackgroundStyleConfigLoadResult | PanelStyleConfigLoadResult | RewardToastStyleConfigLoadResult | ButtonStyleConfigLoadResult, rollbackCreated: boolean, applySummary: string[]): string[] {
+  const recipeItems = [
+    "recipe schema version is present",
+    `recipe file exists under .game-polish-lab/visual-recipes/ for ${surfaceType}`,
+    "style tokens match the surface controls",
+    "generated style module path remains adapter-specific",
+    "adapter mapping is separated from generic recipe",
+    "fallback metadata is scoped and not vague"
+  ];
   if (surfaceType === "button") {
     return [
+      ...recipeItems,
       load.existingConfigDetected ? "button style config detected" : "button style config was missing and a default config was created",
       load.initializedFromExistingConfig ? "editor initialized from existing config" : "editor initialized from safe default values",
       load.warning ? "invalid config falls back safely with warning" : "button config schema accepted or defaulted safely",
@@ -324,6 +349,7 @@ function checklistFor(surfaceType: Exclude<VisualSurfaceType, "asset_replacement
   }
   if (surfaceType === "reward_toast") {
     return [
+      ...recipeItems,
       load.existingConfigDetected ? "reward toast style config detected" : "reward toast style config was missing and a default config was created",
       load.initializedFromExistingConfig ? "editor initialized from existing config" : "editor initialized from safe default values",
       load.warning ? "invalid config falls back safely with warning" : "reward toast config schema accepted or defaulted safely",
@@ -340,6 +366,7 @@ function checklistFor(surfaceType: Exclude<VisualSurfaceType, "asset_replacement
   }
   if (surfaceType === "panel") {
     return [
+      ...recipeItems,
       load.existingConfigDetected ? "panel style config detected" : "panel style config was missing and a default config was created",
       load.initializedFromExistingConfig ? "editor initialized from existing config" : "editor initialized from safe default values",
       load.warning ? "invalid config falls back safely with warning" : "panel config schema accepted or defaulted safely",
@@ -357,6 +384,7 @@ function checklistFor(surfaceType: Exclude<VisualSurfaceType, "asset_replacement
   }
   if (surfaceType === "background_readability") {
     return [
+      ...recipeItems,
       load.existingConfigDetected ? "background readability config detected" : "background readability config was missing and a default config was created",
       load.initializedFromExistingConfig ? "editor initialized from existing config" : "editor initialized from safe default values",
       load.warning ? "invalid config falls back safely with warning" : "background config schema accepted or defaulted safely",
@@ -371,6 +399,7 @@ function checklistFor(surfaceType: Exclude<VisualSurfaceType, "asset_replacement
     ];
   }
   return [
+    ...recipeItems,
     load.existingConfigDetected ? "existing style config detected" : "existing style config was missing and a default config was created",
     load.initializedFromExistingConfig ? "editor initialized from existing config" : "editor initialized from safe default values",
     rollbackCreated ? "rollback snapshot created before overwrite" : "rollback snapshot was not needed because no existing target was overwritten",
@@ -395,6 +424,21 @@ function logChecklist(label: string, checklist: string[]): void {
   }
 }
 
+function visualRecipeChecklist(recipePaths: string[]): string[] {
+  return [
+    "recipe schema version is present",
+    `recipe file exists under .game-polish-lab/visual-recipes/: ${recipePaths.join(", ")}`,
+    "style tokens match the surface controls",
+    "presets still load",
+    "existing style config still loads",
+    "generated style module path remains adapter-specific",
+    "adapter mapping is separated from generic recipe",
+    "direct apply path remains unchanged for connected Monster Farm targets",
+    "fallback metadata is scoped and not vague",
+    "no gameplay/save/economy/progression/ad files changed"
+  ];
+}
+
 function renderHtml(input: {
   slotLoad: StyleConfigLoadResult;
   backgroundLoad: BackgroundStyleConfigLoadResult;
@@ -406,6 +450,7 @@ function renderHtml(input: {
   panelState: Awaited<ReturnType<typeof getIdleMonsterFarmPanelAdapterState>>;
   rewardToastState: Awaited<ReturnType<typeof getIdleMonsterFarmRewardToastAdapterState>>;
   buttonState: Awaited<ReturnType<typeof getIdleMonsterFarmButtonAdapterState>>;
+  recipes: ReturnType<typeof getVisualSurfaceRecipes>;
   assetTargets: ReturnType<typeof getIdleMonsterFarmAssetTargets>;
 }): string {
   const nonce = createNonce();
@@ -417,6 +462,8 @@ function renderHtml(input: {
       reward_toast: { presets: rewardToastPresets, bounds: rewardToastStyleBounds, initialConfig: input.rewardToastLoad.config, configLoad: input.rewardToastLoad, adapterState: input.rewardToastState, beforeValues: defaultRewardToastStyle },
       button: { presets: buttonStylePresets, bounds: buttonStyleBounds, initialConfig: input.buttonLoad.config, configLoad: input.buttonLoad, adapterState: input.buttonState, beforeValues: defaultButtonStyle }
     },
+    recipes: input.recipes,
+    surfaceOrder: visualSurfacePickerOrder,
     assetTargets: input.assetTargets
   }).replace(/</g, "\\u003c");
 
@@ -426,7 +473,7 @@ function renderHtml(input: {
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Game Polish Lab v0.56</title>
+  <title>Game Polish Lab v0.57</title>
   <style nonce="${nonce}">
     :root{color-scheme:light dark;--panel:var(--vscode-editorWidget-background);--border:var(--vscode-panel-border);--text:var(--vscode-foreground);--muted:var(--vscode-descriptionForeground);--button:var(--vscode-button-background);--button-text:var(--vscode-button-foreground);--focus:var(--vscode-focusBorder)}
     *{box-sizing:border-box} body{margin:0;padding:18px;color:var(--text);font-family:var(--vscode-font-family);background:var(--vscode-editor-background)}
@@ -434,19 +481,20 @@ function renderHtml(input: {
   </style>
 </head>
 <body>
-  <div style="margin-bottom:16px"><h1>Game Polish Lab v0.56: Visual Surface Tuning</h1><p class="meta">Visual choice -> preview -> save config/assets -> direct apply for supported adapters.</p></div>
+  <div style="margin-bottom:16px"><h1>Game Polish Lab v0.57: Visual Surface Tuning</h1><p class="meta">Visual choice -> preview -> save config/assets -> direct apply for supported adapters.</p></div>
   <main>
-    <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"><option value="slot_card">slot_card</option><option value="background_readability">background_readability</option><option value="asset_replacement">asset_replacement</option><option value="panel">panel</option><option value="reward_toast">reward_toast</option><option value="button">button</option></select></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="status" class="status"></div></section>
+    <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"></select></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="status" class="status"></div></section>
     <section class="preview-grid"><div><h2>Before</h2><div id="before"></div></div><div><h2>After</h2><div id="after"></div></div></section>
   </main>
   <section class="panel" style="margin-top:14px"><h3>Adapter Detection</h3><ul id="adapter" class="list"></ul></section>
   <script nonce="${nonce}">
     const vscode=acquireVsCodeApi(); const data=${payload};
-    const labels={slotWidth:"Slot width",slotHeight:"Slot height",gap:"Gap",borderWidth:"Border width",cornerRadius:"Corner radius",fillColor:"Fill color",borderColor:"Border color",selectedGlowStrength:"Selected glow strength",lockedOverlayOpacity:"Locked overlay opacity",emptySlotOpacity:"Empty slot opacity",mergeCandidatePulseScale:"Merge candidate pulse scale",monsterDisplayScale:"Monster display scale",monsterVerticalOffset:"Monster vertical offset",backgroundColor:"Background color",backgroundImageOpacity:"Image opacity",contrastOverlayColor:"Contrast overlay color",contrastOverlayOpacity:"Contrast overlay opacity",vignetteStrength:"Vignette strength",patternOpacity:"Pattern opacity",blurAmount:"Blur/soften amount",brightness:"Brightness",contrast:"Contrast",fillOpacity:"Fill opacity",headerAccentHeight:"Header accent thickness",padding:"Padding",contentGap:"Content gap",dividerOpacity:"Divider opacity",dividerThickness:"Divider thickness",shadowStrength:"Shadow strength",glowStrength:"Glow strength",titleTextSize:"Title text size",bodyTextSize:"Body text size",disabledOpacity:"Disabled row opacity",headerAccentColor:"Header accent color",dividerColor:"Divider color",durationMs:"Duration",riseDistance:"Rise distance",startScale:"Start scale",peakScale:"Peak scale",endScale:"End scale",bounceStrength:"Bounce strength",fadeInMs:"Fade in",fadeOutMs:"Fade out",sparkleCount:"Sparkle count",sparkleScale:"Sparkle scale",textSize:"Text size",iconScale:"Icon scale",toastFillColor:"Toast fill",toastFillOpacity:"Toast fill opacity",toastBorderColor:"Toast border",toastBorderWidth:"Toast border width",width:"Width",height:"Height",labelColor:"Label color",labelTextSize:"Label text size",labelScale:"Label scale",paddingX:"Padding X",paddingY:"Padding Y",hoverGlowStrength:"Hover glow strength",hoverLift:"Hover lift",activePressScale:"Active press scale",activePressDurationMs:"Active press duration",activeDarkenOpacity:"Active darken opacity",disabledSaturation:"Disabled saturation"};
-    const numeric={slot_card:["slotWidth","slotHeight","gap","borderWidth","cornerRadius","selectedGlowStrength","lockedOverlayOpacity","emptySlotOpacity","mergeCandidatePulseScale","monsterDisplayScale","monsterVerticalOffset"],background_readability:["backgroundImageOpacity","contrastOverlayOpacity","vignetteStrength","patternOpacity","blurAmount","brightness","contrast"],panel:["fillOpacity","borderWidth","cornerRadius","headerAccentHeight","padding","contentGap","dividerOpacity","dividerThickness","shadowStrength","glowStrength","titleTextSize","bodyTextSize","disabledOpacity"],reward_toast:["durationMs","riseDistance","startScale","peakScale","endScale","bounceStrength","fadeInMs","fadeOutMs","sparkleCount","sparkleScale","textSize","iconScale","toastFillOpacity","toastBorderWidth","cornerRadius","shadowStrength","glowStrength"],button:["width","height","fillOpacity","borderWidth","cornerRadius","labelTextSize","iconScale","labelScale","contentGap","paddingX","paddingY","hoverGlowStrength","hoverLift","activePressScale","activePressDurationMs","activeDarkenOpacity","disabledOpacity","disabledSaturation","shadowStrength","glowStrength"]};
-    const colors={slot_card:["fillColor","borderColor"],background_readability:["backgroundColor","contrastOverlayColor"],panel:["fillColor","borderColor","headerAccentColor","dividerColor"],reward_toast:["toastFillColor","toastBorderColor"],button:["fillColor","borderColor","labelColor"]};
+    const recipesBySurface=Object.fromEntries(data.recipes.map(r=>[r.surfaceType,r]));
+    const labels={},numeric={},colors={};
+    for(const recipe of data.recipes){numeric[recipe.surfaceType]=[];colors[recipe.surfaceType]=[];for(const token of recipe.supportedStyleTokens){labels[token.tokenId]=token.label;if(token.valueType==="number")numeric[recipe.surfaceType].push(token.tokenId);if(token.valueType==="color")colors[recipe.surfaceType].push(token.tokenId);}}
     let surfaceType="slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceData.initialConfig.presetName, values=structuredClone(surfaceData.initialConfig.values), selectedAsset=null, needsSetup=false;
     const surface=document.getElementById("surface"), preset=document.getElementById("preset"), controls=document.getElementById("controls"), status=document.getElementById("status");
+    for(const id of data.surfaceOrder){const option=document.createElement("option");option.value=id;option.textContent=recipesBySurface[id]?recipesBySurface[id].displayName:id;surface.append(option);}
     surface.addEventListener("change",()=>{surfaceType=surface.value;surfaceData=data.surfaces[surfaceType];presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName;values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values);needsSetup=false;rebuild();});
     function rebuild(){buildPreset();buildControls();render();renderAdapter();document.getElementById("setup").style.display=needsSetup?"inline-block":"none";status.textContent=surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning?surfaceData.configLoad.warning:"";}
     function buildPreset(){preset.textContent="";document.getElementById("presetRow").style.display=surfaceType==="asset_replacement"?"none":"block";if(surfaceType==="asset_replacement")return;for(const p of surfaceData.presets){const o=document.createElement("option");o.value=p.name;o.textContent=p.name;o.selected=p.name===presetName;preset.append(o);}}

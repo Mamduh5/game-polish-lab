@@ -61,6 +61,7 @@ const forbiddenPathTerms = [
 
 const allowedStylePathTerms = [
   ".game-polish-lab/styles/",
+  ".game-polish-lab/visual-recipes/",
   ".game-polish-lab/rollback/",
   ".game-polish-lab/assets/",
   "src/assets/",

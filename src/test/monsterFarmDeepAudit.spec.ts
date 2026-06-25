@@ -18,6 +18,15 @@ import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/pane
 import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
 import {
+  assetReplacementRecipeNote,
+  getVisualSurfaceRecipe,
+  getVisualSurfaceRecipes,
+  validateVisualStyleToken,
+  validateVisualSurfaceRecipe,
+  visualRecipeRelativePath,
+  visualSurfacePickerOrder
+} from "../core/visualRecipeRegistry";
+import {
   buildAssetRollbackSnapshotName,
   inspectAssetImage,
   normalizeAssetFileName,
@@ -31,6 +40,7 @@ import {
   buildRewardToastStyleConfig,
   buildRollbackSnapshotName,
   buildSlotCardStyleConfig,
+  farmSlotStyleConfigRelativePath,
   loadBackgroundReadabilityStyleConfigFromText,
   loadButtonStyleConfigFromText,
   loadPanelStyleConfigFromText,
@@ -48,6 +58,7 @@ import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
 import { defaultRewardToastStyle, rewardToastPresets } from "../presets/rewardToastPresets";
 import { slotCardPresets } from "../presets/slotCardPresets";
 import { InspectedFile } from "../types/audit";
+import { visualRecipeSchemaVersion } from "../types/visualRecipe";
 
 const fixtureRoot = path.join(process.cwd(), "fixtures", "phaser-idle-monster-farm-sample");
 const files = readFixtureFiles(fixtureRoot);
@@ -701,6 +712,92 @@ assert.strictEqual(
   buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), buttonStyleConfigRelativePath),
   "2026-06-24T10-11-12-123Z-button-style.json"
 );
+
+const recipes = getVisualSurfaceRecipes();
+assert.deepStrictEqual(visualSurfacePickerOrder, [
+  "slot_card",
+  "background_readability",
+  "asset_replacement",
+  "panel",
+  "reward_toast",
+  "button"
+]);
+assert.strictEqual(recipes.length, 5);
+assert.ok(assetReplacementRecipeNote.includes("asset_replacement remains an asset replacement model"));
+for (const recipe of recipes) {
+  const validation = validateVisualSurfaceRecipe(recipe);
+  assert.strictEqual(validation.ok, true, `${recipe.recipeId}: ${validation.errors.join("; ")}`);
+  assert.strictEqual(recipe.schemaVersion, visualRecipeSchemaVersion);
+  assert.ok(recipe.configPath.startsWith(".game-polish-lab/styles/"));
+  assert.ok(recipe.generatedStyleModulePath?.startsWith("src/config/"));
+  assert.strictEqual(recipe.adapterMappings.length, 1);
+  assert.strictEqual(recipe.adapterMappings[0].adapterId, "idle_monster_farm");
+  assert.ok(recipe.adapterMappings[0].targetLabel.includes("Monster Farm"));
+  assert.ok(recipe.adapterMappings[0].targetSurface.length > 0);
+  assert.strictEqual(recipe.adapterMappings[0].configPath, recipe.configPath);
+  assert.strictEqual(recipe.adapterMappings[0].generatedStyleModulePath, recipe.generatedStyleModulePath);
+  assert.ok(recipe.fallbackTaskMetadata.userVisibleMessage.length > 0);
+  assert.strictEqual(recipe.fallbackTaskMetadata.requiredConsent, true);
+  assert.ok(recipe.fallbackTaskMetadata.exactScopeSummary.includes("gameplay"));
+}
+
+const firstRecipeToken = recipes[0].supportedStyleTokens[0];
+assert.strictEqual(validateVisualStyleToken(firstRecipeToken).ok, true);
+assert.strictEqual(validateVisualStyleToken({ ...firstRecipeToken, valueType: "bad" }).ok, false);
+assert.strictEqual(validateVisualSurfaceRecipe({ ...recipes[0], schemaVersion: "visual-recipe/v999" }).ok, false);
+assert.strictEqual(visualRecipeRelativePath("slot-card"), ".game-polish-lab/visual-recipes/slot-card.json");
+
+const slotRecipe = getVisualSurfaceRecipe("slot_card")!;
+assert.strictEqual(slotRecipe.recipeId, "slot-card");
+assert.strictEqual(slotRecipe.configPath, farmSlotStyleConfigRelativePath);
+assert.strictEqual(slotRecipe.generatedStyleModulePath, "src/config/farmSlotStyle.ts");
+assert.ok(slotRecipe.supportedStyleTokens.some((token) => token.tokenId === "slotWidth" && token.valueType === "number"));
+assert.ok(slotRecipe.supportedStyleTokens.some((token) => token.tokenId === "fillColor" && token.valueType === "color"));
+
+const backgroundRecipe = getVisualSurfaceRecipe("background_readability")!;
+assert.strictEqual(backgroundRecipe.recipeId, "background-readability");
+assert.strictEqual(backgroundRecipe.configPath, backgroundReadabilityStyleConfigRelativePath);
+assert.ok(backgroundRecipe.supportedStyleTokens.some((token) => token.tokenId === "contrastOverlayOpacity"));
+
+const panelRecipe = getVisualSurfaceRecipe("panel")!;
+assert.strictEqual(panelRecipe.recipeId, "panel");
+assert.strictEqual(panelRecipe.configPath, panelStyleConfigRelativePath);
+assert.ok(panelRecipe.supportedStyleTokens.some((token) => token.tokenId === "headerAccentColor"));
+
+const rewardToastRecipe = getVisualSurfaceRecipe("reward_toast")!;
+assert.strictEqual(rewardToastRecipe.recipeId, "reward-toast");
+assert.strictEqual(rewardToastRecipe.configPath, rewardToastStyleConfigRelativePath);
+assert.ok(rewardToastRecipe.supportedStyleTokens.some((token) => token.tokenId === "durationMs" && token.unit === "ms"));
+
+const buttonRecipe = getVisualSurfaceRecipe("button")!;
+assert.strictEqual(buttonRecipe.recipeId, "button");
+assert.strictEqual(buttonRecipe.configPath, buttonStyleConfigRelativePath);
+assert.ok(buttonRecipe.supportedStyleTokens.some((token) => token.tokenId === "activePressScale" && token.unit === "scale"));
+
+const recipeScope = checkV05VisualScope([
+  ".game-polish-lab/visual-recipes/slot-card.json",
+  "src/core/visualRecipeRegistry.ts",
+  "src/types/visualRecipe.ts",
+  "src/systems/saveSystem.ts",
+  "src/data/economy.ts",
+  "src/systems/progressionSystem.ts",
+  "src/services/rewardedAdService.ts",
+  "src/gameplay/rules.ts"
+], { throughAdapter: true });
+assert.ok(recipeScope.allowedFiles.includes(".game-polish-lab/visual-recipes/slot-card.json"));
+assert.ok(recipeScope.allowedFiles.includes("src/core/visualRecipeRegistry.ts"));
+assert.ok(recipeScope.allowedFiles.includes("src/types/visualRecipe.ts"));
+assert.ok(recipeScope.forbiddenFiles.includes("src/systems/saveSystem.ts"));
+assert.ok(recipeScope.forbiddenFiles.includes("src/data/economy.ts"));
+assert.ok(recipeScope.forbiddenFiles.includes("src/systems/progressionSystem.ts"));
+assert.ok(recipeScope.forbiddenFiles.includes("src/services/rewardedAdService.ts"));
+assert.ok(recipeScope.forbiddenFiles.includes("src/gameplay/rules.ts"));
+
+assert.strictEqual(loadSlotCardStyleConfigFromText(JSON.stringify(validFarmSlotConfig)).status, "valid");
+assert.strictEqual(loadBackgroundReadabilityStyleConfigFromText(JSON.stringify(validBackgroundConfig)).status, "valid");
+assert.strictEqual(loadPanelStyleConfigFromText(JSON.stringify(validPanelConfig)).status, "valid");
+assert.strictEqual(loadRewardToastStyleConfigFromText(JSON.stringify(validRewardToastConfig)).status, "valid");
+assert.strictEqual(loadButtonStyleConfigFromText(JSON.stringify(validButtonConfig)).status, "valid");
 
 const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([
   {
