@@ -1,5 +1,5 @@
-export type VisualSurfaceType = "slot_card" | "background_readability" | "asset_replacement" | "panel";
-export type VisualSurfaceAdapterTarget = "idle_monster_farm.farm_slots" | "idle_monster_farm.background" | "idle_monster_farm.assets" | "idle_monster_farm.panels";
+export type VisualSurfaceType = "slot_card" | "background_readability" | "asset_replacement" | "panel" | "reward_toast";
+export type VisualSurfaceAdapterTarget = "idle_monster_farm.farm_slots" | "idle_monster_farm.background" | "idle_monster_farm.assets" | "idle_monster_farm.panels" | "idle_monster_farm.reward_toast";
 
 export interface SlotCardStyleValues {
   slotWidth: number;
@@ -123,4 +123,40 @@ export interface PanelStyleConfig {
 export interface PanelPreset {
   name: string;
   values: PanelStyleValues;
+}
+
+export interface RewardToastStyleValues {
+  durationMs: number;
+  riseDistance: number;
+  startScale: number;
+  peakScale: number;
+  endScale: number;
+  bounceStrength: number;
+  fadeInMs: number;
+  fadeOutMs: number;
+  sparkleCount: number;
+  sparkleScale: number;
+  textSize: number;
+  iconScale: number;
+  toastFillColor: string;
+  toastFillOpacity: number;
+  toastBorderColor: string;
+  toastBorderWidth: number;
+  cornerRadius: number;
+  shadowStrength: number;
+  glowStrength: number;
+}
+
+export interface RewardToastStyleConfig {
+  schemaVersion: 1;
+  surfaceType: "reward_toast";
+  adapterTarget: "idle_monster_farm.reward_toast";
+  presetName: string;
+  updatedAt: string;
+  values: RewardToastStyleValues;
+}
+
+export interface RewardToastPreset {
+  name: string;
+  values: RewardToastStyleValues;
 }

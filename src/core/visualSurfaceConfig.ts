@@ -2,8 +2,9 @@ import * as path from "path";
 
 import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { defaultPanelStyle, panelStyleBounds, panelStylePresets } from "../presets/panelStylePresets";
+import { defaultRewardToastStyle, rewardToastPresets, rewardToastStyleBounds } from "../presets/rewardToastPresets";
 import { defaultSlotCardStyle, slotCardStyleBounds, slotCardPresets } from "../presets/slotCardPresets";
-import { BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues, PanelStyleConfig, PanelStyleValues, SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
+import { BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues, PanelStyleConfig, PanelStyleValues, RewardToastStyleConfig, RewardToastStyleValues, SlotCardStyleConfig, SlotCardStyleValues } from "../types/visualSurface";
 
 export type StyleConfigLoadStatus = "valid" | "missing" | "invalid_json" | "schema_invalid";
 
@@ -18,6 +19,7 @@ export interface StyleConfigLoadResult {
 export const farmSlotStyleConfigRelativePath = ".game-polish-lab/styles/farm-slot-style.json";
 export const backgroundReadabilityStyleConfigRelativePath = ".game-polish-lab/styles/background-readability-style.json";
 export const panelStyleConfigRelativePath = ".game-polish-lab/styles/panel-style.json";
+export const rewardToastStyleConfigRelativePath = ".game-polish-lab/styles/reward-toast-style.json";
 
 export function loadSlotCardStyleConfigFromText(text: string | undefined): StyleConfigLoadResult {
   if (text === undefined) {
@@ -110,6 +112,14 @@ export interface PanelStyleConfigLoadResult {
   warning?: string;
 }
 
+export interface RewardToastStyleConfigLoadResult {
+  status: StyleConfigLoadStatus;
+  config: RewardToastStyleConfig;
+  existingConfigDetected: boolean;
+  initializedFromExistingConfig: boolean;
+  warning?: string;
+}
+
 export function buildBackgroundReadabilityStyleConfig(presetName: string, values: BackgroundReadabilityStyleValues): BackgroundReadabilityStyleConfig {
   return {
     schemaVersion: 1,
@@ -161,6 +171,49 @@ export function buildPanelStyleConfig(presetName: string, values: PanelStyleValu
     presetName,
     updatedAt: new Date().toISOString(),
     values: normalizePanelStyleValues(values)
+  };
+}
+
+export function loadRewardToastStyleConfigFromText(text: string | undefined): RewardToastStyleConfigLoadResult {
+  if (text === undefined) {
+    return {
+      status: "missing",
+      config: buildRewardToastStyleConfig(rewardToastPresets[0].name, rewardToastPresets[0].values),
+      existingConfigDetected: false,
+      initializedFromExistingConfig: false
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return invalidRewardToastConfigResult("Existing reward toast style config is invalid JSON. The editor was reset to the default v0.55 preset.");
+  }
+
+  if (!isRewardToastStyleConfigShape(parsed)) {
+    return invalidRewardToastConfigResult("Existing reward toast style config has an unsupported schema. The editor was reset to the default v0.55 preset.");
+  }
+
+  return {
+    status: "valid",
+    config: {
+      ...parsed,
+      values: normalizeRewardToastStyleValues(parsed.values)
+    },
+    existingConfigDetected: true,
+    initializedFromExistingConfig: true
+  };
+}
+
+export function buildRewardToastStyleConfig(presetName: string, values: RewardToastStyleValues): RewardToastStyleConfig {
+  return {
+    schemaVersion: 1,
+    surfaceType: "reward_toast",
+    adapterTarget: "idle_monster_farm.reward_toast",
+    presetName,
+    updatedAt: new Date().toISOString(),
+    values: normalizeRewardToastStyleValues(values)
   };
 }
 
@@ -218,6 +271,30 @@ export function normalizePanelStyleValues(values: PanelStyleValues): PanelStyleV
   };
 }
 
+export function normalizeRewardToastStyleValues(values: RewardToastStyleValues): RewardToastStyleValues {
+  return {
+    durationMs: clampRewardToastNumber(values.durationMs, "durationMs"),
+    riseDistance: clampRewardToastNumber(values.riseDistance, "riseDistance"),
+    startScale: clampRewardToastNumber(values.startScale, "startScale"),
+    peakScale: clampRewardToastNumber(values.peakScale, "peakScale"),
+    endScale: clampRewardToastNumber(values.endScale, "endScale"),
+    bounceStrength: clampRewardToastNumber(values.bounceStrength, "bounceStrength"),
+    fadeInMs: clampRewardToastNumber(values.fadeInMs, "fadeInMs"),
+    fadeOutMs: clampRewardToastNumber(values.fadeOutMs, "fadeOutMs"),
+    sparkleCount: Math.round(clampRewardToastNumber(values.sparkleCount, "sparkleCount")),
+    sparkleScale: clampRewardToastNumber(values.sparkleScale, "sparkleScale"),
+    textSize: clampRewardToastNumber(values.textSize, "textSize"),
+    iconScale: clampRewardToastNumber(values.iconScale, "iconScale"),
+    toastFillColor: normalizeColor(values.toastFillColor, defaultRewardToastStyle.toastFillColor),
+    toastFillOpacity: clampRewardToastNumber(values.toastFillOpacity, "toastFillOpacity"),
+    toastBorderColor: normalizeColor(values.toastBorderColor, defaultRewardToastStyle.toastBorderColor),
+    toastBorderWidth: clampRewardToastNumber(values.toastBorderWidth, "toastBorderWidth"),
+    cornerRadius: clampRewardToastNumber(values.cornerRadius, "cornerRadius"),
+    shadowStrength: clampRewardToastNumber(values.shadowStrength, "shadowStrength"),
+    glowStrength: clampRewardToastNumber(values.glowStrength, "glowStrength")
+  };
+}
+
 export function buildRollbackSnapshotName(date: Date, affectedRelativePath: string): string {
   const timestamp = date.toISOString().replace(/[:.]/g, "-");
   const basename = path.basename(affectedRelativePath).replace(/[^a-zA-Z0-9._-]/g, "-") || "snapshot.txt";
@@ -248,6 +325,16 @@ function invalidPanelConfigResult(warning: string): PanelStyleConfigLoadResult {
   return {
     status: warning.includes("invalid JSON") ? "invalid_json" : "schema_invalid",
     config: buildPanelStyleConfig(panelStylePresets[0].name, panelStylePresets[0].values),
+    existingConfigDetected: true,
+    initializedFromExistingConfig: false,
+    warning
+  };
+}
+
+function invalidRewardToastConfigResult(warning: string): RewardToastStyleConfigLoadResult {
+  return {
+    status: warning.includes("invalid JSON") ? "invalid_json" : "schema_invalid",
+    config: buildRewardToastStyleConfig(rewardToastPresets[0].name, rewardToastPresets[0].values),
     existingConfigDetected: true,
     initializedFromExistingConfig: false,
     warning
@@ -353,6 +440,45 @@ function isPanelStyleValuesShape(value: unknown): value is PanelStyleValues {
     && typeof candidate.disabledOpacity === "number";
 }
 
+function isRewardToastStyleConfigShape(value: unknown): value is RewardToastStyleConfig {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<RewardToastStyleConfig>;
+  return candidate.schemaVersion === 1
+    && candidate.surfaceType === "reward_toast"
+    && candidate.adapterTarget === "idle_monster_farm.reward_toast"
+    && typeof candidate.presetName === "string"
+    && typeof candidate.updatedAt === "string"
+    && isRewardToastStyleValuesShape(candidate.values);
+}
+
+function isRewardToastStyleValuesShape(value: unknown): value is RewardToastStyleValues {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<RewardToastStyleValues>;
+  return typeof candidate.durationMs === "number"
+    && typeof candidate.riseDistance === "number"
+    && typeof candidate.startScale === "number"
+    && typeof candidate.peakScale === "number"
+    && typeof candidate.endScale === "number"
+    && typeof candidate.bounceStrength === "number"
+    && typeof candidate.fadeInMs === "number"
+    && typeof candidate.fadeOutMs === "number"
+    && typeof candidate.sparkleCount === "number"
+    && typeof candidate.sparkleScale === "number"
+    && typeof candidate.textSize === "number"
+    && typeof candidate.iconScale === "number"
+    && typeof candidate.toastFillColor === "string"
+    && typeof candidate.toastFillOpacity === "number"
+    && typeof candidate.toastBorderColor === "string"
+    && typeof candidate.toastBorderWidth === "number"
+    && typeof candidate.cornerRadius === "number"
+    && typeof candidate.shadowStrength === "number"
+    && typeof candidate.glowStrength === "number";
+}
+
 function clampNumber(value: number, key: keyof typeof slotCardStyleBounds): number {
   const bounds = slotCardStyleBounds[key];
   const numericValue = Number.isFinite(value) ? value : defaultSlotCardStyle[key];
@@ -368,6 +494,12 @@ function clampBackgroundNumber(value: number, key: keyof typeof backgroundReadab
 function clampPanelNumber(value: number, key: keyof typeof panelStyleBounds): number {
   const bounds = panelStyleBounds[key];
   const numericValue = Number.isFinite(value) ? value : defaultPanelStyle[key];
+  return Math.min(bounds.max, Math.max(bounds.min, numericValue));
+}
+
+function clampRewardToastNumber(value: number, key: keyof typeof rewardToastStyleBounds): number {
+  const bounds = rewardToastStyleBounds[key];
+  const numericValue = Number.isFinite(value) ? value : defaultRewardToastStyle[key];
   return Math.min(bounds.max, Math.max(bounds.min, numericValue));
 }
 

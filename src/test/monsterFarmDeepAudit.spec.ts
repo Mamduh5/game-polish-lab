@@ -14,6 +14,7 @@ import {
 import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection } from "../core/farmSlotAdapterAnalysis";
 import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/panelAdapterAnalysis";
+import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
 import {
   buildAssetRollbackSnapshotName,
@@ -25,17 +26,21 @@ import {
   backgroundReadabilityStyleConfigRelativePath,
   buildBackgroundReadabilityStyleConfig,
   buildPanelStyleConfig,
+  buildRewardToastStyleConfig,
   buildRollbackSnapshotName,
   buildSlotCardStyleConfig,
   loadBackgroundReadabilityStyleConfigFromText,
   loadPanelStyleConfigFromText,
   panelStyleConfigRelativePath,
+  rewardToastStyleConfigRelativePath,
+  loadRewardToastStyleConfigFromText,
   loadSlotCardStyleConfigFromText
 } from "../core/visualSurfaceConfig";
 import { detectMonsterFarmAssetTargets, monsterFarmAssetTargets } from "../core/monsterFarmAssetTargets";
 import { backgroundReadabilityPresets, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { defaultPanelStyle, panelStylePresets } from "../presets/panelStylePresets";
 import { pixelPolishKitPresets } from "../presets/pixelPolishKitPresets";
+import { defaultRewardToastStyle, rewardToastPresets } from "../presets/rewardToastPresets";
 import { slotCardPresets } from "../presets/slotCardPresets";
 import { InspectedFile } from "../types/audit";
 
@@ -432,6 +437,128 @@ assert.strictEqual(connectedPanelAfterRepeatedApply.connectionType, "style_modul
 assert.strictEqual(
   buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), panelStyleConfigRelativePath),
   "2026-06-24T10-11-12-123Z-panel-style.json"
+);
+
+assert.deepStrictEqual(rewardToastPresets.map((preset) => preset.name), [
+  "Soft Pop",
+  "Juicy Bounce",
+  "Magic Sparkle",
+  "Clean Reward"
+]);
+assert.strictEqual(defaultRewardToastStyle.durationMs, 1200);
+assert.strictEqual(defaultRewardToastStyle.toastFillColor, "#2e3a2f");
+
+const validRewardToastConfig = buildRewardToastStyleConfig("Soft Pop", rewardToastPresets[0].values);
+const validRewardToastLoad = loadRewardToastStyleConfigFromText(JSON.stringify(validRewardToastConfig));
+assert.strictEqual(validRewardToastLoad.status, "valid");
+assert.strictEqual(validRewardToastLoad.existingConfigDetected, true);
+assert.strictEqual(validRewardToastLoad.initializedFromExistingConfig, true);
+assert.strictEqual(validRewardToastLoad.config.surfaceType, "reward_toast");
+
+const missingRewardToastLoad = loadRewardToastStyleConfigFromText(undefined);
+assert.strictEqual(missingRewardToastLoad.status, "missing");
+assert.strictEqual(missingRewardToastLoad.existingConfigDetected, false);
+assert.strictEqual(missingRewardToastLoad.initializedFromExistingConfig, false);
+assert.strictEqual(missingRewardToastLoad.config.values.durationMs, rewardToastPresets[0].values.durationMs);
+
+const invalidRewardToastJsonLoad = loadRewardToastStyleConfigFromText("{ nope");
+assert.strictEqual(invalidRewardToastJsonLoad.status, "invalid_json");
+assert.strictEqual(invalidRewardToastJsonLoad.existingConfigDetected, true);
+assert.strictEqual(invalidRewardToastJsonLoad.initializedFromExistingConfig, false);
+assert.ok(invalidRewardToastJsonLoad.warning?.includes("invalid JSON"));
+
+const invalidRewardToastSchemaLoad = loadRewardToastStyleConfigFromText(JSON.stringify({ schemaVersion: 99 }));
+assert.strictEqual(invalidRewardToastSchemaLoad.status, "schema_invalid");
+assert.strictEqual(invalidRewardToastSchemaLoad.initializedFromExistingConfig, false);
+assert.ok(invalidRewardToastSchemaLoad.warning?.includes("unsupported schema"));
+
+for (const preset of rewardToastPresets) {
+  const loadedPreset = loadRewardToastStyleConfigFromText(JSON.stringify(buildRewardToastStyleConfig(preset.name, preset.values)));
+  assert.strictEqual(loadedPreset.status, "valid");
+  assert.strictEqual(typeof loadedPreset.config.values.sparkleCount, "number");
+  assert.strictEqual(typeof loadedPreset.config.values.glowStrength, "number");
+}
+
+const rewardToastScope = checkV05VisualScope([
+  rewardToastStyleConfigRelativePath,
+  ".game-polish-lab/rollback/2026-06-24-reward-toast-style.json",
+  "src/config/rewardToastStyle.ts",
+  "src/ui/ToastView.ts",
+  "src/data/rewardAmounts.ts",
+  "src/systems/saveSystem.ts",
+  "src/data/economy.ts",
+  "src/systems/progressionSystem.ts",
+  "src/data/quests.ts",
+  "src/services/rewardedAdService.ts",
+  "src/state/inventoryState.ts",
+  "src/gameplay/rules.ts"
+], { throughAdapter: true });
+assert.ok(rewardToastScope.allowedFiles.includes(rewardToastStyleConfigRelativePath));
+assert.ok(rewardToastScope.allowedFiles.includes("src/config/rewardToastStyle.ts"));
+assert.ok(rewardToastScope.adapterOnlyFiles.includes("src/ui/ToastView.ts"));
+assert.ok(rewardToastScope.forbiddenFiles.includes("src/data/rewardAmounts.ts"));
+assert.ok(rewardToastScope.forbiddenFiles.includes("src/systems/saveSystem.ts"));
+assert.ok(rewardToastScope.forbiddenFiles.includes("src/data/economy.ts"));
+assert.ok(rewardToastScope.forbiddenFiles.includes("src/systems/progressionSystem.ts"));
+assert.ok(rewardToastScope.forbiddenFiles.includes("src/data/quests.ts"));
+assert.ok(rewardToastScope.forbiddenFiles.includes("src/services/rewardedAdService.ts"));
+assert.ok(rewardToastScope.forbiddenFiles.includes("src/state/inventoryState.ts"));
+assert.ok(rewardToastScope.forbiddenFiles.includes("src/gameplay/rules.ts"));
+
+const disconnectedRewardToastFiles = [
+  {
+    relativePath: "src/ui/ToastView.ts",
+    text: "export class ToastView { showReward(label: string) { this.add.text(0, 0, label); this.tweens.add({ y: -30, alpha: 0 }); } }"
+  },
+  {
+    relativePath: "src/scenes/FarmScene.ts",
+    text: "toastView.showReward('+25 Coins');"
+  },
+  {
+    relativePath: "src/config/rewardToastStyle.ts",
+    text: "export const REWARD_TOAST_STYLE = {};"
+  }
+];
+const rewardToastDetection = analyzeRewardToastDetection(disconnectedRewardToastFiles);
+assert.strictEqual(rewardToastDetection.target, "idle_monster_farm.reward_toast");
+assert.strictEqual(rewardToastDetection.detected, true);
+assert.strictEqual(rewardToastDetection.confidence, "high");
+assert.ok(rewardToastDetection.ownerFiles.includes("src/ui/ToastView.ts"));
+assert.ok(rewardToastDetection.targetFeedback.includes("reward_toast"));
+assert.ok(rewardToastDetection.targetFeedback.includes("coin_reward_feedback"));
+assert.ok(rewardToastDetection.targetFeedback.includes("floating_reward_text"));
+assert.ok(rewardToastDetection.reasons.some((reason) => reason.includes("toast/reward feedback")));
+assert.ok(rewardToastDetection.warnings.some((warning) => warning.includes("animation")));
+
+const disconnectedRewardToast = analyzeRewardToastStyleConnection(disconnectedRewardToastFiles);
+assert.strictEqual(disconnectedRewardToast.connected, false);
+assert.strictEqual(disconnectedRewardToast.connectionType, "none");
+assert.ok(disconnectedRewardToast.missingPieces.some((piece) => piece.includes("Reward feedback owner/rendering files")));
+
+const connectedRewardToastFiles = [
+  {
+    relativePath: "src/ui/ToastView.ts",
+    text: "import { REWARD_TOAST_STYLE } from '../config/rewardToastStyle'; export class ToastView { showReward() { return REWARD_TOAST_STYLE.durationMs; } }"
+  },
+  {
+    relativePath: "src/config/rewardToastStyle.ts",
+    text: "export const REWARD_TOAST_STYLE = { durationMs: 1200 };"
+  }
+];
+const connectedRewardToastDetection = analyzeRewardToastDetection(connectedRewardToastFiles);
+assert.strictEqual(connectedRewardToastDetection.detected, true);
+assert.strictEqual(connectedRewardToastDetection.confidence, "high");
+const connectedRewardToast = analyzeRewardToastStyleConnection(connectedRewardToastFiles);
+assert.strictEqual(connectedRewardToast.connected, true);
+assert.strictEqual(connectedRewardToast.connectionType, "style_module");
+assert.deepStrictEqual(connectedRewardToast.connectedFiles, ["src/ui/ToastView.ts"]);
+const connectedRewardToastAfterRepeatedApply = analyzeRewardToastStyleConnection(connectedRewardToastFiles);
+assert.strictEqual(connectedRewardToastAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedRewardToastAfterRepeatedApply.connectionType, "style_module");
+
+assert.strictEqual(
+  buildRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), rewardToastStyleConfigRelativePath),
+  "2026-06-24T10-11-12-123Z-reward-toast-style.json"
 );
 
 const farmSceneFallbackAudit = buildMonsterFarmAuditDetails([

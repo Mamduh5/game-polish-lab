@@ -3,6 +3,12 @@ const forbiddenPathTerms = [
   "savesystem",
   "savestate",
   "/economy",
+  "rewardamount",
+  "rewardamounts",
+  "rewardconfig",
+  "reward-config",
+  "rewardtable",
+  "reward-table",
   "/progression",
   "/state/hatch",
   "/systems/hatch",
@@ -15,6 +21,7 @@ const forbiddenPathTerms = [
   "/systems/quest",
   "/data/quest",
   "queststate",
+  "inventory",
   "/ads",
   "/ad/",
   "admob",
@@ -71,7 +78,18 @@ const farmSlotRenderingTerms = [
   "navigationmenu",
   "navigationcontrol",
   "hatchpanel",
-  "questwidget"
+  "questwidget",
+  "toast",
+  "rewardfeedback",
+  "reward-feedback",
+  "floatingreward",
+  "floating-reward",
+  "floatingtext",
+  "floating-text",
+  "coinfeedback",
+  "coin-feedback",
+  "rewardicon",
+  "reward-icon"
 ];
 
 export interface V05ScopeGuardResult {
