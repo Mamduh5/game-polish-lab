@@ -1,6 +1,6 @@
 import { buildVisualDirectApplyPlan } from "./visualDirectApplyTemplates";
 import { checkVisualScopeGuard, visualScopeGuardWarnings } from "./visualScopeGuard";
-import { visualRecipeRelativePath } from "./visualRecipeRegistry";
+import { getVisualSurfaceRecipe, visualRecipeRelativePath } from "./visualRecipeRegistry";
 import { VisualSurfaceRecipe } from "../types/visualRecipe";
 import { VisualSurfaceType } from "../types/visualSurface";
 import { FieldNoteTreatmentSummary, VisualTuningAttemptIndex, VisualTuningAttemptIndexEntry } from "../types/visualTuningAttempt";
@@ -16,7 +16,8 @@ import {
 } from "../types/visualTuningDashboard";
 import { VisualAssetContractStatusCounts } from "../types/visualAssetContract";
 import { PolishDevOverlayStatus } from "./visualDevOverlay";
-import { summarizeRegisteredVisualGameAdapterContracts } from "./visualGameAdapters";
+import { getVisualGameAdapterSurfaceTargets, summarizeRegisteredVisualGameAdapterContracts } from "./visualGameAdapters";
+import { VisualAdapterProjectDetection } from "../types/visualGameAdapter";
 
 export interface DashboardConfigInfo {
   status: DashboardConfigStatus;
@@ -71,6 +72,14 @@ export interface BuildDashboardInput {
   devOverlay?: PolishDevOverlayStatus;
 }
 
+export interface BuildSortPuzzleDashboardSurfaceInputsInput {
+  detection: VisualAdapterProjectDetection;
+  configs: Record<string, DashboardConfigInfo>;
+  recipeFiles: Record<string, DashboardRecipeInfo>;
+  fallbackCounts: Record<string, number>;
+  ownerFiles?: string[];
+}
+
 export function buildVisualTuningDashboardModel(input: BuildDashboardInput): VisualTuningDashboardModel {
   const rows = input.surfaces.map((surface) => buildDashboardRow(surface, input.attemptIndex));
   const fieldNotes = buildFieldNoteSummary(rows);
@@ -106,6 +115,42 @@ export function buildVisualTuningDashboardModel(input: BuildDashboardInput): Vis
     rows,
     manualChecklist: dashboardManualChecklist()
   };
+}
+
+export function buildSortPuzzleDashboardSurfaceInputs(input: BuildSortPuzzleDashboardSurfaceInputsInput): DashboardSurfaceInput[] {
+  return getVisualGameAdapterSurfaceTargets("sort_puzzle").map((target) => {
+    const recipe = target.surfaceType === "asset_replacement" ? undefined : getVisualSurfaceRecipe(target.surfaceType);
+    const config: DashboardConfigInfo = target.styleConfigPath
+      ? input.configs[`sort_puzzle_${target.targetId}`] ?? { status: "missing", path: target.styleConfigPath, exists: false }
+      : { status: "not_applicable", exists: false };
+    const directApplySupported = target.directApply.support === "executable";
+    const adapter: DashboardAdapterInfo = {
+      adapterId: "sort_puzzle",
+      targetId: target.targetId,
+      targetLabel: target.displayName,
+      connectedState: directApplySupported ? "connected" : "not_applicable",
+      detected: input.detection.detected,
+      confidence: input.detection.confidence,
+      directApplySupported,
+      ownerFiles: Array.from(new Set([...(input.ownerFiles ?? []), ...target.likelyOwnerFiles])).sort(),
+      warnings: [
+        ...input.detection.warnings,
+        target.surfaceType === "asset_replacement"
+          ? "Spirit asset replacement is manual-only; loader and manifest changes are fallback-only."
+          : "Sort Puzzle direct apply is config-only. Runtime SpiritSortScene integration remains fallback-only unless the project already reads the generated config."
+      ]
+    };
+    return {
+      surfaceType: target.surfaceType,
+      displayName: target.displayName,
+      adapter,
+      recipe,
+      config,
+      recipeFile: recipe ? input.recipeFiles[recipe.recipeId] : { status: "not_applicable", exists: false },
+      fallbackTaskCount: input.fallbackCounts[`sort_puzzle_${target.surfaceType}`] ?? 0,
+      scopeFiles: scopeFilesForRow(adapter, config, recipe)
+    };
+  });
 }
 
 function emptyAssetContractStatusCounts(): VisualAssetContractStatusCounts {
@@ -177,6 +222,9 @@ export function calculateAppliedStatus(surface: DashboardSurfaceInput, scope: Re
   }
   if (!surface.adapter.directApplySupported) {
     return "unsupported";
+  }
+  if (surface.adapter.adapterId === "sort_puzzle" && surface.config.status === "valid" && scope.ok) {
+    return "config_only";
   }
   if (surface.adapter.connectedState === "connected" && surface.config.status === "valid" && scope.directApplySafe) {
     return "applied";
@@ -326,6 +374,9 @@ function fallbackAction(surface: DashboardSurfaceInput, appliedStatus: Dashboard
   if (appliedStatus === "applied") {
     return { enabled: false, label: "Generate Fallback Task", reason: "Connected surfaces should use direct apply first." };
   }
+  if (surface.adapter.adapterId === "sort_puzzle") {
+    return { enabled: true, label: "Generate Fallback Task" };
+  }
   if (surface.adapter.adapterId === "generic_phaser" || surface.adapter.connectedState !== "connected") {
     return { enabled: true, label: "Generate Fallback Task" };
   }
@@ -372,4 +423,14 @@ function targetMatches(attempt: VisualTuningAttemptIndexEntry, targetId?: string
 
 function safeId(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "target";
+}
+
+function scopeFilesForRow(adapter: DashboardAdapterInfo, config: DashboardConfigInfo, recipe?: ReturnType<typeof getVisualSurfaceRecipe>, extraFiles: string[] = []): string[] {
+  return [
+    config.path,
+    adapter.generatedStyleModulePath,
+    ...adapter.ownerFiles,
+    ...extraFiles,
+    ...(recipe ? [visualRecipeRelativePath(recipe.recipeId)] : [])
+  ].filter((value): value is string => Boolean(value));
 }

@@ -50,6 +50,7 @@ import {
 } from "../core/tuningAttemptModel";
 import {
   buildDashboardRow,
+  buildSortPuzzleDashboardSurfaceInputs,
   buildVisualTuningDashboardModel,
   calculateAppliedStatus,
   configPathForDashboard,
@@ -2435,11 +2436,12 @@ const sortPuzzleShelfSurface = {
   scopeFiles: [sortPuzzleShelfStyleConfigRelativePath]
 };
 const sortPuzzleShelfRow = buildDashboardRow(sortPuzzleShelfSurface, attemptIndex);
-assert.strictEqual(sortPuzzleShelfRow.appliedStatus, "applied");
+assert.strictEqual(sortPuzzleShelfRow.appliedStatus, "config_only");
 assert.strictEqual(sortPuzzleShelfRow.adapterId, "sort_puzzle");
 assert.strictEqual(sortPuzzleShelfRow.directApplyTemplate.available, true);
 assert.strictEqual(sortPuzzleShelfRow.directApplyTemplate.executable, true);
-assert.strictEqual(sortPuzzleShelfRow.actions.generateFallbackTask.enabled, false);
+assert.strictEqual(sortPuzzleShelfRow.actions.directApply.enabled, true);
+assert.strictEqual(sortPuzzleShelfRow.actions.generateFallbackTask.enabled, true);
 assert.ok(sortPuzzleShelfRow.scopeSummary.allowedFiles.includes(sortPuzzleShelfStyleConfigRelativePath));
 
 const cursorArenaHudSurface = {
@@ -2539,9 +2541,56 @@ const unknownSurface = {
 assert.strictEqual(buildDashboardRow(unknownSurface, attemptIndex).appliedStatus, "unknown");
 
 assert.strictEqual(calculateAppliedStatus(connectedIdleSlotSurface, connectedIdleSlotRow.scopeSummary), "applied");
-assert.strictEqual(calculateAppliedStatus(sortPuzzleShelfSurface, sortPuzzleShelfRow.scopeSummary), "applied");
+assert.strictEqual(calculateAppliedStatus(sortPuzzleShelfSurface, sortPuzzleShelfRow.scopeSummary), "config_only");
 assert.strictEqual(calculateAppliedStatus(disconnectedIdlePanelSurface, disconnectedPanelRow.scopeSummary), "config_only");
 assert.strictEqual(calculateAppliedStatus(invalidButtonSurface, buildDashboardRow(invalidButtonSurface, attemptIndex).scopeSummary), "invalid");
+
+const sortPuzzleFixtureFiles = readFixtureFiles(path.join(process.cwd(), "fixtures", "phaser-sort-puzzle-sample"));
+const fixtureSortPuzzleDetection = detectSortPuzzleProject(sortPuzzleFixtureFiles);
+assert.strictEqual(fixtureSortPuzzleDetection.detected, true);
+assert.strictEqual(fixtureSortPuzzleDetection.confidence, "high");
+const sortPuzzleFixtureSurfaces = buildSortPuzzleDashboardSurfaceInputs({
+  detection: fixtureSortPuzzleDetection,
+  configs: {
+    sort_puzzle_shelf_card: { status: "valid", path: sortPuzzleShelfStyleConfigRelativePath, exists: true },
+    sort_puzzle_spirit_slot: { status: "valid", path: sortPuzzleSpiritPresentationConfigRelativePath, exists: true },
+    sort_puzzle_completed_shelf: { status: "valid", path: sortPuzzleShelfStyleConfigRelativePath, exists: true },
+    sort_puzzle_selected_shelf_state: { status: "valid", path: sortPuzzleShelfStyleConfigRelativePath, exists: true },
+    sort_puzzle_invalid_move_feedback: { status: "valid", path: sortPuzzleFeedbackStyleConfigRelativePath, exists: true },
+    sort_puzzle_win_reward_toast: { status: "valid", path: sortPuzzleFeedbackStyleConfigRelativePath, exists: true },
+    sort_puzzle_spirit_asset_presentation: { status: "valid", path: sortPuzzleSpiritPresentationConfigRelativePath, exists: true }
+  },
+  recipeFiles: {
+    "slot-card": recipeFileStatus(getVisualSurfaceRecipe("slot_card")!, true),
+    "reward-toast": recipeFileStatus(getVisualSurfaceRecipe("reward_toast")!, true)
+  },
+  fallbackCounts: {},
+  ownerFiles: sortPuzzleFixtureFiles.map((file) => file.relativePath).filter((file) => file.includes("SpiritSortScene"))
+});
+const sortPuzzleFixtureDashboard = buildVisualTuningDashboardModel({
+  workspaceFolder: path.join(process.cwd(), "fixtures", "phaser-sort-puzzle-sample"),
+  generatedAt: new Date("2026-06-26T09:00:00.000Z"),
+  phaserDetected: true,
+  detectedAdapter: "sort_puzzle",
+  adapterConfidence: fixtureSortPuzzleDetection.confidence,
+  surfaces: sortPuzzleFixtureSurfaces,
+  attemptIndex
+});
+assert.strictEqual(sortPuzzleFixtureDashboard.summary.detectedAdapter, "sort_puzzle");
+assert.strictEqual(sortPuzzleFixtureDashboard.summary.adapterConfidence, "high");
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.adapterId === "sort_puzzle" && row.targetId === "shelf_card" && row.displayName === "Sort Puzzle Shelf Card"));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.adapterId === "sort_puzzle" && row.targetId === "spirit_slot" && row.configPath === sortPuzzleSpiritPresentationConfigRelativePath));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.adapterId === "sort_puzzle" && row.targetId === "selected_shelf_state"));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.adapterId === "sort_puzzle" && row.targetId === "invalid_move_feedback" && row.configPath === sortPuzzleFeedbackStyleConfigRelativePath));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.adapterId === "sort_puzzle" && row.targetId === "completed_shelf"));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.adapterId === "sort_puzzle" && row.targetId === "win_reward_toast"));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.adapterId === "sort_puzzle" && row.targetId === "spirit_asset_presentation" && row.appliedStatus === "unsupported"));
+assert.ok(sortPuzzleFixtureDashboard.rows.filter((row) => row.adapterId === "sort_puzzle" && row.surfaceType !== "asset_replacement").every((row) => row.appliedStatus === "config_only"));
+assert.ok(sortPuzzleFixtureDashboard.rows.filter((row) => row.adapterId === "sort_puzzle" && row.surfaceType !== "asset_replacement").every((row) => row.actions.directApply.enabled));
+assert.ok(sortPuzzleFixtureDashboard.rows.filter((row) => row.adapterId === "sort_puzzle").every((row) => row.actions.generateFallbackTask.enabled));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.configPath === sortPuzzleShelfStyleConfigRelativePath));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.configPath === sortPuzzleSpiritPresentationConfigRelativePath));
+assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.configPath === sortPuzzleFeedbackStyleConfigRelativePath));
 
 const dashboardModel = buildVisualTuningDashboardModel({
   workspaceFolder: "D:/sample",
@@ -2576,8 +2625,8 @@ const dashboardModel = buildVisualTuningDashboardModel({
 });
 assert.strictEqual(dashboardModel.schemaVersion, "visual-tuning-dashboard/v1");
 assert.strictEqual(dashboardModel.summary.totalSurfaces, 6);
-assert.strictEqual(dashboardModel.summary.appliedCount, 3);
-assert.strictEqual(dashboardModel.summary.configOnlyCount, 2);
+assert.strictEqual(dashboardModel.summary.appliedCount, 2);
+assert.strictEqual(dashboardModel.summary.configOnlyCount, 3);
 assert.ok(dashboardModel.summary.warningCount > 0);
 assert.strictEqual(dashboardModel.summary.assetContractStatus, "valid");
 assert.strictEqual(dashboardModel.summary.assetContractStatusCounts.total, 5);

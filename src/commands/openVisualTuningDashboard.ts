@@ -10,11 +10,19 @@ import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdap
 import { buildGenericFallbackTask, genericFallbackTaskRelativePath, getGenericPhaserAdapterState, GenericPhaserSurfaceType, genericGeneratedStyleModulePath, genericStyleConfigRelativePath } from "../core/genericPhaserAdapter";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { createTuningAttempt, getFallbackFieldNoteGuidance, loadTuningAttemptIndex } from "../core/tuningAttempts";
-import { buildVisualDirectApplyPlan } from "../core/visualDirectApplyTemplates";
+import {
+  buildVisualDirectApplyPlan,
+  executeVisualDirectApplyPlan,
+  sortPuzzleFeedbackStyleConfigRelativePath,
+  sortPuzzleShelfStyleConfigRelativePath,
+  sortPuzzleSpiritPresentationConfigRelativePath
+} from "../core/visualDirectApplyTemplates";
 import { readVisualAssetContractFile, refreshVisualAssetContracts, summarizeVisualAssetContractStatuses } from "../core/visualAssetContracts";
 import { inspectPolishDevOverlayStatus } from "../core/visualDevOverlay";
+import { buildSortPuzzleSpiritSortSceneFallbackTask, detectSortPuzzleProject } from "../core/visualGameAdapters";
 import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "../core/visualScopeGuard";
 import {
+  buildSortPuzzleDashboardSurfaceInputs,
   buildVisualTuningDashboardModel,
   DashboardAdapterInfo,
   DashboardConfigInfo,
@@ -94,6 +102,7 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     rewardToastState,
     buttonState,
     genericState,
+    sortPuzzleState,
     attemptIndex,
     assetContractLoad
   ] = await Promise.all([
@@ -103,6 +112,7 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     getIdleMonsterFarmRewardToastAdapterState(folder),
     getIdleMonsterFarmButtonAdapterState(folder),
     getGenericPhaserAdapterState(folder),
+    getSortPuzzleAdapterState(folder),
     loadTuningAttemptIndex(folder),
     readVisualAssetContractFile(folder.uri.fsPath)
   ]);
@@ -115,7 +125,7 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
   const idleConfidence = [slotState, backgroundState, panelState, rewardToastState, buttonState].some((state) => state.detection.confidence === "high") ? "high"
     : [slotState, backgroundState, panelState, rewardToastState, buttonState].some((state) => state.detection.confidence === "medium") ? "medium"
     : idleAdapterDetected ? "low" : "unknown";
-  const detectedAdapter = idleAdapterDetected ? "idle_monster_farm" : genericState.detected ? "generic_phaser" : "unknown";
+  const detectedAdapter = chooseDashboardDetectedAdapter({ idleDetected: idleAdapterDetected, idleConfidence, sortPuzzleDetected: sortPuzzleState.detection.detected, sortPuzzleConfidence: sortPuzzleState.detection.confidence, genericDetected: genericState.detected });
   const surfaces: DashboardSurfaceInput[] = [
     ...visualSurfacePickerOrder.map((surfaceType) => buildIdleSurfaceInput(surfaceType, configStatuses, recipeFileStatuses, fallbackCounts, {
       slot_card: slotState,
@@ -124,14 +134,24 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
       reward_toast: rewardToastState,
       button: buttonState
     }, assetTargets)),
+    ...(sortPuzzleState.detection.detected ? buildSortPuzzleDashboardSurfaceInputs({
+      detection: sortPuzzleState.detection,
+      configs: configStatuses,
+      recipeFiles: recipeFileStatuses,
+      fallbackCounts,
+      ownerFiles: sortPuzzleState.ownerFiles
+    }) : []),
     ...visualSurfacePickerOrder.map((surfaceType) => buildGenericSurfaceInput(surfaceType, genericState, configStatuses, recipeFileStatuses, fallbackCounts))
   ];
 
   return buildVisualTuningDashboardModel({
     workspaceFolder: folder.uri.fsPath,
-    phaserDetected: genericState.detected || idleAdapterDetected,
+    phaserDetected: genericState.detected || idleAdapterDetected || sortPuzzleState.detection.detected,
     detectedAdapter,
-    adapterConfidence: detectedAdapter === "idle_monster_farm" ? idleConfidence : genericState.detected ? genericState.confidence : "unknown",
+    adapterConfidence: detectedAdapter === "idle_monster_farm" ? idleConfidence
+      : detectedAdapter === "sort_puzzle" ? sortPuzzleState.detection.confidence
+      : detectedAdapter === "generic_phaser" ? genericState.confidence
+      : "unknown",
     surfaces,
     attemptIndex,
     assetContracts: {
@@ -142,6 +162,66 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     },
     devOverlay
   });
+}
+
+async function getSortPuzzleAdapterState(folder: vscode.WorkspaceFolder): Promise<{
+  detection: ReturnType<typeof detectSortPuzzleProject>;
+  ownerFiles: string[];
+}> {
+  const files = new Map<string, string>();
+  const packageText = await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, "package.json"));
+  if (packageText !== undefined) {
+    files.set("package.json", packageText);
+  }
+  const uris = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, "src/**/*.{ts,tsx,js,jsx,json}"), "**/{node_modules,dist,build,out}/**", 160);
+  for (const uri of uris) {
+    const relativePath = path.relative(folder.uri.fsPath, uri.fsPath).replace(/\\/g, "/");
+    const text = await readTextFileIfExists(uri);
+    if (text !== undefined) {
+      files.set(relativePath, text);
+    }
+  }
+  const inspectedFiles = Array.from(files.entries()).map(([relativePath, text]) => ({ relativePath, text }));
+  const detection = detectSortPuzzleProject(inspectedFiles);
+  const ownerFiles = inspectedFiles
+    .map((file) => file.relativePath)
+    .filter((relativePath) => {
+      const lowerPath = relativePath.toLowerCase();
+      return lowerPath.includes("spiritsortscene") || ((lowerPath.includes("sort") || lowerPath.includes("spirit") || lowerPath.includes("shelf")) && lowerPath.includes("scene"));
+    })
+    .sort();
+  return { detection, ownerFiles };
+}
+
+function chooseDashboardDetectedAdapter(input: {
+  idleDetected: boolean;
+  idleConfidence: "high" | "medium" | "low" | "unknown";
+  sortPuzzleDetected: boolean;
+  sortPuzzleConfidence: "high" | "medium" | "low" | "unknown";
+  genericDetected: boolean;
+}): "idle_monster_farm" | "sort_puzzle" | "generic_phaser" | "unknown" {
+  const idleScore = input.idleDetected ? confidenceScore(input.idleConfidence) : 0;
+  const sortPuzzleScore = input.sortPuzzleDetected ? confidenceScore(input.sortPuzzleConfidence) : 0;
+  if (idleScore > 0 && idleScore >= sortPuzzleScore) {
+    return "idle_monster_farm";
+  }
+  if (sortPuzzleScore >= confidenceScore("medium") && sortPuzzleScore > idleScore) {
+    return "sort_puzzle";
+  }
+  return input.genericDetected ? "generic_phaser" : "unknown";
+}
+
+function confidenceScore(confidence: "high" | "medium" | "low" | "unknown"): number {
+  if (confidence === "high") {
+    return 3;
+  }
+  if (confidence === "medium") {
+    return 2;
+  }
+  if (confidence === "low") {
+    return 1;
+  }
+  return 0;
 }
 
 async function handleDashboardMessage(context: vscode.ExtensionContext, folder: vscode.WorkspaceFolder, model: VisualTuningDashboardModel, message: DashboardMessage): Promise<{ ok: boolean; message: string; refresh?: boolean }> {
@@ -230,8 +310,11 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   if (!row.actions.directApply.enabled) {
     return { ok: false, message: row.actions.directApply.reason ?? "Direct apply is not available." };
   }
-  if (row.adapterId !== "idle_monster_farm" || row.surfaceType === "asset_replacement") {
-    return { ok: false, message: "Dashboard direct apply is only available for connected Idle Monster Farm style surfaces." };
+  if (row.surfaceType === "asset_replacement") {
+    return { ok: false, message: "Dashboard direct apply is not available for asset replacement rows." };
+  }
+  if (row.adapterId !== "idle_monster_farm" && row.adapterId !== "sort_puzzle") {
+    return { ok: false, message: "Dashboard direct apply is available only for connected Idle Monster Farm style surfaces and Sort Puzzle generated config writes." };
   }
   const configText = row.configPath ? await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, ...row.configPath.split("/"))) : undefined;
   if (!configText) {
@@ -249,6 +332,50 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   });
   if (!plan.executable) {
     return { ok: false, message: `Direct apply template blocked: ${plan.blockingReasons.join(" ") || plan.scopeGuardResult.summaryMessage}` };
+  }
+  if (row.adapterId === "sort_puzzle") {
+    const result = executeVisualDirectApplyPlan(folder.uri.fsPath, plan, [{
+      relativePath: row.configPath!,
+      text: configText.endsWith("\n") ? configText : `${configText}\n`
+    }]);
+    if (!result.ok) {
+      return { ok: false, message: `Sort Puzzle config-only direct apply failed: ${result.errors.join(" ")}` };
+    }
+    const snapshot = parseJsonObject(configText);
+    const values = snapshot && typeof snapshot.values === "object" && snapshot.values !== null && !Array.isArray(snapshot.values)
+      ? snapshot.values as Record<string, unknown>
+      : undefined;
+    await createTuningAttempt(folder, {
+      adapterId: row.adapterId,
+      surfaceType: row.surfaceType,
+      targetId: row.targetId,
+      targetLabel: row.targetLabel,
+      recipeId: row.recipeId,
+      configPath: row.configPath,
+      presetName: typeof snapshot?.presetName === "string" ? snapshot.presetName : undefined,
+      styleSnapshot: values ?? snapshot,
+      changedTokens: values ? Object.keys(values).sort() : [],
+      applyMode: "config_only",
+      connectionState: "not_connected",
+      scopeSummary: result.changedFiles.join(", ") || row.configPath!,
+      rollbackPaths: result.rollbackPaths,
+      manualChecklist: result.manualChecks.map((check) => check.label),
+      warnings: [
+        ...plan.warnings,
+        ...result.warnings,
+        "Sort Puzzle direct apply wrote generated style config only; SpiritSortScene runtime integration remains fallback-only."
+      ],
+      tags: ["v0.72-sort-puzzle", "config-only"]
+    });
+    return {
+      ok: true,
+      message: [
+        `Template: ${plan.templateId} (${plan.templateName})`,
+        `Sort Puzzle config-only direct apply wrote ${result.changedFiles.join(", ")}.`,
+        "Runtime SpiritSortScene integration remains fallback-only."
+      ].join("\n"),
+      refresh: true
+    };
   }
   const result = await applyIdleStyleConfig(folder, row.surfaceType, configText);
   if (!result.ok) {
@@ -299,6 +426,30 @@ async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder,
     recipeId: row.recipeId
   });
   await ensureDirectory(labUri(folder, "fallback-tasks"));
+  if (row.adapterId === "sort_puzzle") {
+    if (!row.configPath) {
+      return { ok: false, message: "Sort Puzzle fallback requires a generated style config path." };
+    }
+    const targetFile = [
+      ...row.scopeSummary.suspiciousFiles,
+      ...row.scopeSummary.allowedFiles
+    ].find((file) => file.toLowerCase().includes("spiritsortscene")) ?? "src/scenes/SpiritSortScene.ts";
+    const fallback = buildSortPuzzleSpiritSortSceneFallbackTask({
+      targetFile,
+      targetId: row.targetId ?? row.targetLabel,
+      styleConfigPath: row.configPath
+    });
+    const relativePath = `.game-polish-lab/fallback-tasks/${new Date().toISOString().replace(/[:.]/g, "-")}-${row.surfaceType}-sort-puzzle.json`;
+    await writeJsonFile(labUri(folder, "fallback-tasks", path.basename(relativePath)), {
+      ...fallback,
+      surfaceType: row.surfaceType,
+      targetLabel: row.targetLabel,
+      recipeId: row.recipeId,
+      fieldNoteGuidance: guidance,
+      guardWarnings: [...row.scopeSummary.warnings, ...guardWarnings]
+    });
+    return { ok: true, message: [`Fallback task generated: ${relativePath}`, ...guardWarnings].join("\n"), refresh: true };
+  }
   if (row.adapterId === "generic_phaser") {
     if (row.surfaceType === "asset_replacement") {
       return { ok: false, message: "Generic asset fallback requires choosing an asset destination in the tuner." };
@@ -411,6 +562,15 @@ function failedDirectApply(message: string) {
   return { ok: false, message, changedFiles: [], rollbackPaths: [], checklist: [], warnings: [] };
 }
 
+function parseJsonObject(text: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function readStyleConfigStatuses(folder: vscode.WorkspaceFolder): Promise<Record<string, DashboardConfigInfo>> {
   return {
     idle_monster_farm_slot_card: await loadConfigInfo(folder, farmSlotStyleConfigRelativePath, (text) => loadSlotCardStyleConfigFromText(text).status),
@@ -424,7 +584,14 @@ async function readStyleConfigStatuses(folder: vscode.WorkspaceFolder): Promise<
     generic_phaser_panel: await loadGenericConfigInfo(folder, genericStyleConfigRelativePath("panel")),
     generic_phaser_reward_toast: await loadGenericConfigInfo(folder, genericStyleConfigRelativePath("reward_toast")),
     generic_phaser_button: await loadGenericConfigInfo(folder, genericStyleConfigRelativePath("button")),
-    generic_phaser_asset_replacement: { status: "not_applicable", exists: false }
+    generic_phaser_asset_replacement: { status: "not_applicable", exists: false },
+    sort_puzzle_shelf_card: await loadGenericConfigInfo(folder, sortPuzzleShelfStyleConfigRelativePath),
+    sort_puzzle_spirit_slot: await loadGenericConfigInfo(folder, sortPuzzleSpiritPresentationConfigRelativePath),
+    sort_puzzle_completed_shelf: await loadGenericConfigInfo(folder, sortPuzzleShelfStyleConfigRelativePath),
+    sort_puzzle_selected_shelf_state: await loadGenericConfigInfo(folder, sortPuzzleShelfStyleConfigRelativePath),
+    sort_puzzle_invalid_move_feedback: await loadGenericConfigInfo(folder, sortPuzzleFeedbackStyleConfigRelativePath),
+    sort_puzzle_win_reward_toast: await loadGenericConfigInfo(folder, sortPuzzleFeedbackStyleConfigRelativePath),
+    sort_puzzle_spirit_asset_presentation: await loadGenericConfigInfo(folder, sortPuzzleSpiritPresentationConfigRelativePath)
   };
 }
 
@@ -609,7 +776,7 @@ function renderDashboardHtml(model: VisualTuningDashboardModel): string {
   </style>
 </head>
 <body>
-  <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">${escapeHtml(model.summary.workspaceFolder)}</p></div><div class="toolbar"><select id="adapterFilter"><option value="detected">Detected Adapter</option><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option><option value="all">All</option></select><button id="openRollbackHistory" class="secondary">Rollback History</button><button id="openAssetContactSheet" class="secondary" ${model.summary.assetContactSheetAvailable ? "" : "disabled"} title="${model.summary.assetContactSheetAvailable ? "Open asset contact sheet" : "Refresh asset contracts first"}">View Asset Contact Sheet</button><button id="refreshAssetContracts" class="secondary">Refresh Asset Contracts</button><button id="refresh">Refresh</button></div></div>
+  <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">${escapeHtml(model.summary.workspaceFolder)}</p></div><div class="toolbar"><select id="adapterFilter"><option value="detected">Detected Adapter</option><option value="idle_monster_farm">Idle Monster Farm</option><option value="sort_puzzle">Sort Puzzle</option><option value="generic_phaser">Generic Phaser</option><option value="all">All</option></select><button id="openRollbackHistory" class="secondary">Rollback History</button><button id="openAssetContactSheet" class="secondary" ${model.summary.assetContactSheetAvailable ? "" : "disabled"} title="${model.summary.assetContactSheetAvailable ? "Open asset contact sheet" : "Refresh asset contracts first"}">View Asset Contact Sheet</button><button id="refreshAssetContracts" class="secondary">Refresh Asset Contracts</button><button id="refresh">Refresh</button></div></div>
   <section class="summary">${summaryMetric("Adapter", `${model.summary.detectedAdapter} (${model.summary.adapterConfidence})`)}${summaryMetric("Phaser", model.summary.phaserDetected ? "yes" : "no")}${summaryMetric("Surfaces", String(model.summary.totalSurfaces))}${summaryMetric("Applied", String(model.summary.appliedCount))}${summaryMetric("Config Only", String(model.summary.configOnlyCount))}${summaryMetric("Warnings", String(model.summary.warningCount))}${summaryMetric("Worse/Same", String(model.summary.recentWorseOrSameCount))}${summaryMetric("Asset Contracts", `${model.summary.assetContractStatus}: ${model.summary.assetContractStatusCounts.valid}/${model.summary.assetContractStatusCounts.total} valid`)}${summaryMetric("Asset Issues", `${model.summary.assetContractStatusCounts.missing} missing, ${model.summary.assetContractStatusCounts.invalid} invalid, ${model.summary.assetContractStatusCounts.unknown} unknown`)}${summaryMetric("Dev Overlay", devOverlaySummary(model))}${summaryMetric("Adapter Contracts", adapterContractSummary(model))}</section>
   <section class="notes"><div class="row-head"><h2>Field Notes</h2><button class="secondary" data-global="openFieldNotes">Open Field Notes</button></div><div class="grid"><div><b>Known Good</b><ul id="good"></ul></div><div><b>Known Bad</b><ul id="bad"></ul></div><div><b>Mixed</b><ul id="mixed"></ul></div></div></section>
   <section class="rows" id="rows"></section>
