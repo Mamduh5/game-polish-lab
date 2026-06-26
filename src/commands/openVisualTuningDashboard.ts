@@ -11,6 +11,7 @@ import { buildGenericFallbackTask, genericFallbackTaskRelativePath, getGenericPh
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { createTuningAttempt, getFallbackFieldNoteGuidance, loadTuningAttemptIndex } from "../core/tuningAttempts";
 import { readVisualAssetContractFile, refreshVisualAssetContracts, summarizeVisualAssetContractStatuses } from "../core/visualAssetContracts";
+import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "../core/visualScopeGuard";
 import {
   buildVisualTuningDashboardModel,
   DashboardAdapterInfo,
@@ -227,6 +228,16 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   if (!configText) {
     return { ok: false, message: "A valid config is required before direct apply." };
   }
+  const preflight = checkVisualScopeGuard({
+    operationType: "direct_apply",
+    adapterId: row.adapterId,
+    surfaceType: row.surfaceType,
+    targetId: row.targetId,
+    candidatePaths: [row.configPath, row.generatedStyleModulePath].filter((value): value is string => Boolean(value))
+  });
+  if (preflight.recommendedAction === "block") {
+    return { ok: false, message: renderVisualScopeGuardMessage(preflight) };
+  }
   const result = await applyIdleStyleConfig(folder, row.surfaceType, configText);
   if (!result.ok) {
     return { ok: false, message: result.message };
@@ -247,7 +258,7 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
     scopeSummary: result.changedFiles.join(", ") || row.configPath,
     rollbackPaths: result.rollbackPaths,
     manualChecklist: result.checklist,
-    warnings: result.warnings,
+    warnings: [...visualScopeGuardWarnings(preflight), ...result.warnings],
     tags: ["v0.60-dashboard"]
   });
   return { ok: true, message: result.message, refresh: true };
@@ -257,6 +268,17 @@ async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder,
   if (!row.actions.generateFallbackTask.enabled) {
     return { ok: false, message: row.actions.generateFallbackTask.reason ?? "Fallback task is not available." };
   }
+  const fallbackPreflight = checkVisualScopeGuard({
+    operationType: "fallback_task_generation",
+    adapterId: row.adapterId,
+    surfaceType: row.surfaceType,
+    targetId: row.targetId,
+    candidatePaths: [...row.scopeSummary.allowedFiles, ...row.scopeSummary.suspiciousFiles, ...row.scopeSummary.forbiddenFiles]
+  });
+  if (fallbackPreflight.recommendedAction === "block") {
+    return { ok: false, message: renderVisualScopeGuardMessage(fallbackPreflight) };
+  }
+  const guardWarnings = visualScopeGuardWarnings(fallbackPreflight);
   const guidance = await getFallbackFieldNoteGuidance(folder, {
     surfaceType: row.surfaceType,
     adapterId: row.adapterId,
@@ -286,7 +308,7 @@ async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder,
     }
     const relativePath = genericFallbackTaskRelativePath(new Date(), row.surfaceType, row.targetLabel);
     await writeJsonFile(labUri(folder, "fallback-tasks", path.basename(relativePath)), fallback.task);
-    return { ok: true, message: `Fallback task generated: ${relativePath}`, refresh: true };
+    return { ok: true, message: [`Fallback task generated: ${relativePath}`, ...guardWarnings].join("\n"), refresh: true };
   }
   const relativePath = `.game-polish-lab/fallback-tasks/${new Date().toISOString().replace(/[:.]/g, "-")}-${row.surfaceType}-${row.adapterId}.json`;
   await writeJsonFile(labUri(folder, "fallback-tasks", path.basename(relativePath)), {
@@ -321,9 +343,9 @@ async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder,
       ...guidance.avoid.map((note) => `Avoid prior failed visual treatment: ${note}`),
       ...guidance.mixed.map((note) => `Treat prior mixed result carefully: ${note}`)
     ],
-    manualTestChecklist: row.scopeSummary.warnings
+    manualTestChecklist: [...row.scopeSummary.warnings, ...guardWarnings]
   });
-  return { ok: true, message: `Fallback task generated: ${relativePath}`, refresh: true };
+  return { ok: true, message: [`Fallback task generated: ${relativePath}`, ...guardWarnings].join("\n"), refresh: true };
 }
 
 async function applyIdleStyleConfig(folder: vscode.WorkspaceFolder, surfaceType: Exclude<VisualSurfaceType, "asset_replacement">, configText: string): Promise<{ ok: boolean; message: string; presetName?: string; styleSnapshot?: object; changedFiles: string[]; rollbackPaths: string[]; checklist: string[]; warnings: string[] }> {

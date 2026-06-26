@@ -1,6 +1,7 @@
 import { VisualSurfaceType } from "./visualSurface";
 import { VisualTuningResultStatus } from "./visualTuningAttempt";
 import { VisualAssetContractStatusCounts } from "./visualAssetContract";
+import { VisualScopeClassificationCounts, VisualScopeRecommendedAction } from "./visualScopeGuard";
 
 export type DashboardAdapterId = "idle_monster_farm" | "generic_phaser";
 export type DashboardAppliedStatus = "applied" | "config_only" | "fallback_ready" | "unapplied" | "unsupported" | "invalid" | "unknown";
@@ -21,6 +22,9 @@ export interface DashboardScopeSummary {
   suspiciousFiles: string[];
   forbiddenFiles: string[];
   warnings: string[];
+  classificationCounts: VisualScopeClassificationCounts;
+  recommendedAction: VisualScopeRecommendedAction;
+  summaryMessage: string;
   directApplySafe: boolean;
   setupOrFallbackRequired: boolean;
 }

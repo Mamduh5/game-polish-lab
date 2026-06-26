@@ -4,6 +4,7 @@ import * as path from "path";
 
 import { inspectAssetImage } from "./assetReplacement";
 import { monsterFarmAssetTargets } from "./monsterFarmAssetTargets";
+import { checkVisualScopeGuard, renderVisualScopeGuardMessage } from "./visualScopeGuard";
 import {
   VisualAssetContract,
   VisualAssetContractFile,
@@ -108,6 +109,15 @@ export function formatVisualAssetContractFile(file: VisualAssetContractFile): st
 
 export async function refreshVisualAssetContracts(workspaceFolderPath: string, checkedAt = new Date()): Promise<RefreshAssetContractResult> {
   const checkedAtIso = checkedAt.toISOString();
+  const preflight = checkVisualScopeGuard({
+    operationType: "asset_contract_write",
+    adapterId: "game_polish_lab",
+    targetId: "asset-contracts",
+    candidatePaths: [assetContractRelativePath]
+  });
+  if (preflight.recommendedAction === "block") {
+    throw new Error(renderVisualScopeGuardMessage(preflight));
+  }
   const existing = await readVisualAssetContractFile(workspaceFolderPath, checkedAtIso);
   const generated = buildMonsterFarmAssetContractFile(checkedAtIso);
   const merged = mergeVisualAssetContractFiles(existing.file, generated, checkedAtIso);

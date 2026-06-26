@@ -2,7 +2,8 @@ import * as path from "path";
 import type * as vscode from "vscode";
 
 import { buildAssetRollbackSnapshotName, validateReplacementAsset } from "./assetReplacement";
-import { checkV05VisualScope, isForbiddenV05Path } from "./v05VisualScopeGuard";
+import { isForbiddenV05Path } from "./v05VisualScopeGuard";
+import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "./visualScopeGuard";
 import { buildRollbackSnapshotName } from "./visualSurfaceConfig";
 import { ensureVisualRecipeFiles } from "./visualRecipeFiles";
 import { getVisualSurfaceRecipe, visualRecipeRelativePath } from "./visualRecipeRegistry";
@@ -344,15 +345,18 @@ export async function applyGenericPhaserStyle(folder: vscode.WorkspaceFolder, in
 
   const safeWrites = [configPath, visualRecipeRelativePath(recipe.recipeId)];
   const moduleWrites = input.directApplyAllowed ? [generatedStyleModulePath] : [];
-  const forbiddenSelected = selectedFiles.filter(isForbiddenV05Path);
-  if (forbiddenSelected.length > 0) {
-    errors.push(`Selected scope includes forbidden files: ${forbiddenSelected.join(", ")}`);
+  const operationType = input.directApplyAllowed ? "direct_apply" : "fallback_task_generation";
+  const scope = checkVisualScopeGuard({
+    operationType,
+    adapterId: "generic_phaser",
+    surfaceType: input.surfaceType,
+    targetId: input.targetLabel,
+    candidatePaths: [...safeWrites, ...moduleWrites, ...selectedFiles]
+  });
+  if (scope.recommendedAction === "block") {
+    errors.push(`Scope guard blocked Generic Phaser ${operationType}: ${renderVisualScopeGuardMessage(scope)}`);
   }
-  const scope = checkV05VisualScope([...safeWrites, ...moduleWrites], { throughAdapter: true });
-  if (!scope.ok) {
-    errors.push(`Scope guard blocked Generic Phaser write: ${scope.forbiddenFiles.join(", ")}`);
-    warnings.push(...scope.warnings);
-  }
+  warnings.push(...visualScopeGuardWarnings(scope));
   if (errors.length > 0) {
     return failedGenericStyleResult(configPath, errors, warnings);
   }
@@ -420,11 +424,17 @@ export async function applyGenericPhaserAsset(folder: vscode.WorkspaceFolder, in
     errors.push("Select a concrete asset destination folder under src/assets, public/assets, or assets.");
   }
   const destinationPath = validation.model.destinationPath;
-  const scope = checkV05VisualScope([destinationPath], { throughAdapter: true });
-  if (!scope.ok) {
-    errors.push(`Scope guard blocked asset copy: ${scope.forbiddenFiles.join(", ")}`);
-    warnings.push(...scope.warnings);
+  const scope = checkVisualScopeGuard({
+    operationType: "direct_apply",
+    adapterId: "generic_phaser",
+    surfaceType: "asset_replacement",
+    targetId: "asset_copy",
+    candidatePaths: [destinationPath]
+  });
+  if (scope.recommendedAction === "block") {
+    errors.push(`Scope guard blocked asset copy: ${renderVisualScopeGuardMessage(scope)}`);
   }
+  warnings.push(...visualScopeGuardWarnings(scope));
   if (errors.length > 0 || !validation.ok) {
     return failedGenericStyleResult(destinationPath, errors, warnings);
   }

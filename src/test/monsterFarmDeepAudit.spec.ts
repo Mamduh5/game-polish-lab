@@ -18,6 +18,13 @@ import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/pane
 import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
 import {
+  checkVisualScopeGuard,
+  normalizeVisualScopePath,
+  renderVisualScopeGuardMessage,
+  visualScopeGuardRulesSummary,
+  visualScopeGuardWarnings
+} from "../core/visualScopeGuard";
+import {
   buildGenericAssetTarget,
   buildGenericFallbackTask,
   detectGenericPhaserProject,
@@ -260,6 +267,101 @@ assert.ok(v05Scope.forbiddenFiles.includes("src/state/farmSlotState.ts"));
 assert.ok(v05Scope.forbiddenFiles.includes("src/systems/monsterMergeSystem.ts"));
 assert.ok(v05Scope.forbiddenFiles.includes("src/services/rewardedAdService.ts"));
 assert.strictEqual(isForbiddenV05Path("src/ui/Leaderboard.ts"), false);
+
+assert.strictEqual(normalizeVisualScopePath(".\\src\\config\\farmSlotStyle.ts"), "src/config/farmSlotStyle.ts");
+const visualScopeSafe = checkVisualScopeGuard({
+  operationType: "visual_config_write",
+  adapterId: "idle_monster_farm",
+  surfaceType: "slot_card",
+  candidatePaths: [
+    ".game-polish-lab/styles/farm-slot-style.json",
+    ".game-polish-lab/visual-recipes/slot-card.json",
+    ".game-polish-lab/assets/asset-contracts.json",
+    "src/config/farmSlotStyle.ts"
+  ]
+});
+assert.strictEqual(visualScopeSafe.recommendedAction, "allow");
+assert.strictEqual(visualScopeSafe.counts.safe, 4);
+assert.strictEqual(visualScopeSafe.counts.total, 4);
+assert.ok(visualScopeSafe.summaryMessage.includes("4 safe"));
+
+const visualScopeForbidden = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "idle_monster_farm",
+  surfaceType: "slot_card",
+  targetId: "farm_slots",
+  candidatePaths: [
+    "src/systems/saveSystem.ts",
+    "src/data/economy.ts",
+    "src/systems/progressionSystem.ts",
+    "src/systems/monsterMergeSystem.ts",
+    "src/state/hatchState.ts",
+    "src/data/quests.ts",
+    "src/services/rewardedAdService.ts",
+    "src/data/levels.ts"
+  ]
+});
+assert.strictEqual(visualScopeForbidden.recommendedAction, "block");
+assert.strictEqual(visualScopeForbidden.counts.forbidden, 8);
+assert.ok(visualScopeForbidden.violations.some((violation) => violation.reasonCode === "save_file"));
+assert.ok(visualScopeForbidden.violations.some((violation) => violation.reasonCode === "economy_or_balance_file"));
+assert.ok(visualScopeForbidden.violations.some((violation) => violation.reasonCode === "progression_or_unlock_file"));
+assert.ok(visualScopeForbidden.violations.some((violation) => violation.reasonCode === "merge_rule_file"));
+assert.ok(visualScopeForbidden.violations.some((violation) => violation.reasonCode === "hatch_rule_file"));
+assert.ok(visualScopeForbidden.violations.some((violation) => violation.reasonCode === "quest_reward_file"));
+assert.ok(visualScopeForbidden.violations.some((violation) => violation.reasonCode === "ad_or_sdk_file"));
+assert.ok(visualScopeForbidden.violations.some((violation) => violation.reasonCode === "level_data_file"));
+assert.ok(renderVisualScopeGuardMessage(visualScopeForbidden).includes("block"));
+
+const visualScopeSuspicious = checkVisualScopeGuard({
+  operationType: "fallback_task_generation",
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  candidatePaths: [
+    "src/scenes/MenuScene.ts",
+    "src/ui/ButtonView.ts",
+    "src/scenes/PreloadScene.ts",
+    "src/loader/AssetLoader.ts"
+  ]
+});
+assert.strictEqual(visualScopeSuspicious.recommendedAction, "warn");
+assert.strictEqual(visualScopeSuspicious.counts.suspicious, 4);
+assert.ok(visualScopeGuardWarnings(visualScopeSuspicious).some((warning) => warning.includes("scene_file")));
+
+const visualScopeUnknown = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  candidatePaths: ["tools/custom-script.txt"]
+});
+assert.strictEqual(visualScopeUnknown.recommendedAction, "warn");
+assert.strictEqual(visualScopeUnknown.counts.unknown, 1);
+
+const visualScopeDirectPreflight = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  candidatePaths: ["src/data/economy.ts"]
+});
+assert.strictEqual(visualScopeDirectPreflight.recommendedAction, "block");
+
+const visualScopeFallbackPreflight = checkVisualScopeGuard({
+  operationType: "fallback_task_generation",
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  candidatePaths: ["src/systems/saveSystem.ts"]
+});
+assert.strictEqual(visualScopeFallbackPreflight.recommendedAction, "block");
+
+const contactSheetReadScope = checkVisualScopeGuard({
+  operationType: "asset_contact_sheet_read",
+  adapterId: "idle_monster_farm.assets",
+  surfaceType: "asset_replacement",
+  candidatePaths: ["src/data/economy.ts", "src/assets/monsters/sprout.png"]
+});
+assert.strictEqual(contactSheetReadScope.recommendedAction, "warn");
+assert.strictEqual(contactSheetReadScope.counts.forbidden, 0);
+assert.strictEqual(contactSheetReadScope.counts.safe, 1);
+assert.ok(contactSheetReadScope.violations.some((violation) => violation.reasonCode === "read_only_economy_or_balance_file"));
+assert.ok(visualScopeGuardRulesSummary().some((line) => line.includes("forbidden")));
 
 const disconnectedFiles = [
   {
@@ -1263,7 +1365,7 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.4");
+assert.strictEqual(packageJson.version, "0.6.5");
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openAssetContactSheet"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.refreshAssetContracts"));
@@ -1395,6 +1497,9 @@ assert.strictEqual(genericButtonRow.actions.directApply.enabled, false);
 assert.ok(genericButtonRow.actions.directApply.reason?.includes("not connected"));
 assert.strictEqual(genericButtonRow.actions.generateFallbackTask.enabled, true);
 assert.strictEqual(genericButtonRow.actions.markLatestResult.enabled, true);
+assert.strictEqual(genericButtonRow.scopeSummary.recommendedAction, "warn");
+assert.strictEqual(genericButtonRow.scopeSummary.classificationCounts.suspicious, 1);
+assert.ok(genericButtonRow.scopeSummary.summaryMessage.includes("suspicious"));
 
 const disconnectedIdlePanelSurface = {
   ...connectedIdleSlotSurface,

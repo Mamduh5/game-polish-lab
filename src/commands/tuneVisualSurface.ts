@@ -8,8 +8,8 @@ import { applyIdleMonsterFarmPanelStyle, getIdleMonsterFarmPanelAdapterState, se
 import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdapterState, setupIdleMonsterFarmRewardToastBridge, summarizeRewardToastApplyResult } from "../adapters/idleMonsterFarm/rewardToastAdapter";
 import { logCommandEnd, logCommandStart, logError, logInfo, logWarn } from "../core/output";
 import { applyGenericPhaserAsset, applyGenericPhaserStyle, getGenericPhaserAdapterState, GenericPhaserDetection, GenericPhaserSurfaceType } from "../core/genericPhaserAdapter";
-import { checkV05VisualScope } from "../core/v05VisualScopeGuard";
 import { createTuningAttempt, getFallbackFieldNoteGuidance, getTreatmentSummary, loadTuningAttemptIndex, updateTuningAttemptResult } from "../core/tuningAttempts";
+import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "../core/visualScopeGuard";
 import { buildVisualPreviewRenderRequest } from "../core/visualPreviewModel";
 import { ensureVisualRecipeFiles } from "../core/visualRecipeFiles";
 import { getVisualSurfaceRecipe, getVisualSurfaceRecipes, visualSurfacePickerOrder } from "../core/visualRecipeRegistry";
@@ -217,29 +217,44 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
     if (message.surfaceType === "background_readability") {
       const config = buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues);
       const result = await saveConfigAndApply(folder, "background_readability", backgroundReadabilityStyleConfigRelativePath, "background-readability-style.json", backgroundLoad, async () => summarizeBackgroundApplyResult(folder, await applyIdleMonsterFarmBackgroundStyle(folder, config)));
+      if (!result.ok) {
+        return result;
+      }
       await writeJsonFile(labUri(folder, "styles", "background-readability-style.json"), config);
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability" });
     }
     if (message.surfaceType === "panel") {
       const config = buildPanelStyleConfig(message.presetName, message.values as PanelStyleValues);
       const result = await saveConfigAndApply(folder, "panel", panelStyleConfigRelativePath, "panel-style.json", panelLoad, async () => summarizePanelApplyResult(folder, await applyIdleMonsterFarmPanelStyle(folder, config)));
+      if (!result.ok) {
+        return result;
+      }
       await writeJsonFile(labUri(folder, "styles", "panel-style.json"), config);
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm panels" });
     }
     if (message.surfaceType === "reward_toast") {
       const config = buildRewardToastStyleConfig(message.presetName, message.values as RewardToastStyleValues);
       const result = await saveConfigAndApply(folder, "reward_toast", rewardToastStyleConfigRelativePath, "reward-toast-style.json", rewardToastLoad, async () => summarizeRewardToastApplyResult(folder, await applyIdleMonsterFarmRewardToastStyle(folder, config)));
+      if (!result.ok) {
+        return result;
+      }
       await writeJsonFile(labUri(folder, "styles", "reward-toast-style.json"), config);
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm reward toast" });
     }
     if (message.surfaceType === "button") {
       const config = buildButtonStyleConfig(message.presetName, message.values as ButtonStyleValues);
       const result = await saveConfigAndApply(folder, "button", buttonStyleConfigRelativePath, "button-style.json", buttonLoad, async () => summarizeButtonApplyResult(folder, await applyIdleMonsterFarmButtonStyle(folder, config)));
+      if (!result.ok) {
+        return result;
+      }
       await writeJsonFile(labUri(folder, "styles", "button-style.json"), config);
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons" });
     }
     const config = buildSlotCardStyleConfig(message.presetName, message.values as SlotCardStyleValues);
     const result = await saveConfigAndApply(folder, "slot_card", farmSlotStyleConfigRelativePath, "farm-slot-style.json", slotLoad, async () => summarizeFarmSlotApplyResult(folder, await applyIdleMonsterFarmFarmSlotStyle(folder, config)));
+    if (!result.ok) {
+      return result;
+    }
     await writeJsonFile(labUri(folder, "styles", "farm-slot-style.json"), config);
     return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm farm slots" });
   } catch (error) {
@@ -256,11 +271,16 @@ async function saveConfigAndApply(
   load: StyleConfigLoadResult | BackgroundStyleConfigLoadResult | PanelStyleConfigLoadResult | RewardToastStyleConfigLoadResult | ButtonStyleConfigLoadResult,
   apply: () => Promise<string[]>
 ): Promise<SaveResultMessage> {
-  const scope = checkV05VisualScope([configRelativePath], { throughAdapter: false });
-  if (!scope.ok) {
-    const error = `v0.58 scope guard blocked config save: ${scope.forbiddenFiles.join(", ")}`;
+  const scope = checkVisualScopeGuard({
+    operationType: "visual_config_write",
+    adapterId: "idle_monster_farm",
+    surfaceType,
+    candidatePaths: [configRelativePath]
+  });
+  if (scope.recommendedAction === "block") {
+    const error = `v0.65 scope guard blocked config save: ${renderVisualScopeGuardMessage(scope)}`;
     logWarn(error);
-    return { command: "saveResult", ok: false, surfaceType, error, warnings: scope.warnings };
+    return { command: "saveResult", ok: false, surfaceType, error, warnings: visualScopeGuardWarnings(scope) };
   }
   await ensureDirectory(labUri(folder, "styles"));
   const configUri = labUri(folder, "styles", fileName);
@@ -277,7 +297,7 @@ async function saveConfigAndApply(
     rollbackPaths: configRollbacks,
     checklist,
     applySummary,
-    warnings: []
+    warnings: visualScopeGuardWarnings(scope)
   };
 }
 

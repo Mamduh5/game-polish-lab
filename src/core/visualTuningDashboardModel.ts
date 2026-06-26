@@ -1,4 +1,4 @@
-import { checkV05VisualScope, V05ScopeGuardResult } from "./v05VisualScopeGuard";
+import { checkVisualScopeGuard, visualScopeGuardWarnings } from "./visualScopeGuard";
 import { visualRecipeRelativePath } from "./visualRecipeRegistry";
 import { VisualSurfaceRecipe } from "../types/visualRecipe";
 import { VisualSurfaceType } from "../types/visualSurface";
@@ -109,7 +109,13 @@ function emptyAssetContractStatusCounts(): VisualAssetContractStatusCounts {
 export function buildDashboardRow(surface: DashboardSurfaceInput, attemptIndex: VisualTuningAttemptIndex): VisualTuningDashboardRow {
   const latest = findLatestAttemptForSurface(attemptIndex, surface.surfaceType, surface.adapter.adapterId, surface.adapter.targetId, surface.adapter.targetLabel);
   const treatment = summarizeTreatments(attemptIndex, surface.surfaceType, surface.adapter.adapterId, surface.adapter.targetId, surface.adapter.targetLabel);
-  const scope = toDashboardScopeSummary(checkV05VisualScope(surface.scopeFiles, { throughAdapter: surface.adapter.adapterId === "idle_monster_farm" }), surface);
+  const scope = toDashboardScopeSummary(checkVisualScopeGuard({
+    operationType: "direct_apply",
+    adapterId: surface.adapter.adapterId,
+    surfaceType: surface.surfaceType,
+    targetId: surface.adapter.targetId,
+    candidatePaths: surface.scopeFiles
+  }), surface);
   const appliedStatus = calculateAppliedStatus(surface, scope);
   const warningCount = surface.adapter.warnings.length + treatment.knownBad.length + treatment.noMeaningfulEffect.length + treatment.mixed.length + scope.warnings.length + scope.forbiddenFiles.length;
   const row: VisualTuningDashboardRow = {
@@ -238,18 +244,20 @@ export function recipeFileStatus(recipe: VisualSurfaceRecipe | undefined, exists
   return { status: exists ? "valid" : "missing", path, exists };
 }
 
-function toDashboardScopeSummary(scope: V05ScopeGuardResult, surface: DashboardSurfaceInput) {
-  const suspiciousFiles = scope.warnings
-    .filter((warning) => warning.includes("outside v0.5 visual/config/style scope"))
-    .map((warning) => warning.split(" is outside")[0]);
+function toDashboardScopeSummary(scope: ReturnType<typeof checkVisualScopeGuard>, surface: DashboardSurfaceInput) {
+  const suspiciousFiles = scope.classifiedFiles.filter((file) => file.classification === "suspicious" || file.classification === "unknown").map((file) => file.path);
+  const forbiddenFiles = scope.classifiedFiles.filter((file) => file.classification === "forbidden").map((file) => file.path);
   return {
-    ok: scope.ok,
-    allowedFiles: scope.allowedFiles,
+    ok: forbiddenFiles.length === 0,
+    allowedFiles: scope.classifiedFiles.filter((file) => file.classification === "safe").map((file) => file.path),
     suspiciousFiles,
-    forbiddenFiles: scope.forbiddenFiles,
-    warnings: scope.warnings,
-    directApplySafe: scope.ok && surface.adapter.directApplySupported && surface.adapter.connectedState === "connected",
-    setupOrFallbackRequired: surface.adapter.connectedState !== "connected" || !scope.ok
+    forbiddenFiles,
+    warnings: visualScopeGuardWarnings(scope),
+    classificationCounts: scope.counts,
+    recommendedAction: scope.recommendedAction,
+    summaryMessage: scope.summaryMessage,
+    directApplySafe: forbiddenFiles.length === 0 && surface.adapter.directApplySupported && surface.adapter.connectedState === "connected",
+    setupOrFallbackRequired: surface.adapter.connectedState !== "connected" || forbiddenFiles.length > 0
   };
 }
 
