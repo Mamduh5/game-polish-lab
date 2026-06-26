@@ -102,6 +102,18 @@ import {
   resolveVisualDirectApplyTemplate
 } from "../core/visualDirectApplyTemplates";
 import {
+  getVisualGameAdapter,
+  getVisualGameAdapterScopeMetadata,
+  getVisualGameAdapterSupportedSurfaces,
+  getVisualGameAdapterSurfaceTargets,
+  listVisualGameAdapters,
+  summarizeRegisteredVisualGameAdapterContracts,
+  summarizeVisualGameAdapterContract,
+  validateRegisteredVisualGameAdapters,
+  validateVisualAdapterSurfaceTarget,
+  validateVisualGameAdapter
+} from "../core/visualGameAdapters";
+import {
   buildVisualRollbackFallbackTask,
   discoverVisualRollbackSnapshots,
   restoreVisualRollbackSnapshot,
@@ -154,6 +166,7 @@ import {
   visualStylePresetFamilies
 } from "../presets/visualStylePresetLibrary";
 import { InspectedFile } from "../types/audit";
+import { VisualAdapterSurfaceTarget, VisualGameAdapter } from "../types/visualGameAdapter";
 import { visualRecipeSchemaVersion } from "../types/visualRecipe";
 
 const fixtureRoot = path.join(process.cwd(), "fixtures", "phaser-idle-monster-farm-sample");
@@ -417,6 +430,81 @@ assert.ok(contactSheetReadScope.violations.some((violation) => violation.reasonC
 assert.ok(visualScopeGuardRulesSummary().some((line) => line.includes("forbidden")));
 
 const directApplyRegistry = getVisualDirectApplyTemplateRegistry();
+const registeredVisualAdapters = listVisualGameAdapters();
+assert.deepStrictEqual(registeredVisualAdapters.map((adapter) => adapter.id), ["idle_monster_farm", "generic_phaser"]);
+assert.strictEqual(registeredVisualAdapters.some((adapter) => adapter.id.includes("sort")), false);
+assert.strictEqual(new Set(registeredVisualAdapters.map((adapter) => adapter.id)).size, registeredVisualAdapters.length);
+assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("idle_monster_farm"), visualSurfacePickerOrder);
+assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("generic_phaser"), visualSurfacePickerOrder);
+assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("sort_puzzle"), []);
+const registeredAdapterValidation = validateRegisteredVisualGameAdapters();
+assert.strictEqual(registeredAdapterValidation.ok, true);
+assert.deepStrictEqual(registeredAdapterValidation.errors, []);
+const idleContract = getVisualGameAdapter("idle_monster_farm")!;
+const genericContract = getVisualGameAdapter("generic_phaser")!;
+assert.ok(idleContract);
+assert.ok(genericContract);
+assert.strictEqual(getVisualGameAdapter("sort_puzzle"), undefined);
+const idleSlotTargets = getVisualGameAdapterSurfaceTargets("idle_monster_farm", "slot_card");
+assert.strictEqual(idleSlotTargets.length, 1);
+assert.strictEqual(idleSlotTargets[0].targetId, "farm_slots");
+assert.strictEqual(idleSlotTargets[0].styleConfigPath, farmSlotStyleConfigRelativePath);
+assert.strictEqual(idleSlotTargets[0].directApply.support, "executable");
+assert.ok(idleSlotTargets[0].directApply.templateId?.includes("idle-monster-farm.slot_card"));
+const genericButtonTargets = getVisualGameAdapterSurfaceTargets("generic_phaser", "button");
+assert.strictEqual(genericButtonTargets[0].targetId, "manual_target");
+assert.strictEqual(genericButtonTargets[0].styleConfigPath, genericStyleConfigRelativePath("button"));
+assert.strictEqual(genericButtonTargets[0].directApply.support, "executable");
+const idleAssetContractTargets = getVisualGameAdapterSurfaceTargets("idle_monster_farm", "asset_replacement");
+assert.strictEqual(idleAssetContractTargets.length, 1);
+assert.strictEqual(idleAssetContractTargets[0].directApply.support, "unsupported");
+assert.strictEqual(idleAssetContractTargets[0].assetReplacementSupport, "supported");
+assert.ok(idleAssetContractTargets[0].limitations.some((limitation) => limitation.includes("direct-apply template")));
+const genericAssetContractTargets = getVisualGameAdapterSurfaceTargets("generic_phaser", "asset_replacement");
+assert.strictEqual(genericAssetContractTargets[0].directApply.support, "unsupported");
+assert.strictEqual(genericAssetContractTargets[0].assetReplacementSupport, "manual_required");
+const idleScopeContract = getVisualGameAdapterScopeMetadata("idle_monster_farm", "slot_card")!;
+assert.ok(idleScopeContract.safe.some((group) => group.paths.includes(farmSlotStyleConfigRelativePath)));
+assert.ok(idleScopeContract.suspicious.some((group) => group.paths.includes("src/scenes/FarmScene.ts")));
+assert.ok(idleScopeContract.forbidden.some((group) => group.paths.includes("src/systems/saveSystem.ts")));
+const adapterSummaries = summarizeRegisteredVisualGameAdapterContracts();
+assert.deepStrictEqual(adapterSummaries.map((summary) => summary.adapterId), ["idle_monster_farm", "generic_phaser"]);
+assert.ok(adapterSummaries.every((summary) => summary.valid));
+assert.ok(adapterSummaries.every((summary) => summary.supportedSurfaceCount === visualSurfacePickerOrder.length));
+assert.ok(adapterSummaries.every((summary) => summary.directApplyCapableSurfaceCount === 5));
+assert.ok(adapterSummaries.every((summary) => summary.fallbackOnlySurfaceCount === 1));
+assert.strictEqual(summarizeVisualGameAdapterContract(idleContract).knownLimitationsCount > 0, true);
+const duplicateTargetAdapter: VisualGameAdapter = {
+  ...idleContract,
+  getSurfaceTargets: () => [idleSlotTargets[0], { ...idleSlotTargets[0] }]
+};
+assert.strictEqual(validateVisualGameAdapter(duplicateTargetAdapter).ok, false);
+assert.ok(validateVisualGameAdapter(duplicateTargetAdapter).errors.some((error) => error.code === "duplicate_target_id"));
+const forbiddenSafeAdapter: VisualGameAdapter = {
+  ...idleContract,
+  getSafeScopes: () => ({
+    safe: [{ paths: ["src/systems/saveSystem.ts"], reason: "bad safe path" }],
+    suspicious: [],
+    forbidden: []
+  })
+};
+assert.ok(validateVisualGameAdapter(forbiddenSafeAdapter).errors.some((error) => error.code === "forbidden_path_marked_safe"));
+const invalidExecutableTarget: VisualAdapterSurfaceTarget = {
+  ...idleSlotTargets[0],
+  styleConfigPath: undefined,
+  directApply: { support: "executable" }
+};
+assert.ok(validateVisualAdapterSurfaceTarget(idleContract, invalidExecutableTarget).errors.some((error) => error.code === "direct_apply_missing_safe_config"));
+const invalidStateTarget: VisualAdapterSurfaceTarget = {
+  ...idleSlotTargets[0],
+  directApply: { support: "surprise" as VisualAdapterSurfaceTarget["directApply"]["support"] }
+};
+assert.ok(validateVisualAdapterSurfaceTarget(idleContract, invalidStateTarget).errors.some((error) => error.code === "direct_apply_state_unknown"));
+const missingManualCheckTarget: VisualAdapterSurfaceTarget = {
+  ...idleSlotTargets[0],
+  manualChecks: []
+};
+assert.ok(validateVisualAdapterSurfaceTarget(idleContract, missingManualCheckTarget).errors.some((error) => error.code === "manual_checks_missing"));
 const idleFarmSlotTemplate = resolveVisualDirectApplyTemplate({
   adapterId: "idle_monster_farm",
   surfaceType: "slot_card",
@@ -1771,10 +1859,10 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.9");
+assert.strictEqual(packageJson.version, "0.7.0");
 const packageLockJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8")) as { version: string; packages: Record<string, { version?: string }> };
-assert.strictEqual(packageLockJson.version, "0.6.9");
-assert.strictEqual(packageLockJson.packages[""].version, "0.6.9");
+assert.strictEqual(packageLockJson.version, "0.7.0");
+assert.strictEqual(packageLockJson.packages[""].version, "0.7.0");
 const requiredV06Commands = [
   "gamePolishLab.openVisualTuningDashboard",
   "gamePolishLab.tuneVisualSurface",
@@ -1833,6 +1921,13 @@ const readmeText = fs.readFileSync(path.join(process.cwd(), "README.md"), "utf8"
 assert.ok(readmeText.includes("docs/v0.6-stabilization.md"));
 assert.ok(readmeText.includes("Current Limitations"));
 assert.ok(!readmeText.includes("or provide a dashboard webview"));
+const adapterContractDoc = fs.readFileSync(path.join(process.cwd(), "docs", "adapter-contract.md"), "utf8");
+assert.ok(adapterContractDoc.includes("# Visual Game Adapter Contract"));
+assert.ok(adapterContractDoc.includes("Idle Monster Farm"));
+assert.ok(adapterContractDoc.includes("Generic Phaser"));
+assert.ok(adapterContractDoc.includes("Sort Puzzle is intentionally not registered in v0.70"));
+assert.ok(adapterContractDoc.includes("safe/suspicious/forbidden"));
+assert.ok(adapterContractDoc.includes("Direct apply is allowed only when a registered direct-apply template exists"));
 const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
 assert.ok(tuneVisualSurfaceSource.includes("stylePresetLibrary: visualPresetLibrary"));
 assert.ok(tuneVisualSurfaceSource.includes("presetDescription"));
@@ -2083,6 +2178,9 @@ assert.strictEqual(dashboardModel.summary.assetContactSheetAvailable, true);
 assert.strictEqual(dashboardModel.summary.devOverlay?.path, polishDevOverlayRelativeDir);
 assert.strictEqual(dashboardModel.summary.devOverlay?.generated, true);
 assert.strictEqual(dashboardModel.summary.devOverlay?.generatedFileCount, 4);
+assert.deepStrictEqual(dashboardModel.summary.adapterContracts.map((contract) => contract.adapterId), ["idle_monster_farm", "generic_phaser"]);
+assert.ok(dashboardModel.summary.adapterContracts.every((contract) => contract.valid));
+assert.ok(dashboardModel.summary.adapterContracts.every((contract) => contract.supportedSurfaceCount === visualSurfacePickerOrder.length));
 assert.strictEqual(dashboardModel.fieldNotes.fieldNotesPath, ".game-polish-lab/field-notes.md");
 assert.ok(dashboardModel.fieldNotes.knownBad.some((note) => note.includes("Magic Glow")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard opens without writing files")));
@@ -2090,6 +2188,7 @@ assert.ok(dashboardManualChecklist().some((item) => item.includes("asset contrac
 assert.ok(dashboardManualChecklist().some((item) => item.includes("Asset Contact Sheet")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("Rollback History")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("optional dev overlay status")));
+assert.ok(dashboardManualChecklist().some((item) => item.includes("adapter contract summary")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("template availability")));
 assert.strictEqual(getVisualSurfaceRecipes().length, 5);
 assert.deepStrictEqual(visualSurfacePickerOrder, ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"]);

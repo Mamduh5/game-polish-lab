@@ -16,6 +16,7 @@ import {
 } from "../types/visualTuningDashboard";
 import { VisualAssetContractStatusCounts } from "../types/visualAssetContract";
 import { PolishDevOverlayStatus } from "./visualDevOverlay";
+import { summarizeRegisteredVisualGameAdapterContracts } from "./visualGameAdapters";
 
 export interface DashboardConfigInfo {
   status: DashboardConfigStatus;
@@ -98,7 +99,8 @@ export function buildVisualTuningDashboardModel(input: BuildDashboardInput): Vis
         fileCount: input.devOverlay.fileCount,
         generatedFileCount: input.devOverlay.generatedFileCount,
         warningCount: input.devOverlay.warnings.length
-      } : undefined
+      } : undefined,
+      adapterContracts: summarizeRegisteredVisualGameAdapterContracts()
     },
     fieldNotes,
     rows,
@@ -233,6 +235,7 @@ export function dashboardManualChecklist(): string[] {
     "Scope Check shows allowed/suspicious/forbidden status without edits",
     "asset contract summary shows missing/valid/malformed status without building contact sheets",
     "optional dev overlay status shows generated/missing without installing runtime files",
+    "adapter contract summary shows registered adapters without adding new adapters",
     "Refresh Asset Contracts writes only .game-polish-lab/assets/asset-contracts.json",
     "View Asset Contact Sheet opens a preview-only webview from existing contracts",
     "Rollback History lists snapshots and restores only scope-guard-safe visual files",

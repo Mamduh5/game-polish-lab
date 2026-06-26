@@ -1,6 +1,7 @@
 import { VisualSurfaceType } from "./visualSurface";
 import { VisualTuningResultStatus } from "./visualTuningAttempt";
 import { VisualAssetContractStatusCounts } from "./visualAssetContract";
+import { VisualGameAdapterContractSummary } from "./visualGameAdapter";
 import { VisualScopeClassificationCounts, VisualScopeRecommendedAction } from "./visualScopeGuard";
 
 export type DashboardAdapterId = "idle_monster_farm" | "generic_phaser";
@@ -98,6 +99,7 @@ export interface VisualTuningProjectSummary {
     generatedFileCount: number;
     warningCount: number;
   };
+  adapterContracts: VisualGameAdapterContractSummary[];
 }
 
 export interface VisualTuningFieldNoteSummary {

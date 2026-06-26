@@ -610,7 +610,7 @@ function renderDashboardHtml(model: VisualTuningDashboardModel): string {
 </head>
 <body>
   <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">${escapeHtml(model.summary.workspaceFolder)}</p></div><div class="toolbar"><select id="adapterFilter"><option value="detected">Detected Adapter</option><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option><option value="all">All</option></select><button id="openRollbackHistory" class="secondary">Rollback History</button><button id="openAssetContactSheet" class="secondary" ${model.summary.assetContactSheetAvailable ? "" : "disabled"} title="${model.summary.assetContactSheetAvailable ? "Open asset contact sheet" : "Refresh asset contracts first"}">View Asset Contact Sheet</button><button id="refreshAssetContracts" class="secondary">Refresh Asset Contracts</button><button id="refresh">Refresh</button></div></div>
-  <section class="summary">${summaryMetric("Adapter", `${model.summary.detectedAdapter} (${model.summary.adapterConfidence})`)}${summaryMetric("Phaser", model.summary.phaserDetected ? "yes" : "no")}${summaryMetric("Surfaces", String(model.summary.totalSurfaces))}${summaryMetric("Applied", String(model.summary.appliedCount))}${summaryMetric("Config Only", String(model.summary.configOnlyCount))}${summaryMetric("Warnings", String(model.summary.warningCount))}${summaryMetric("Worse/Same", String(model.summary.recentWorseOrSameCount))}${summaryMetric("Asset Contracts", `${model.summary.assetContractStatus}: ${model.summary.assetContractStatusCounts.valid}/${model.summary.assetContractStatusCounts.total} valid`)}${summaryMetric("Asset Issues", `${model.summary.assetContractStatusCounts.missing} missing, ${model.summary.assetContractStatusCounts.invalid} invalid, ${model.summary.assetContractStatusCounts.unknown} unknown`)}${summaryMetric("Dev Overlay", devOverlaySummary(model))}</section>
+  <section class="summary">${summaryMetric("Adapter", `${model.summary.detectedAdapter} (${model.summary.adapterConfidence})`)}${summaryMetric("Phaser", model.summary.phaserDetected ? "yes" : "no")}${summaryMetric("Surfaces", String(model.summary.totalSurfaces))}${summaryMetric("Applied", String(model.summary.appliedCount))}${summaryMetric("Config Only", String(model.summary.configOnlyCount))}${summaryMetric("Warnings", String(model.summary.warningCount))}${summaryMetric("Worse/Same", String(model.summary.recentWorseOrSameCount))}${summaryMetric("Asset Contracts", `${model.summary.assetContractStatus}: ${model.summary.assetContractStatusCounts.valid}/${model.summary.assetContractStatusCounts.total} valid`)}${summaryMetric("Asset Issues", `${model.summary.assetContractStatusCounts.missing} missing, ${model.summary.assetContractStatusCounts.invalid} invalid, ${model.summary.assetContractStatusCounts.unknown} unknown`)}${summaryMetric("Dev Overlay", devOverlaySummary(model))}${summaryMetric("Adapter Contracts", adapterContractSummary(model))}</section>
   <section class="notes"><div class="row-head"><h2>Field Notes</h2><button class="secondary" data-global="openFieldNotes">Open Field Notes</button></div><div class="grid"><div><b>Known Good</b><ul id="good"></ul></div><div><b>Known Bad</b><ul id="bad"></ul></div><div><b>Mixed</b><ul id="mixed"></ul></div></div></section>
   <section class="rows" id="rows"></section>
   <div id="status" class="status muted"></div>
@@ -640,6 +640,12 @@ function devOverlaySummary(model: VisualTuningDashboardModel): string {
   return status.generated
     ? `generated ${status.generatedFileCount}/${status.fileCount}`
     : `mixed ${status.generatedFileCount}/${status.fileCount}`;
+}
+
+function adapterContractSummary(model: VisualTuningDashboardModel): string {
+  const total = model.summary.adapterContracts.length;
+  const valid = model.summary.adapterContracts.filter((contract) => contract.valid).length;
+  return `${valid}/${total} valid`;
 }
 
 function escapeHtml(value: string): string {
