@@ -350,7 +350,7 @@ function genericStyleTemplate(surfaceType: Exclude<VisualSurfaceType, "asset_rep
     displayName: `Generic Phaser ${surfaceType} Safe Style Config Write`,
     adapterId: "generic_phaser",
     supportedSurfaceType: surfaceType,
-    targetIdPattern: "manual_target",
+    targetIdPattern: "^manual(_.*)?$",
     supportedOperationTypes: ["run_scope_guard", "create_rollback_snapshot", "read_style_config", "write_style_config", "generate_fallback_task", "manual_check"],
     candidateFilePaths: [configPath],
     requiredStyleConfigPaths: [configPath],

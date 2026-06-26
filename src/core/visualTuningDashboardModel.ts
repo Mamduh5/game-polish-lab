@@ -18,6 +18,7 @@ import { VisualAssetContractStatusCounts } from "../types/visualAssetContract";
 import { PolishDevOverlayStatus } from "./visualDevOverlay";
 import { getVisualGameAdapterSurfaceTargets, summarizeRegisteredVisualGameAdapterContracts } from "./visualGameAdapters";
 import { VisualAdapterProjectDetection } from "../types/visualGameAdapter";
+import { GenericPhaserManualSurfaceId, GenericPhaserOwnerFileSuggestion, genericManualStyleConfigRelativePath, manualSurfaceIdToVisualSurfaceType } from "./genericPhaserAdapterModel";
 
 export interface DashboardConfigInfo {
   status: DashboardConfigStatus;
@@ -86,6 +87,16 @@ export interface BuildCursorArenaDashboardSurfaceInputsInput {
   recipeFiles: Record<string, DashboardRecipeInfo>;
   fallbackCounts: Record<string, number>;
   ownerFiles?: string[];
+}
+
+export interface BuildGenericPhaserDashboardSurfaceInputsInput {
+  detection: VisualAdapterProjectDetection & {
+    likelySceneFiles?: string[];
+    ownerFileSuggestions?: GenericPhaserOwnerFileSuggestion[];
+  };
+  configs: Record<string, DashboardConfigInfo>;
+  recipeFiles: Record<string, DashboardRecipeInfo>;
+  fallbackCounts: Record<string, number>;
 }
 
 export interface DashboardAdapterFilterOption {
@@ -211,6 +222,52 @@ export function buildCursorArenaDashboardSurfaceInputs(input: BuildCursorArenaDa
   });
 }
 
+export function buildGenericPhaserDashboardSurfaceInputs(input: BuildGenericPhaserDashboardSurfaceInputsInput): DashboardSurfaceInput[] {
+  return getVisualGameAdapterSurfaceTargets("generic_phaser").map((target) => {
+    const manualSurfaceId = genericManualSurfaceIdForTarget(target.targetId, target.surfaceType);
+    const suggestion = bestGenericSuggestion(input.detection.ownerFileSuggestions ?? [], manualSurfaceId);
+    const ownerFiles = suggestion ? [suggestion.path] : target.likelyOwnerFiles;
+    const styleConfigPath = target.styleConfigPath ?? (manualSurfaceId === "asset_slot" ? genericManualStyleConfigRelativePath("asset_slot") : undefined);
+    const recipe = target.surfaceType === "asset_replacement" ? undefined : getVisualSurfaceRecipe(target.surfaceType);
+    const config: DashboardConfigInfo = styleConfigPath
+      ? configInfoByPath(input.configs, styleConfigPath) ?? { status: "missing", path: styleConfigPath, exists: false }
+      : { status: "not_applicable", exists: false };
+    const directApplySupported = target.surfaceType !== "asset_replacement"
+      && target.directApply.support === "executable"
+      && suggestion?.safetyLevel !== "forbidden";
+    const adapter: DashboardAdapterInfo = {
+      adapterId: "generic_phaser",
+      targetId: target.targetId,
+      targetLabel: suggestion ? `${target.displayName}: ${basename(suggestion.path)}` : target.displayName,
+      connectedState: target.surfaceType === "asset_replacement" ? "not_applicable" : "not_connected",
+      detected: input.detection.detected,
+      confidence: input.detection.confidence,
+      directApplySupported,
+      generatedStyleModulePath: target.generatedStyleModulePath,
+      ownerFiles,
+      warnings: [
+        ...input.detection.warnings,
+        suggestion
+          ? `${suggestion.path}: ${suggestion.reason} Safety: ${suggestion.safetyLevel}.`
+          : "Manual owner file selection is required before source integration fallback.",
+        target.surfaceType === "asset_replacement"
+          ? "Generic Phaser asset rows are asset-copy/manual-loader only."
+          : "Generic Phaser direct apply writes generated config only; runtime source integration remains fallback-only."
+      ]
+    };
+    return {
+      surfaceType: target.surfaceType,
+      displayName: adapter.targetLabel,
+      adapter,
+      recipe,
+      config,
+      recipeFile: recipe ? input.recipeFiles[recipe.recipeId] : { status: "not_applicable", exists: false },
+      fallbackTaskCount: input.fallbackCounts[`generic_phaser_${target.surfaceType}`] ?? 0,
+      scopeFiles: scopeFilesForRow(adapter, config, recipe)
+    };
+  });
+}
+
 function emptyAssetContractStatusCounts(): VisualAssetContractStatusCounts {
   return {
     valid: 0,
@@ -280,6 +337,9 @@ export function calculateAppliedStatus(surface: DashboardSurfaceInput, scope: Re
   }
   if (!surface.adapter.directApplySupported) {
     return "unsupported";
+  }
+  if (surface.adapter.adapterId === "generic_phaser" && surface.config.status === "valid" && scope.ok) {
+    return "config_only";
   }
   if ((surface.adapter.adapterId === "sort_puzzle" || surface.adapter.adapterId === "cursor_arena") && surface.config.status === "valid" && scope.ok) {
     return "config_only";
@@ -396,6 +456,12 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
   if (!surface.adapter.directApplySupported) {
     return { enabled: false, label: "Direct Apply", reason: "This adapter cannot directly apply this surface." };
   }
+  if (surface.adapter.adapterId === "generic_phaser") {
+    if (surface.config.status !== "valid") {
+      return { enabled: false, label: "Direct Apply", reason: "A valid generated Generic Phaser config is required before config-only direct apply." };
+    }
+    return { enabled: true, label: "Direct Apply" };
+  }
   if (surface.adapter.connectedState !== "connected") {
     return { enabled: false, label: "Direct Apply", reason: "Adapter is not connected; use setup or fallback first." };
   }
@@ -491,4 +557,32 @@ function scopeFilesForRow(adapter: DashboardAdapterInfo, config: DashboardConfig
     ...extraFiles,
     ...(recipe ? [visualRecipeRelativePath(recipe.recipeId)] : [])
   ].filter((value): value is string => Boolean(value));
+}
+
+function genericManualSurfaceIdForTarget(targetId: string, surfaceType: VisualSurfaceType): GenericPhaserManualSurfaceId {
+  if (targetId.includes("hud")) {
+    return "hud";
+  }
+  if (targetId.includes("impact")) {
+    return "impact_feedback";
+  }
+  if (surfaceType === "asset_replacement") {
+    return "asset_slot";
+  }
+  return surfaceType;
+}
+
+function bestGenericSuggestion(suggestions: GenericPhaserOwnerFileSuggestion[], surfaceId: GenericPhaserManualSurfaceId): GenericPhaserOwnerFileSuggestion | undefined {
+  const visualSurfaceType = manualSurfaceIdToVisualSurfaceType(surfaceId);
+  return suggestions.find((suggestion) => suggestion.recommendedSurfaceTypes.includes(surfaceId))
+    ?? suggestions.find((suggestion) => suggestion.recommendedSurfaceTypes.some((candidate) => manualSurfaceIdToVisualSurfaceType(candidate) === visualSurfaceType))
+    ?? suggestions[0];
+}
+
+function configInfoByPath(configs: Record<string, DashboardConfigInfo>, configPath: string): DashboardConfigInfo | undefined {
+  return Object.values(configs).find((config) => config.path === configPath);
+}
+
+function basename(value: string): string {
+  return value.split("/").pop() ?? value;
 }

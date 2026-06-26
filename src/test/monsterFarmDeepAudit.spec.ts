@@ -28,10 +28,14 @@ import {
 import {
   buildGenericAssetTarget,
   buildGenericFallbackTask,
+  buildGenericManualSurfaceSelection,
   detectGenericPhaserProject,
+  discoverGenericPhaserOwnerFileSuggestions,
   genericFallbackTaskRelativePath,
   genericGeneratedStyleModulePath,
+  genericManualStyleConfigRelativePath,
   genericStyleConfigRelativePath,
+  manualSurfaceIdToVisualSurfaceType,
   normalizeGenericSelectedFiles,
   shouldOfferGenericPhaserAdapter
 } from "../core/genericPhaserAdapterModel";
@@ -51,6 +55,7 @@ import {
 import {
   buildDashboardRow,
   buildCursorArenaDashboardSurfaceInputs,
+  buildGenericPhaserDashboardSurfaceInputs,
   buildSortPuzzleDashboardSurfaceInputs,
   buildVisualTuningDashboardModel,
   calculateAppliedStatus,
@@ -423,6 +428,25 @@ const visualScopeFallbackPreflight = checkVisualScopeGuard({
 });
 assert.strictEqual(visualScopeFallbackPreflight.recommendedAction, "block");
 
+const genericV2Scope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "generic_phaser",
+  surfaceType: "panel",
+  targetId: "manual_hud",
+  candidatePaths: [
+    genericManualStyleConfigRelativePath("hud")!,
+    ".game-polish-lab/rollback/hud.json",
+    "src/scenes/HudScene.ts",
+    "src/data/economy.ts",
+    "package.json"
+  ]
+});
+assert.strictEqual(genericV2Scope.recommendedAction, "block");
+assert.ok(genericV2Scope.classifiedFiles.some((file) => file.path === genericManualStyleConfigRelativePath("hud") && file.classification === "safe"));
+assert.ok(genericV2Scope.classifiedFiles.some((file) => file.path === "src/scenes/HudScene.ts" && file.classification === "suspicious"));
+assert.ok(genericV2Scope.classifiedFiles.some((file) => file.path === "src/data/economy.ts" && file.classification === "forbidden"));
+assert.ok(genericV2Scope.classifiedFiles.some((file) => file.path === "package.json" && file.classification === "forbidden"));
+
 const sortPuzzleForbiddenScope = checkVisualScopeGuard({
   operationType: "direct_apply",
   adapterId: "sort_puzzle",
@@ -517,11 +541,15 @@ assert.strictEqual(idleSlotTargets[0].styleConfigPath, farmSlotStyleConfigRelati
 assert.strictEqual(idleSlotTargets[0].directApply.support, "executable");
 assert.ok(idleSlotTargets[0].directApply.templateId?.includes("idle-monster-farm.slot_card"));
 const genericButtonTargets = getVisualGameAdapterSurfaceTargets("generic_phaser", "button");
-assert.strictEqual(genericButtonTargets[0].targetId, "manual_target");
+assert.strictEqual(genericButtonTargets[0].targetId, "manual_button");
 assert.strictEqual(genericButtonTargets[0].styleConfigPath, genericStyleConfigRelativePath("button"));
 assert.strictEqual(genericButtonTargets[0].directApply.support, "executable");
 assert.ok(genericButtonTargets[0].likelyOwnerFiles.some((file) => file.includes("selected UI/render files")));
 assert.ok(genericButtonTargets[0].supportedStyleTokens?.includes("hoverGlowStrength"));
+const genericPanelTargets = getVisualGameAdapterSurfaceTargets("generic_phaser", "panel");
+assert.ok(genericPanelTargets.some((target) => target.targetId === "manual_hud" && target.styleConfigPath === genericManualStyleConfigRelativePath("hud")));
+const genericFeedbackTargets = getVisualGameAdapterSurfaceTargets("generic_phaser", "reward_toast");
+assert.ok(genericFeedbackTargets.some((target) => target.targetId === "manual_impact_feedback" && target.styleConfigPath === genericManualStyleConfigRelativePath("impact_feedback")));
 const idleAssetContractTargets = getVisualGameAdapterSurfaceTargets("idle_monster_farm", "asset_replacement");
 assert.strictEqual(idleAssetContractTargets.length, 1);
 assert.strictEqual(idleAssetContractTargets[0].directApply.support, "unsupported");
@@ -2119,6 +2147,32 @@ assert.strictEqual(genericDetected.detected, true);
 assert.strictEqual(genericDetected.confidence, "high");
 assert.ok(genericDetected.likelySceneFiles.includes("src/scenes/BootScene.ts"));
 assert.ok(genericDetected.likelyAssetFolders.includes("public/assets"));
+assert.ok(genericDetected.ownerFileSuggestions.some((suggestion) => suggestion.path === "src/scenes/BootScene.ts" && suggestion.recommendedSurfaceTypes.includes("background_readability")));
+const genericOwnerSuggestions = discoverGenericPhaserOwnerFileSuggestions([
+  { relativePath: "src/scenes/HudScene.ts", text: "export class HudScene extends Phaser.Scene { create(){ this.add.rectangle(0,0,10,10); this.add.text(0,0,'HUD'); } }" },
+  { relativePath: "src/ui/ShopButton.ts", text: "button.setTint(0xffffff).setScale(1.1);" },
+  { relativePath: "src/effects/HitImpact.ts", text: "particle.emitParticleAt(x,y); showHit(); damageText();" },
+  { relativePath: "src/preload/AssetLoader.ts", text: "this.load.image('button','assets/button.png');" },
+  { relativePath: "node_modules/phaser/Scene.ts", text: "export class Scene {}" },
+  { relativePath: "coverage/tmp/Hud.ts", text: "add.rectangle();" }
+]);
+assert.ok(genericOwnerSuggestions.some((suggestion) => suggestion.path === "src/scenes/HudScene.ts" && suggestion.recommendedSurfaceTypes.includes("hud") && suggestion.safetyLevel === "suspicious"));
+assert.ok(genericOwnerSuggestions.some((suggestion) => suggestion.path === "src/ui/ShopButton.ts" && suggestion.recommendedSurfaceTypes.includes("button")));
+assert.ok(genericOwnerSuggestions.some((suggestion) => suggestion.path === "src/effects/HitImpact.ts" && suggestion.recommendedSurfaceTypes.includes("impact_feedback")));
+assert.ok(genericOwnerSuggestions.some((suggestion) => suggestion.path === "src/preload/AssetLoader.ts" && suggestion.recommendedSurfaceTypes.includes("asset_slot")));
+assert.strictEqual(genericOwnerSuggestions.some((suggestion) => suggestion.path.includes("node_modules")), false);
+assert.strictEqual(genericOwnerSuggestions.some((suggestion) => suggestion.path.includes("coverage")), false);
+const genericManualSelection = buildGenericManualSurfaceSelection({
+  surfaceId: "hud",
+  label: "Main HUD",
+  chosenOwnerFilePath: "src/scenes/HudScene.ts",
+  confidence: "high",
+  safetyLevel: "suspicious"
+});
+assert.strictEqual(genericManualSelection.surfaceType, "panel");
+assert.strictEqual(genericManualSelection.directApplyMode, "config_only");
+assert.strictEqual(manualSurfaceIdToVisualSurfaceType("impact_feedback"), "reward_toast");
+assert.strictEqual(genericManualStyleConfigRelativePath("asset_slot"), ".game-polish-lab/styles/generic-asset-presentation-style.json");
 
 const genericSceneUsage = detectGenericPhaserProject([
   { relativePath: "src/scenes/MenuScene.ts", text: "export class MenuScene extends Phaser.Scene {}" }
@@ -2504,8 +2558,8 @@ assert.strictEqual(genericButtonRow.lastResult, "mixed");
 assert.ok(genericButtonRow.knownBad.some((note) => note.includes("Magic Glow")));
 assert.ok(genericButtonRow.knownBad.some((note) => note.includes("no meaningful effect")));
 assert.ok(genericButtonRow.knownMixed.some((note) => note.includes("Dark Arcade")));
-assert.strictEqual(genericButtonRow.actions.directApply.enabled, false);
-assert.ok(genericButtonRow.actions.directApply.reason?.includes("not connected"));
+assert.strictEqual(genericButtonRow.actions.directApply.enabled, true);
+assert.strictEqual(genericButtonRow.actions.directApply.reason, undefined);
 assert.strictEqual(genericButtonRow.actions.generateFallbackTask.enabled, true);
 assert.strictEqual(genericButtonRow.actions.markLatestResult.enabled, true);
 assert.strictEqual(genericButtonRow.directApplyTemplate.available, true);
@@ -2767,6 +2821,40 @@ assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.generateFa
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.connectedState === "connected"));
 assert.strictEqual(cursorArenaFixtureDashboard.summary.appliedCount, 0);
 assert.strictEqual(cursorArenaFixtureDashboard.summary.configOnlyCount, cursorArenaFixtureDashboard.rows.length);
+
+const genericPhaserV2Surfaces = buildGenericPhaserDashboardSurfaceInputs({
+  detection: {
+    detected: true,
+    confidence: "high",
+    evidence: ["package.json: package.json dependency references phaser."],
+    warnings: [],
+    likelySceneFiles: ["src/scenes/HudScene.ts"],
+    ownerFileSuggestions: genericOwnerSuggestions
+  },
+  configs: {
+    generic_phaser_button: { status: "valid", path: genericStyleConfigRelativePath("button"), exists: true },
+    generic_phaser_hud: { status: "valid", path: genericManualStyleConfigRelativePath("hud")!, exists: true },
+    generic_phaser_impact_feedback: { status: "valid", path: genericManualStyleConfigRelativePath("impact_feedback")!, exists: true }
+  },
+  recipeFiles: {
+    panel: recipeFileStatus(getVisualSurfaceRecipe("panel")!, true),
+    button: recipeFileStatus(getVisualSurfaceRecipe("button")!, true),
+    "reward-toast": recipeFileStatus(getVisualSurfaceRecipe("reward_toast")!, true),
+    "slot-card": recipeFileStatus(getVisualSurfaceRecipe("slot_card")!, true),
+    "background-readability": recipeFileStatus(getVisualSurfaceRecipe("background_readability")!, true)
+  },
+  fallbackCounts: {}
+});
+const genericHudRow = buildDashboardRow(genericPhaserV2Surfaces.find((surface) => surface.adapter.targetId === "manual_hud")!, attemptIndex);
+const genericImpactRow = buildDashboardRow(genericPhaserV2Surfaces.find((surface) => surface.adapter.targetId === "manual_impact_feedback")!, attemptIndex);
+assert.ok(genericPhaserV2Surfaces.some((surface) => surface.adapter.targetLabel.includes("HudScene.ts")));
+assert.ok(genericPhaserV2Surfaces.some((surface) => surface.adapter.ownerFiles.includes("src/effects/HitImpact.ts")));
+assert.strictEqual(genericHudRow.appliedStatus, "config_only");
+assert.strictEqual(genericHudRow.actions.directApply.enabled, true);
+assert.strictEqual(genericImpactRow.configPath, genericManualStyleConfigRelativePath("impact_feedback"));
+assert.strictEqual(genericImpactRow.actions.generateFallbackTask.enabled, true);
+assert.strictEqual(genericHudRow.connectedState, "not_connected");
+assert.strictEqual(genericHudRow.scopeSummary.suspiciousFiles.includes("src/scenes/HudScene.ts"), true);
 
 const dashboardModel = buildVisualTuningDashboardModel({
   workspaceFolder: "D:/sample",

@@ -8,6 +8,7 @@ import { getIdleMonsterFarmAssetTargets } from "../adapters/idleMonsterFarm/asse
 import { applyIdleMonsterFarmPanelStyle, getIdleMonsterFarmPanelAdapterState, summarizePanelApplyResult } from "../adapters/idleMonsterFarm/panelAdapter";
 import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdapterState, summarizeRewardToastApplyResult } from "../adapters/idleMonsterFarm/rewardToastAdapter";
 import { buildGenericFallbackTask, genericFallbackTaskRelativePath, getGenericPhaserAdapterState, GenericPhaserSurfaceType, genericGeneratedStyleModulePath, genericStyleConfigRelativePath } from "../core/genericPhaserAdapter";
+import { genericManualStyleConfigRelativePath } from "../core/genericPhaserAdapterModel";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { createTuningAttempt, getFallbackFieldNoteGuidance, loadTuningAttemptIndex } from "../core/tuningAttempts";
 import {
@@ -27,6 +28,7 @@ import { buildCursorArenaVisualFallbackTask, buildSortPuzzleSpiritSortSceneFallb
 import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "../core/visualScopeGuard";
 import {
   buildCursorArenaDashboardSurfaceInputs,
+  buildGenericPhaserDashboardSurfaceInputs,
   buildSortPuzzleDashboardSurfaceInputs,
   buildVisualTuningDashboardModel,
   dashboardAdapterFilterOptions,
@@ -164,7 +166,12 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
       fallbackCounts,
       ownerFiles: cursorArenaState.ownerFiles
     }) : []),
-    ...visualSurfacePickerOrder.map((surfaceType) => buildGenericSurfaceInput(surfaceType, genericState, configStatuses, recipeFileStatuses, fallbackCounts))
+    ...buildGenericPhaserDashboardSurfaceInputs({
+      detection: genericState,
+      configs: configStatuses,
+      recipeFiles: recipeFileStatuses,
+      fallbackCounts
+    })
   ];
 
   return buildVisualTuningDashboardModel({
@@ -378,8 +385,8 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   if (row.surfaceType === "asset_replacement") {
     return { ok: false, message: "Dashboard direct apply is not available for asset replacement rows." };
   }
-  if (row.adapterId !== "idle_monster_farm" && row.adapterId !== "sort_puzzle" && row.adapterId !== "cursor_arena") {
-    return { ok: false, message: "Dashboard direct apply is available only for connected Idle Monster Farm style surfaces and generated config writes for Sort Puzzle or Cursor Arena." };
+  if (row.adapterId !== "idle_monster_farm" && row.adapterId !== "sort_puzzle" && row.adapterId !== "cursor_arena" && row.adapterId !== "generic_phaser") {
+    return { ok: false, message: "Dashboard direct apply is available only for connected Idle Monster Farm style surfaces and generated config writes for Sort Puzzle, Cursor Arena, or Generic Phaser." };
   }
   const configText = row.configPath ? await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, ...row.configPath.split("/"))) : undefined;
   if (!configText) {
@@ -398,7 +405,7 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   if (!plan.executable) {
     return { ok: false, message: `Direct apply template blocked: ${plan.blockingReasons.join(" ") || plan.scopeGuardResult.summaryMessage}` };
   }
-  if (row.adapterId === "sort_puzzle" || row.adapterId === "cursor_arena") {
+  if (row.adapterId === "sort_puzzle" || row.adapterId === "cursor_arena" || row.adapterId === "generic_phaser") {
     const result = executeVisualDirectApplyPlan(folder.uri.fsPath, plan, [{
       relativePath: row.configPath!,
       text: configText.endsWith("\n") ? configText : `${configText}\n`
@@ -430,16 +437,20 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
         ...result.warnings,
         row.adapterId === "sort_puzzle"
           ? "Sort Puzzle direct apply wrote generated style config only; SpiritSortScene runtime integration remains fallback-only."
-          : "Cursor Arena direct apply wrote generated style config only; arena runtime integration remains fallback-only."
+          : row.adapterId === "cursor_arena"
+            ? "Cursor Arena direct apply wrote generated style config only; arena runtime integration remains fallback-only."
+            : "Generic Phaser direct apply wrote generated style config only; selected owner-file integration remains fallback-only."
       ],
-      tags: [row.adapterId === "sort_puzzle" ? "v0.72-sort-puzzle" : "v0.73-cursor-arena", "config-only"]
+      tags: [row.adapterId === "sort_puzzle" ? "v0.72-sort-puzzle" : row.adapterId === "cursor_arena" ? "v0.73-cursor-arena" : "v0.75-generic-phaser-v2", "config-only"]
     });
     return {
       ok: true,
       message: [
         `Template: ${plan.templateId} (${plan.templateName})`,
         `${row.targetLabel} config-only direct apply wrote ${result.changedFiles.join(", ")}.`,
-        row.adapterId === "sort_puzzle" ? "Runtime SpiritSortScene integration remains fallback-only." : "Runtime Cursor Arena integration remains fallback-only."
+        row.adapterId === "sort_puzzle" ? "Runtime SpiritSortScene integration remains fallback-only."
+          : row.adapterId === "cursor_arena" ? "Runtime Cursor Arena integration remains fallback-only."
+            : "Runtime Generic Phaser owner-file integration remains fallback-only."
       ].join("\n"),
       refresh: true
     };
@@ -550,7 +561,7 @@ async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder,
       surfaceType: row.surfaceType,
       targetLabel: row.targetLabel,
       selectedFiles: selectedFiles.length > 0 ? selectedFiles : row.scopeSummary.allowedFiles.filter((file) => file.startsWith("src/") || file.startsWith("app/")),
-      generatedStyleConfigPath: genericStyleConfigRelativePath(row.surfaceType as GenericPhaserSurfaceType),
+      generatedStyleConfigPath: row.configPath ?? genericStyleConfigRelativePath(row.surfaceType as GenericPhaserSurfaceType),
       generatedStyleModulePath: genericGeneratedStyleModulePath(row.surfaceType as GenericPhaserSurfaceType),
       fieldNoteGuidance: guidance
     });
@@ -686,9 +697,11 @@ async function readStyleConfigStatuses(folder: vscode.WorkspaceFolder): Promise<
     generic_phaser_slot_card: await loadGenericConfigInfo(folder, genericStyleConfigRelativePath("slot_card")),
     generic_phaser_background_readability: await loadGenericConfigInfo(folder, genericStyleConfigRelativePath("background_readability")),
     generic_phaser_panel: await loadGenericConfigInfo(folder, genericStyleConfigRelativePath("panel")),
+    generic_phaser_hud: await loadGenericConfigInfo(folder, genericManualStyleConfigRelativePath("hud")!),
     generic_phaser_reward_toast: await loadGenericConfigInfo(folder, genericStyleConfigRelativePath("reward_toast")),
+    generic_phaser_impact_feedback: await loadGenericConfigInfo(folder, genericManualStyleConfigRelativePath("impact_feedback")!),
     generic_phaser_button: await loadGenericConfigInfo(folder, genericStyleConfigRelativePath("button")),
-    generic_phaser_asset_replacement: { status: "not_applicable", exists: false },
+    generic_phaser_asset_replacement: await loadGenericConfigInfo(folder, genericManualStyleConfigRelativePath("asset_slot")!),
     sort_puzzle_shelf_card: await loadGenericConfigInfo(folder, sortPuzzleShelfStyleConfigRelativePath),
     sort_puzzle_spirit_slot: await loadGenericConfigInfo(folder, sortPuzzleSpiritPresentationConfigRelativePath),
     sort_puzzle_completed_shelf: await loadGenericConfigInfo(folder, sortPuzzleShelfStyleConfigRelativePath),

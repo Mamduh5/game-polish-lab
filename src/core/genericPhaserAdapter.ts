@@ -2,6 +2,10 @@ import * as path from "path";
 import type * as vscode from "vscode";
 
 import { buildAssetRollbackSnapshotName, validateReplacementAsset } from "./assetReplacement";
+import {
+  discoverGenericPhaserOwnerFileSuggestions,
+  GenericPhaserOwnerFileSuggestion
+} from "./genericPhaserAdapterModel";
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
 import { buildVisualDirectApplyPlan, executeVisualDirectApplyPlan } from "./visualDirectApplyTemplates";
 import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "./visualScopeGuard";
@@ -29,6 +33,7 @@ export interface GenericPhaserDetection {
   evidence: string[];
   likelySceneFiles: string[];
   likelyAssetFolders: string[];
+  ownerFileSuggestions: GenericPhaserOwnerFileSuggestion[];
   warnings: string[];
 }
 
@@ -110,6 +115,7 @@ export function detectGenericPhaserProject(files: GenericPhaserFileInspection[])
   const evidence: string[] = [];
   const likelySceneFiles = new Set<string>();
   const likelyAssetFolders = new Set<string>();
+  const ownerFileSuggestions = discoverGenericPhaserOwnerFileSuggestions(files);
   let strongEvidenceCount = 0;
 
   for (const file of files) {
@@ -128,6 +134,13 @@ export function detectGenericPhaserProject(files: GenericPhaserFileInspection[])
       evidence.push(`${normalizedPath}: uses Phaser.Scene.`);
       likelySceneFiles.add(normalizedPath);
       strongEvidenceCount += 1;
+    }
+    if (/\bnew\s+phaser\.game\b/.test(lowerText)) {
+      evidence.push(`${normalizedPath}: creates a Phaser.Game instance.`);
+      strongEvidenceCount += 1;
+    }
+    if (lowerPath.endsWith("vite.config.ts") || lowerPath.endsWith("vite.config.js")) {
+      evidence.push(`${normalizedPath}: Vite project config found.`);
     }
     if (/src\/scenes|src\/game|src\/main/.test(lowerPath)) {
       evidence.push(`${normalizedPath}: common Phaser source path.`);
@@ -151,6 +164,7 @@ export function detectGenericPhaserProject(files: GenericPhaserFileInspection[])
     evidence: uniqueEvidence,
     likelySceneFiles: Array.from(likelySceneFiles).sort(),
     likelyAssetFolders: Array.from(likelyAssetFolders).sort(),
+    ownerFileSuggestions,
     warnings: confidence === "low" ? ["Only partial Phaser evidence was found. Use manual file scope carefully."] : []
   };
 }
@@ -492,7 +506,7 @@ async function readGenericPhaserInspectionFiles(folder: vscode.WorkspaceFolder):
   if (packageText !== undefined) {
     files.set("package.json", packageText);
   }
-  const uris = await vscodeApi.workspace.findFiles(new vscodeApi.RelativePattern(folder, "{src,app,public,assets}/**/*.{ts,tsx,js,jsx,json,png,webp}"), "**/{node_modules,dist,build,out}/**", 120);
+  const uris = await vscodeApi.workspace.findFiles(new vscodeApi.RelativePattern(folder, "{src,app,public,assets}/**/*.{ts,tsx,js,jsx,json,png,webp}"), "**/{node_modules,dist,build,out,coverage,.git}/**", 120);
   for (const uri of uris) {
     const relativePath = normalizeWorkspacePath(path.relative(folder.uri.fsPath, uri.fsPath));
     if (/\.(png|webp)$/i.test(relativePath)) {

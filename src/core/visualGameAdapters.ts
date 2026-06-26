@@ -1,4 +1,4 @@
-import { detectGenericPhaserProject, genericGeneratedStyleModulePath, genericStyleConfigRelativePath } from "./genericPhaserAdapterModel";
+import { detectGenericPhaserProject, genericGeneratedStyleModulePath, genericManualStyleConfigRelativePath, genericStyleConfigRelativePath } from "./genericPhaserAdapterModel";
 import { monsterFarmAssetTargets } from "./monsterFarmAssetTargets";
 import {
   backgroundReadabilityStyleConfigRelativePath,
@@ -268,14 +268,20 @@ function createIdleMonsterFarmAdapter(): VisualGameAdapter {
 
 function createGenericPhaserAdapter(): VisualGameAdapter {
   const targets: VisualAdapterSurfaceTarget[] = [
-    ...styleSurfaces.map((surfaceType) => styleTarget("generic_phaser", surfaceType, "manual_target", `Generic Phaser ${surfaceType.replace(/_/g, " ")}`, genericOwnerFileHints(surfaceType), genericStyleConfigRelativePath(surfaceType), genericGeneratedStyleModulePath(surfaceType), genericSupportedStyleTokens(surfaceType))),
+    styleTarget("generic_phaser", "slot_card", "manual_slot_card", "Generic Phaser Slot/Card", genericOwnerFileHints("slot_card"), genericStyleConfigRelativePath("slot_card"), genericGeneratedStyleModulePath("slot_card"), genericSupportedStyleTokens("slot_card")),
+    styleTarget("generic_phaser", "panel", "manual_panel", "Generic Phaser Panel", genericOwnerFileHints("panel"), genericStyleConfigRelativePath("panel"), genericGeneratedStyleModulePath("panel"), genericSupportedStyleTokens("panel")),
+    styleTarget("generic_phaser", "button", "manual_button", "Generic Phaser Button", genericOwnerFileHints("button"), genericStyleConfigRelativePath("button"), genericGeneratedStyleModulePath("button"), genericSupportedStyleTokens("button")),
+    styleTarget("generic_phaser", "panel", "manual_hud", "Generic Phaser HUD", ["selected HUD/UI file", "selected Phaser scene file", "selected style/config file"], genericManualStyleConfigRelativePath("hud")!, genericGeneratedStyleModulePath("panel"), ["fillColor", "borderColor", "cornerRadius", "shadowStrength", "titleTextSize", "bodyTextSize"]),
+    styleTarget("generic_phaser", "reward_toast", "manual_reward_toast", "Generic Phaser Reward Toast", genericOwnerFileHints("reward_toast"), genericStyleConfigRelativePath("reward_toast"), genericGeneratedStyleModulePath("reward_toast"), genericSupportedStyleTokens("reward_toast")),
+    styleTarget("generic_phaser", "reward_toast", "manual_impact_feedback", "Generic Phaser Impact/Hit Feedback", ["selected impact/effect renderer", "selected Phaser scene file"], genericManualStyleConfigRelativePath("impact_feedback")!, genericGeneratedStyleModulePath("reward_toast"), ["durationMs", "sparkleScale", "textSize", "glowStrength"]),
+    styleTarget("generic_phaser", "background_readability", "manual_background_readability", "Generic Phaser Background Readability", genericOwnerFileHints("background_readability"), genericStyleConfigRelativePath("background_readability"), genericGeneratedStyleModulePath("background_readability"), genericSupportedStyleTokens("background_readability")),
     assetTarget("generic_phaser", "manual_asset", "Generic Phaser Asset", ["selected asset folder"], "Generic Phaser asset copy does not patch unknown loaders/manifests.")
   ];
   return {
     id: "generic_phaser",
     displayName: "Generic Phaser",
     family: "generic_phaser",
-    version: "0.7.0",
+    version: "0.7.5",
     description: "Safe-config-first contract wrapper for unknown Phaser projects.",
     supportedSurfaces: [...visualSurfacePickerOrder],
     detectProject: detectGenericPhaserProject,

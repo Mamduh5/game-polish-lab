@@ -2,6 +2,8 @@ import { AssetReplacementTarget, VisualSurfaceType } from "../types/visualSurfac
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
 
 export type GenericPhaserSurfaceType = Exclude<VisualSurfaceType, "asset_replacement">;
+export type GenericPhaserManualSurfaceId = GenericPhaserSurfaceType | "hud" | "impact_feedback" | "asset_slot";
+export type GenericPhaserSuggestionSafety = "safe" | "suspicious" | "forbidden" | "unknown";
 
 export interface GenericPhaserFileInspection {
   relativePath: string;
@@ -15,7 +17,29 @@ export interface GenericPhaserDetection {
   evidence: string[];
   likelySceneFiles: string[];
   likelyAssetFolders: string[];
+  ownerFileSuggestions: GenericPhaserOwnerFileSuggestion[];
   warnings: string[];
+}
+
+export interface GenericPhaserOwnerFileSuggestion {
+  path: string;
+  reason: string;
+  matchedSignals: string[];
+  confidence: "high" | "medium" | "low";
+  recommendedSurfaceTypes: GenericPhaserManualSurfaceId[];
+  safetyLevel: GenericPhaserSuggestionSafety;
+}
+
+export interface GenericPhaserManualSurfaceSelection {
+  surfaceId: GenericPhaserManualSurfaceId;
+  surfaceType: VisualSurfaceType;
+  label: string;
+  chosenOwnerFilePath: string;
+  chosenAssetPath?: string;
+  notes?: string;
+  confidence: "high" | "medium" | "low";
+  safetyLevel: GenericPhaserSuggestionSafety;
+  directApplyMode: "config_only" | "asset_copy_only" | "fallback_required";
 }
 
 export interface GenericFallbackTask {
@@ -45,6 +69,13 @@ const genericStyleFileNames: Record<GenericPhaserSurfaceType, string> = {
   button: "generic-button-style.json"
 };
 
+const genericManualStyleFileNames: Record<GenericPhaserManualSurfaceId, string | undefined> = {
+  ...genericStyleFileNames,
+  hud: "generic-hud-style.json",
+  impact_feedback: "generic-impact-feedback-style.json",
+  asset_slot: "generic-asset-presentation-style.json"
+};
+
 const genericStyleModuleNames: Record<GenericPhaserSurfaceType, string> = {
   slot_card: "genericSlotCardStyle.ts",
   background_readability: "genericBackgroundReadabilityStyle.ts",
@@ -57,6 +88,7 @@ export function detectGenericPhaserProject(files: GenericPhaserFileInspection[])
   const evidence: string[] = [];
   const likelySceneFiles = new Set<string>();
   const likelyAssetFolders = new Set<string>();
+  const ownerFileSuggestions = discoverGenericPhaserOwnerFileSuggestions(files);
   let strongEvidenceCount = 0;
 
   for (const file of files) {
@@ -75,6 +107,13 @@ export function detectGenericPhaserProject(files: GenericPhaserFileInspection[])
       evidence.push(`${normalizedPath}: uses Phaser.Scene.`);
       likelySceneFiles.add(normalizedPath);
       strongEvidenceCount += 1;
+    }
+    if (/\bnew\s+phaser\.game\b/.test(lowerText)) {
+      evidence.push(`${normalizedPath}: creates a Phaser.Game instance.`);
+      strongEvidenceCount += 1;
+    }
+    if (lowerPath.endsWith("vite.config.ts") || lowerPath.endsWith("vite.config.js")) {
+      evidence.push(`${normalizedPath}: Vite project config found.`);
     }
     if (/src\/scenes|src\/game|src\/main/.test(lowerPath)) {
       evidence.push(`${normalizedPath}: common Phaser source path.`);
@@ -99,6 +138,57 @@ export function detectGenericPhaserProject(files: GenericPhaserFileInspection[])
     likelySceneFiles: Array.from(likelySceneFiles).sort(),
     likelyAssetFolders: Array.from(likelyAssetFolders).sort(),
     warnings: confidence === "low" ? ["Only partial Phaser evidence was found. Use manual file scope carefully."] : []
+      ,
+    ownerFileSuggestions
+  };
+}
+
+export function discoverGenericPhaserOwnerFileSuggestions(files: GenericPhaserFileInspection[], limit = 24): GenericPhaserOwnerFileSuggestion[] {
+  return files
+    .map(genericOwnerSuggestionForFile)
+    .filter((suggestion): suggestion is GenericPhaserOwnerFileSuggestion => Boolean(suggestion))
+    .sort((a, b) => confidenceRank(b.confidence) - confidenceRank(a.confidence) || a.path.localeCompare(b.path))
+    .slice(0, limit);
+}
+
+export function manualSurfaceIdToVisualSurfaceType(surfaceId: GenericPhaserManualSurfaceId): VisualSurfaceType {
+  if (surfaceId === "hud") {
+    return "panel";
+  }
+  if (surfaceId === "impact_feedback") {
+    return "reward_toast";
+  }
+  if (surfaceId === "asset_slot") {
+    return "asset_replacement";
+  }
+  return surfaceId;
+}
+
+export function genericManualStyleConfigRelativePath(surfaceId: GenericPhaserManualSurfaceId): string | undefined {
+  const fileName = genericManualStyleFileNames[surfaceId];
+  return fileName ? `.game-polish-lab/styles/${fileName}` : undefined;
+}
+
+export function buildGenericManualSurfaceSelection(input: {
+  surfaceId: GenericPhaserManualSurfaceId;
+  label: string;
+  chosenOwnerFilePath: string;
+  chosenAssetPath?: string;
+  notes?: string;
+  confidence: "high" | "medium" | "low";
+  safetyLevel: GenericPhaserSuggestionSafety;
+}): GenericPhaserManualSurfaceSelection {
+  const surfaceType = manualSurfaceIdToVisualSurfaceType(input.surfaceId);
+  return {
+    surfaceId: input.surfaceId,
+    surfaceType,
+    label: input.label.trim() || genericManualSurfaceLabel(input.surfaceId),
+    chosenOwnerFilePath: normalizeWorkspacePath(input.chosenOwnerFilePath),
+    chosenAssetPath: input.chosenAssetPath ? normalizeWorkspacePath(input.chosenAssetPath) : undefined,
+    notes: input.notes,
+    confidence: input.confidence,
+    safetyLevel: input.safetyLevel,
+    directApplyMode: surfaceType === "asset_replacement" ? "asset_copy_only" : input.safetyLevel === "forbidden" ? "fallback_required" : "config_only"
   };
 }
 
@@ -239,4 +329,88 @@ function safeTargetLabel(value: string): string {
 
 function normalizeWorkspacePath(value: string): string {
   return value.replace(/\\/g, "/").replace(/^\.?\//, "");
+}
+
+function genericOwnerSuggestionForFile(file: GenericPhaserFileInspection): GenericPhaserOwnerFileSuggestion | undefined {
+  const normalizedPath = normalizeWorkspacePath(file.relativePath);
+  const lowerPath = normalizedPath.toLowerCase();
+  if (isIgnoredGenericSuggestionPath(lowerPath) || !/\.(ts|tsx|js|jsx|json|css|html)$/i.test(lowerPath)) {
+    return undefined;
+  }
+  const lowerText = file.text.toLowerCase();
+  const matchedSignals: string[] = [];
+  const recommendedSurfaceTypes = new Set<GenericPhaserManualSurfaceId>();
+  if (/scene\.(ts|tsx|js|jsx)$/.test(lowerPath) || lowerText.includes("extends phaser.scene") || lowerText.includes("phaser.scene")) {
+    matchedSignals.push("scene");
+    recommendedSurfaceTypes.add("background_readability");
+    recommendedSurfaceTypes.add("panel");
+  }
+  if (includesAny(lowerPath, ["hud", "ui", "panel", "modal", "shop"]) || includesAny(lowerText, ["add.rectangle", "add.text", "graphics", "fillstyle", "linestyle"])) {
+    matchedSignals.push("ui_rendering");
+    recommendedSurfaceTypes.add("panel");
+    recommendedSurfaceTypes.add("hud");
+  }
+  if (includesAny(lowerPath, ["button", "card", "slot"]) || includesAny(lowerText, ["button", "card", "slot", "settint", "setalpha", "setscale"])) {
+    matchedSignals.push("button_card_slot");
+    recommendedSurfaceTypes.add("button");
+    recommendedSurfaceTypes.add("slot_card");
+  }
+  if (includesAny(lowerPath, ["toast", "reward", "popup"]) || includesAny(lowerText, ["toast", "reward", "popup"])) {
+    matchedSignals.push("toast_reward");
+    recommendedSurfaceTypes.add("reward_toast");
+  }
+  if (includesAny(lowerPath, ["background", "/bg", "world", "arena", "map"]) || includesAny(lowerText, ["background", "bg", "tilemap", "world", "map"])) {
+    matchedSignals.push("background");
+    recommendedSurfaceTypes.add("background_readability");
+  }
+  if (includesAny(lowerPath, ["impact", "hit", "damage", "effect", "particle"]) || includesAny(lowerText, ["impact", "hit", "damage", "effect", "particle"])) {
+    matchedSignals.push("impact_feedback");
+    recommendedSurfaceTypes.add("impact_feedback");
+    recommendedSurfaceTypes.add("reward_toast");
+  }
+  if (includesAny(lowerText, ["load.image", "load.spritesheet", "asset manifest"]) || includesAny(lowerPath, ["manifest", "asset", "preload", "loader"])) {
+    matchedSignals.push("asset_reference");
+    recommendedSurfaceTypes.add("asset_slot");
+  }
+  if (matchedSignals.length === 0) {
+    return undefined;
+  }
+  const safetyLevel = classifyGenericSuggestionSafety(lowerPath);
+  return {
+    path: normalizedPath,
+    reason: `Matched ${matchedSignals.join(", ")} signals for Generic Phaser visual ownership.`,
+    matchedSignals,
+    confidence: matchedSignals.length >= 3 ? "high" : matchedSignals.length >= 2 ? "medium" : "low",
+    recommendedSurfaceTypes: Array.from(recommendedSurfaceTypes),
+    safetyLevel
+  };
+}
+
+function classifyGenericSuggestionSafety(lowerPath: string): GenericPhaserSuggestionSafety {
+  if (includesAny(lowerPath, ["save", "economy", "balance", "progression", "unlock", "level", "rules", "solver", "ads", "monetization", "package.json", "package-lock.json", "pnpm-lock.yaml"])) {
+    return "forbidden";
+  }
+  if (includesAny(lowerPath, ["scene", "/ui/", "hud", "panel", "button", "toast", "render", "preload", "loader", "manifest"])) {
+    return "suspicious";
+  }
+  if (/^(src\/assets|public\/assets|assets)\//.test(lowerPath) || lowerPath.startsWith(".game-polish-lab/")) {
+    return "safe";
+  }
+  return "unknown";
+}
+
+function isIgnoredGenericSuggestionPath(lowerPath: string): boolean {
+  return lowerPath.split("/").some((part) => ["node_modules", "dist", "build", ".git", "coverage", "out"].includes(part));
+}
+
+function genericManualSurfaceLabel(surfaceId: GenericPhaserManualSurfaceId): string {
+  return surfaceId.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function confidenceRank(confidence: "high" | "medium" | "low"): number {
+  return confidence === "high" ? 3 : confidence === "medium" ? 2 : 1;
+}
+
+function includesAny(value: string, terms: string[]): boolean {
+  return terms.some((term) => value.includes(term));
 }
