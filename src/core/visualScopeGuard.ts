@@ -26,6 +26,8 @@ const forbiddenRules: PathRule[] = [
   blocked("ad_or_sdk_file", "Ad, monetization, analytics, and SDK files are outside visual polish scope.", (path) => includesAny(path, ["/ads", "/ad/", "admob", "rewardedad", "rewarded-ad", "rewarded_ad", "monetization", "analytics", "sdk"])),
   blocked("level_data_file", "Level data and gameplay rules are outside visual polish scope.", (path) => includesAny(path, ["leveldata", "level-data", "/levels", "spiritSortLevels", "gameplay", "/rules", "rules.ts", "rules.js"])),
   blocked("sort_puzzle_rule_file", "Sort Puzzle rules, solvers, validation, undo, and hint logic are outside visual polish scope.", (path) => includesAny(path, ["sortrules", "/solver", "sortsolver", "movevalidation", "validmove", "undosystem", "hintsystem"])),
+  blocked("cursor_arena_balance_file", "Cursor Arena economy, upgrades, enemy HP, spawn, damage, scoring, and rewards are outside visual polish scope.", (path) => includesAny(path, ["arenabalance", "balanceconfig", "/economy", "/upgrades", "upgradevalue", "spawnrate", "spawnsystem", "enemyhp", "enemy-health", "damage", "/scoring", "/rewards"])),
+  blocked("cursor_arena_player_projectile_file", "Cursor Arena player and projectile systems are outside visual polish scope.", (path) => includesAny(path, ["/player", "playercontroller", "/projectile", "projectilesystem", "shootersystem"])),
   blocked("package_manager_file", "Package manager files are blocked during visual apply operations.", (path, request) => request.operationType !== "asset_contact_sheet_read" && /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|package\.json)$/.test(path))
 ];
 
@@ -176,6 +178,6 @@ export function visualScopeGuardRulesSummary(): string[] {
   return [
     "safe: .game-polish-lab/**, visual recipes, asset contracts, known asset folders, adapter style/config paths, generated Game Polish Lab style modules",
     "suspicious: scenes, UI/view/rendering files, loader/preload files, manifests, broad source files",
-    "forbidden: save, economy/balance/reward tables, progression/unlock/upgrade, merge, hatch, quest, ad/monetization/analytics/SDK, level data/gameplay rules, package manager files during visual writes"
+    "forbidden: save, economy/balance/reward tables, progression/unlock/upgrade, merge, hatch, quest, ad/monetization/analytics/SDK, level data/gameplay rules, Sort Puzzle rules/solver/undo/hint, Cursor Arena balance/player/projectile paths, package manager files during visual writes"
   ];
 }

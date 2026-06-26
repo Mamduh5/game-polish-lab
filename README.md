@@ -4,11 +4,18 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or make the optional in-game dev overlay part of the normal polish loop.
 
-## Current v0.6 Guide
+## Current v0.7 Guide
 
-For the stabilized v0.6 workflow, including the Visual Tuning Dashboard, preview renderer, style presets, asset contracts/contact sheets, scope guard, rollback history, direct apply templates, and optional `?polish=1` dev overlay, see [`docs/v0.6-stabilization.md`](docs/v0.6-stabilization.md).
+For the stabilized v0.6 workflow, including the Visual Tuning Dashboard, preview renderer, style presets, asset contracts/contact sheets, scope guard, rollback history, direct apply templates, and optional `?polish=1` dev overlay, see [`docs/v0.6-stabilization.md`](docs/v0.6-stabilization.md). v0.7 extends that console with Sort Puzzle, Cursor Arena, Generic Phaser v2 metadata, theme export/import, and screenshot issue notes.
 
-For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-contract.md). For the Sort Puzzle adapter, see [`docs/sort-puzzle-adapter.md`](docs/sort-puzzle-adapter.md).
+For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-contract.md). Adapter and v0.7 docs:
+
+- [`docs/sort-puzzle-adapter.md`](docs/sort-puzzle-adapter.md)
+- [`docs/cursor-arena-adapter.md`](docs/cursor-arena-adapter.md)
+- [`docs/generic-phaser-v2.md`](docs/generic-phaser-v2.md)
+- [`docs/theme-export-import.md`](docs/theme-export-import.md)
+- [`docs/screenshot-annotation.md`](docs/screenshot-annotation.md)
+- [`docs/v0.7-migration-notes.md`](docs/v0.7-migration-notes.md)
 
 ## What v0.4.2 Does
 

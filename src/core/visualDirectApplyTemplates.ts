@@ -48,6 +48,10 @@ const idleStyleConfigPaths: Record<Exclude<VisualSurfaceType, "asset_replacement
 export const sortPuzzleShelfStyleConfigRelativePath = ".game-polish-lab/styles/sort-puzzle-shelf-style.json";
 export const sortPuzzleSpiritPresentationConfigRelativePath = ".game-polish-lab/styles/sort-puzzle-spirit-presentation.json";
 export const sortPuzzleFeedbackStyleConfigRelativePath = ".game-polish-lab/styles/sort-puzzle-feedback-style.json";
+export const cursorArenaHudStyleConfigRelativePath = ".game-polish-lab/styles/cursor-arena-hud-style.json";
+export const cursorArenaUpgradeCardStyleConfigRelativePath = ".game-polish-lab/styles/cursor-arena-upgrade-card-style.json";
+export const cursorArenaFeedbackStyleConfigRelativePath = ".game-polish-lab/styles/cursor-arena-feedback-style.json";
+export const cursorArenaBackgroundReadabilityConfigRelativePath = ".game-polish-lab/styles/cursor-arena-background-readability.json";
 
 const sortPuzzleTargetConfigPaths: Partial<Record<VisualSurfaceType, Record<string, string>>> = {
   slot_card: {
@@ -59,6 +63,32 @@ const sortPuzzleTargetConfigPaths: Partial<Record<VisualSurfaceType, Record<stri
   },
   reward_toast: {
     win_reward_toast: sortPuzzleFeedbackStyleConfigRelativePath
+  }
+};
+
+const cursorArenaTargetConfigPaths: Partial<Record<VisualSurfaceType, Record<string, string>>> = {
+  panel: {
+    arena_hud_panel: cursorArenaHudStyleConfigRelativePath,
+    arena_status_panel: cursorArenaHudStyleConfigRelativePath
+  },
+  slot_card: {
+    upgrade_card: cursorArenaUpgradeCardStyleConfigRelativePath,
+    skin_card: cursorArenaUpgradeCardStyleConfigRelativePath,
+    reward_card: cursorArenaUpgradeCardStyleConfigRelativePath
+  },
+  button: {
+    upgrade_button: cursorArenaUpgradeCardStyleConfigRelativePath,
+    shop_button: cursorArenaUpgradeCardStyleConfigRelativePath,
+    reset_button: cursorArenaUpgradeCardStyleConfigRelativePath,
+    mute_button: cursorArenaUpgradeCardStyleConfigRelativePath
+  },
+  reward_toast: {
+    cursor_hit_feedback: cursorArenaFeedbackStyleConfigRelativePath,
+    cursor_miss_feedback: cursorArenaFeedbackStyleConfigRelativePath,
+    kill_combo_feedback: cursorArenaFeedbackStyleConfigRelativePath
+  },
+  background_readability: {
+    arena_background_readability: cursorArenaBackgroundReadabilityConfigRelativePath
   }
 };
 
@@ -100,13 +130,26 @@ const idleFallbackTemplate: VisualDirectApplyFallbackTemplate = {
   ]
 };
 
+const cursorArenaFallbackTemplate: VisualDirectApplyFallbackTemplate = {
+  templateId: "cursor-arena.visual-integration.fallback-task.v1",
+  displayName: "Cursor Arena Guarded Visual Integration Fallback Task",
+  adapterId: "cursor_arena",
+  instructions: [
+    "This fallback task is only for one-time visual integration in existing Cursor Arena render/UI files.",
+    "Keep the selected file scope exact and visual-only.",
+    "Read generated Game Polish Lab style configs instead of changing gameplay values.",
+    "Do not edit economy, upgrades, enemy HP, spawn rate, damage, scoring, rewards, save/progression, player systems, projectile systems, ads, or monetization."
+  ]
+};
+
 const registry: VisualDirectApplyTemplateRegistry = {
   templates: [
     ...(["slot_card", "background_readability", "panel", "reward_toast", "button"] as const).map((surfaceType) => idleStyleTemplate(surfaceType)),
     ...(["slot_card", "background_readability", "panel", "reward_toast", "button"] as const).map((surfaceType) => genericStyleTemplate(surfaceType)),
-    ...sortPuzzleStyleTemplates()
+    ...sortPuzzleStyleTemplates(),
+    ...cursorArenaStyleTemplates()
   ],
-  fallbackTemplates: [genericFallbackTemplate, idleFallbackTemplate]
+  fallbackTemplates: [genericFallbackTemplate, idleFallbackTemplate, cursorArenaFallbackTemplate]
 };
 
 export function getVisualDirectApplyTemplateRegistry(): VisualDirectApplyTemplateRegistry {
@@ -359,6 +402,31 @@ function sortPuzzleStyleTemplates(): VisualDirectApplyTemplate[] {
         "Prefer reading a generated Game Polish Lab style config/module over changing scene rules or layout data."
       ]
     },
+    executable: true
+  })));
+}
+
+function cursorArenaStyleTemplates(): VisualDirectApplyTemplate[] {
+  return Object.entries(cursorArenaTargetConfigPaths).flatMap(([surfaceType, targets]) => Object.entries(targets ?? {}).map(([targetId, configPath]) => ({
+    templateId: `cursor-arena.${surfaceType}.${targetId}.safe-style-config.v1`,
+    displayName: `Cursor Arena ${surfaceType} ${targetId} Safe Style Config Write`,
+    adapterId: "cursor_arena" as const,
+    supportedSurfaceType: surfaceType as VisualSurfaceType,
+    supportedTargetIds: [targetId],
+    supportedOperationTypes: ["run_scope_guard", "create_rollback_snapshot", "read_style_config", "write_style_config", "generate_fallback_task", "manual_check"],
+    candidateFilePaths: [configPath],
+    requiredStyleConfigPaths: [configPath],
+    rollbackRequired: true,
+    scopeGuardPolicy: { operationType: "direct_apply", adapterId: "cursor_arena", surfaceType: surfaceType as VisualSurfaceType, targetId },
+    manualChecks: [
+      ...directApplyManualChecks,
+      {
+        checkId: "cursor_arena_gameplay_unchanged",
+        label: "Cursor Arena gameplay unchanged",
+        description: "Confirm click cadence, damage, enemy HP, spawn rate, upgrades, scoring, rewards, save/progression, player/projectile systems, ads, and monetization did not change."
+      }
+    ],
+    fallbackTemplate: cursorArenaFallbackTemplate,
     executable: true
   })));
 }

@@ -4,7 +4,7 @@ import { VisualAssetContractStatusCounts } from "./visualAssetContract";
 import { VisualGameAdapterContractSummary } from "./visualGameAdapter";
 import { VisualScopeClassificationCounts, VisualScopeRecommendedAction } from "./visualScopeGuard";
 
-export type DashboardAdapterId = "idle_monster_farm" | "generic_phaser" | "sort_puzzle";
+export type DashboardAdapterId = "idle_monster_farm" | "generic_phaser" | "sort_puzzle" | "cursor_arena";
 export type DashboardAppliedStatus = "applied" | "config_only" | "fallback_ready" | "unapplied" | "unsupported" | "invalid" | "unknown";
 export type DashboardConfigStatus = "valid" | "missing" | "invalid_json" | "schema_invalid" | "not_applicable";
 export type DashboardRecipeStatus = "valid" | "missing" | "invalid_json" | "schema_invalid" | "not_applicable";

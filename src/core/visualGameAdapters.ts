@@ -10,6 +10,10 @@ import {
 import { checkVisualScopeGuard } from "./visualScopeGuard";
 import {
   resolveVisualDirectApplyTemplate,
+  cursorArenaBackgroundReadabilityConfigRelativePath,
+  cursorArenaFeedbackStyleConfigRelativePath,
+  cursorArenaHudStyleConfigRelativePath,
+  cursorArenaUpgradeCardStyleConfigRelativePath,
   sortPuzzleFeedbackStyleConfigRelativePath,
   sortPuzzleShelfStyleConfigRelativePath,
   sortPuzzleSpiritPresentationConfigRelativePath
@@ -91,11 +95,23 @@ const knownForbiddenScopes = [
 const adapterRegistry: VisualGameAdapter[] = [
   createIdleMonsterFarmAdapter(),
   createGenericPhaserAdapter(),
-  createSortPuzzleAdapter()
+  createSortPuzzleAdapter(),
+  createCursorArenaAdapter()
 ];
 
 export interface SortPuzzleSpiritSortSceneFallbackTask {
   adapterId: "sort_puzzle";
+  targetFile: string;
+  targetId: string;
+  styleConfigPath: string;
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  instructions: string[];
+  manualChecks: string[];
+}
+
+export interface CursorArenaVisualFallbackTask {
+  adapterId: "cursor_arena";
   targetFile: string;
   targetId: string;
   styleConfigPath: string;
@@ -252,7 +268,7 @@ function createIdleMonsterFarmAdapter(): VisualGameAdapter {
 
 function createGenericPhaserAdapter(): VisualGameAdapter {
   const targets: VisualAdapterSurfaceTarget[] = [
-    ...styleSurfaces.map((surfaceType) => styleTarget("generic_phaser", surfaceType, "manual_target", `Generic Phaser ${surfaceType.replace(/_/g, " ")}`, ["selected rendering files"], genericStyleConfigRelativePath(surfaceType), genericGeneratedStyleModulePath(surfaceType))),
+    ...styleSurfaces.map((surfaceType) => styleTarget("generic_phaser", surfaceType, "manual_target", `Generic Phaser ${surfaceType.replace(/_/g, " ")}`, genericOwnerFileHints(surfaceType), genericStyleConfigRelativePath(surfaceType), genericGeneratedStyleModulePath(surfaceType), genericSupportedStyleTokens(surfaceType))),
     assetTarget("generic_phaser", "manual_asset", "Generic Phaser Asset", ["selected asset folder"], "Generic Phaser asset copy does not patch unknown loaders/manifests.")
   ];
   return {
@@ -270,8 +286,8 @@ function createGenericPhaserAdapter(): VisualGameAdapter {
     getFallbackCapabilities: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.fallback ?? { support: "manual_required", reason: "No target is registered for this surface." },
     getManualChecks: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.manualChecks ?? [],
     knownLimitations: [
-      "Generic Phaser is safe-config-first, not full automatic game integration.",
-      "Selected rendering files require scoped fallback tasks for source integration.",
+      "Generic Phaser v2 is preview-first and safe-config-first, not full automatic game integration.",
+      "Owner-file hints are descriptive only; selected rendering files require scoped fallback tasks for source integration.",
       "Asset replacement does not patch unknown loaders or manifests."
     ]
   };
@@ -303,13 +319,16 @@ function createSortPuzzleAdapter(): VisualGameAdapter {
     sortPuzzleTarget("slot_card", "selected_shelf_state", "Selected Source/Target Shelf", sortPuzzleShelfStyleConfigRelativePath, [
       "selectedOutlineWidth",
       "selectedGlowStrength",
+      "targetOutlineWidth",
       "targetGlowStrength"
-    ], ["selected source shelf", "selected target shelf"]),
+    ], ["selected source shelf", "selected target shelf", "valid target preview"]),
     sortPuzzleTarget("slot_card", "invalid_move_feedback", "Invalid Move Feedback", sortPuzzleFeedbackStyleConfigRelativePath, [
       "invalidFeedbackColor",
       "invalidFeedbackAlpha",
+      "invalidFeedbackDurationMs",
+      "invalidFeedbackScale",
       "invalidShakeStrength"
-    ], ["invalid target feedback"]),
+    ], ["invalid target feedback", "visual-only rejected move preview"], ["Invalid move feedback is presentation-only and must not call or change move validation."]),
     sortPuzzleTarget("reward_toast", "win_reward_toast", "Sort Puzzle Win Reward Toast", sortPuzzleFeedbackStyleConfigRelativePath, [
       "toastFillColor",
       "toastBorderColor",
@@ -335,7 +354,7 @@ function createSortPuzzleAdapter(): VisualGameAdapter {
     id: "sort_puzzle",
     displayName: "Sort Puzzle",
     family: "sort_puzzle",
-    version: "0.7.1",
+    version: "0.7.2",
     description: "Contract wrapper for shelf/spirit slot visual tuning in Phaser Sort Puzzle projects.",
     supportedSurfaces: ["slot_card", "reward_toast", "asset_replacement"],
     detectProject: detectSortPuzzleProject,
@@ -353,7 +372,57 @@ function createSortPuzzleAdapter(): VisualGameAdapter {
   };
 }
 
-function styleTarget(adapterId: "idle_monster_farm" | "generic_phaser", surfaceType: StyleSurface, targetId: string, displayName: string, ownerFiles: string[], styleConfigPath: string, generatedStyleModulePath: string): VisualAdapterSurfaceTarget {
+function createCursorArenaAdapter(): VisualGameAdapter {
+  const targets: VisualAdapterSurfaceTarget[] = [
+    cursorArenaTarget("panel", "arena_hud_panel", "Arena HUD Panel", cursorArenaHudStyleConfigRelativePath, ["panelFillColor", "panelBorderColor", "panelRadius", "panelShadowStrength", "statusTextScale"], ["HUD panel readability", "status panel spacing"]),
+    cursorArenaTarget("slot_card", "upgrade_card", "Upgrade Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["cardFillColor", "cardBorderColor", "cardRadius", "cardGlowStrength", "affordableGlowStrength", "disabledOpacity"], ["normal upgrade card", "hover card", "affordable card", "unaffordable card", "disabled card"]),
+    cursorArenaTarget("slot_card", "skin_card", "Skin Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["cardFillColor", "cardBorderColor", "cardRadius", "cardGlowStrength", "disabledOpacity"], ["skin card", "locked skin card"]),
+    cursorArenaTarget("slot_card", "reward_card", "Reward Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["cardFillColor", "cardBorderColor", "cardRadius", "cardGlowStrength", "disabledOpacity"], ["reward card", "claimed reward card"]),
+    cursorArenaTarget("button", "upgrade_button", "Upgrade Button", cursorArenaUpgradeCardStyleConfigRelativePath, ["buttonFillColor", "buttonBorderColor", "buttonRadius", "hoverGlowStrength", "disabledOpacity"], ["upgrade button normal", "upgrade button hover", "upgrade button disabled"]),
+    cursorArenaTarget("button", "shop_button", "Shop Button", cursorArenaUpgradeCardStyleConfigRelativePath, ["buttonFillColor", "buttonBorderColor", "buttonRadius", "hoverGlowStrength", "disabledOpacity"], ["shop button normal", "shop button disabled"]),
+    cursorArenaTarget("button", "reset_button", "Reset Button", cursorArenaUpgradeCardStyleConfigRelativePath, ["buttonFillColor", "buttonBorderColor", "buttonRadius", "hoverGlowStrength", "disabledOpacity"], ["reset button normal", "reset button hover"]),
+    cursorArenaTarget("button", "mute_button", "Mute Button", cursorArenaUpgradeCardStyleConfigRelativePath, ["buttonFillColor", "buttonBorderColor", "buttonRadius", "hoverGlowStrength", "disabledOpacity"], ["mute button normal", "mute button active"]),
+    cursorArenaTarget("reward_toast", "cursor_hit_feedback", "Cursor Hit Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["hitFlashAlpha", "hitFlashDurationMs", "hitFlashScale", "enemyObscureLimit"], ["cursor hit flash", "enemy still visible"], ["Feedback alpha/scale defaults must keep enemies readable."]),
+    cursorArenaTarget("reward_toast", "cursor_miss_feedback", "Cursor Miss Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["missFeedbackAlpha", "missFeedbackDurationMs", "missFeedbackScale"], ["cursor miss feedback", "enemy still visible"], ["Miss feedback is visual-only and must not alter hit detection."]),
+    cursorArenaTarget("reward_toast", "kill_combo_feedback", "Kill/Combo Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["comboTextScale", "comboRiseDistance", "comboFadeMs", "killFlashAlpha"], ["kill text", "combo text", "enemy still visible"], ["Kill/combo feedback must not alter score, rewards, damage, or spawn behavior."]),
+    cursorArenaTarget("background_readability", "arena_background_readability", "Arena Background Readability", cursorArenaBackgroundReadabilityConfigRelativePath, ["overlayColor", "overlayOpacity", "contrastStrength", "vignetteStrength", "patternOpacity", "enemyReadabilityPreview"], ["enemy-over-background", "cursor-over-background", "busy arena background"]),
+    {
+      surfaceType: "asset_replacement",
+      targetId: "arena_asset_presentation",
+      displayName: "Arena Asset Presentation",
+      likelyOwnerFiles: ["src/arena/scenes/ArenaScene.ts", "src/arena/ui/ArenaHud.ts", "src/assets"],
+      previewSupport: "supported",
+      directApply: unsupportedDirectApply("Asset presentation is validation/manual-only; loaders and manifests are fallback-only."),
+      assetReplacementSupport: "manual_required",
+      fallback: { support: "manual_required", reason: "Enemy/icon/background/effect asset wiring requires explicit scoped handoff." },
+      manualChecks: cursorArenaManualChecks("arena_asset_presentation"),
+      limitations: ["Asset replacement remains non-executable unless an existing asset contract path explicitly supports it."],
+      supportedStyleTokens: ["enemyVisibilityPreview", "iconScale", "effectScale"]
+    }
+  ];
+  return {
+    id: "cursor_arena",
+    displayName: "Cursor Arena",
+    family: "cursor_arena",
+    version: "0.7.4",
+    description: "Contract wrapper for cursor-click arena HUD, cards, feedback, and readability polish.",
+    supportedSurfaces: [...visualSurfacePickerOrder],
+    detectProject: detectCursorArenaProject,
+    getSurfaceTargets: (surfaceType) => filterTargets(targets, surfaceType),
+    getSafeScopes: (surfaceType) => cursorArenaScopeDescriptor(targets, surfaceType),
+    getStyleConfigPath: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.styleConfigPath,
+    getDirectApplyCapabilities: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.directApply ?? unsupportedDirectApply("No Cursor Arena target is registered for this surface."),
+    getFallbackCapabilities: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.fallback ?? { support: "manual_required", reason: "No Cursor Arena target is registered for this surface." },
+    getManualChecks: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.manualChecks ?? [],
+    knownLimitations: [
+      "Cursor Arena direct apply writes generated style configs only.",
+      "Scene, system, render, loader, and manifest source files are suspicious and require guarded fallback.",
+      "Economy, upgrade values, enemy HP/spawn/damage, scoring, rewards, save/progression, player/projectile systems, ads, and monetization are forbidden."
+    ]
+  };
+}
+
+function styleTarget(adapterId: "idle_monster_farm" | "generic_phaser", surfaceType: StyleSurface, targetId: string, displayName: string, ownerFiles: string[], styleConfigPath: string, generatedStyleModulePath: string, supportedStyleTokens?: string[]): VisualAdapterSurfaceTarget {
   const template = resolveVisualDirectApplyTemplate({ adapterId, surfaceType, targetId, intent: "style_config_direct_apply" });
   return {
     surfaceType,
@@ -373,7 +442,8 @@ function styleTarget(adapterId: "idle_monster_farm" | "generic_phaser", surfaceT
     assetReplacementSupport: "not_supported",
     fallback: { support: "available", reason: "Fallback task is available for unsupported source integration or unusual rendering setup." },
     manualChecks,
-    limitations: ["Direct apply is limited to known safe style config paths."]
+    limitations: adapterId === "generic_phaser" ? ["Direct apply is limited to generated config paths; owner-file hints are descriptive and fallback-only."] : ["Direct apply is limited to known safe style config paths."],
+    supportedStyleTokens
   };
 }
 
@@ -404,6 +474,101 @@ function sortPuzzleTarget(surfaceType: "slot_card" | "reward_toast", targetId: s
     ],
     limitations: limitations.length > 0 ? limitations : ["Scene source integration is fallback-only; direct apply writes generated style config only."],
     supportedStyleTokens
+  };
+}
+
+function cursorArenaTarget(surfaceType: StyleSurface, targetId: string, displayName: string, styleConfigPath: string, supportedStyleTokens: string[], previewStates: string[], limitations: string[] = []): VisualAdapterSurfaceTarget {
+  const template = resolveVisualDirectApplyTemplate({ adapterId: "cursor_arena", surfaceType, targetId, intent: "style_config_direct_apply" });
+  return {
+    surfaceType,
+    targetId,
+    displayName,
+    likelyOwnerFiles: cursorArenaOwnerFiles(surfaceType, targetId),
+    styleConfigPath,
+    previewSupport: "supported",
+    directApply: {
+      support: template ? "executable" : "fallback_only",
+      templateId: template?.templateId,
+      styleConfigPath,
+      reason: template ? "Safe Cursor Arena style config direct apply exists." : "Cursor Arena source wiring requires guarded fallback."
+    },
+    assetReplacementSupport: "not_supported",
+    fallback: { support: "available", reason: "Fallback task is available for visual-only Cursor Arena integration." },
+    manualChecks: [
+      ...cursorArenaManualChecks(targetId),
+      {
+        checkId: "cursor_arena_preview_states",
+        label: "Cursor Arena preview states checked",
+        description: `Check representative states: ${previewStates.join(", ")}.`
+      }
+    ],
+    limitations: limitations.length > 0 ? limitations : ["Direct apply writes generated style config only; source integration is fallback-only."],
+    supportedStyleTokens
+  };
+}
+
+export function detectCursorArenaProject(files: Array<{ relativePath: string; text: string }>): VisualAdapterProjectDetection {
+  const evidence: string[] = [];
+  let score = 0;
+  for (const file of files) {
+    const path = file.relativePath.replace(/\\/g, "/");
+    const lowerPath = path.toLowerCase();
+    const text = file.text.toLowerCase();
+    if (lowerPath.includes("arena") && (lowerPath.includes("scene") || text.includes("phaser.scene"))) {
+      evidence.push(`${path}: arena scene marker found.`);
+      score += 2;
+    }
+    if (lowerPath.includes("cursorattacksystem") || text.includes("cursorattacksystem")) {
+      evidence.push(`${path}: CursorAttackSystem marker found.`);
+      score += 2;
+    }
+    if (text.includes("enemy") && (text.includes("cursor") || text.includes("combo") || text.includes("hit"))) {
+      evidence.push(`${path}: cursor/enemy feedback terms found.`);
+      score += 1;
+    }
+    if (lowerPath.endsWith("package.json") && text.includes("\"phaser\"")) {
+      evidence.push(`${path}: Phaser dependency found.`);
+      score += 1;
+    }
+  }
+  const uniqueEvidence = Array.from(new Set(evidence));
+  const confidence = score >= 5 ? "high" : score >= 3 ? "medium" : score > 0 ? "low" : "unknown";
+  return {
+    detected: score >= 3,
+    confidence,
+    evidence: uniqueEvidence,
+    warnings: score > 0 && score < 3 ? ["Cursor Arena markers are possible but not strong enough for executable direct apply."] : []
+  };
+}
+
+export function buildCursorArenaVisualFallbackTask(input: { targetFile: string; targetId: string; styleConfigPath: string }): CursorArenaVisualFallbackTask {
+  return {
+    adapterId: "cursor_arena",
+    targetFile: input.targetFile,
+    targetId: input.targetId,
+    styleConfigPath: input.styleConfigPath,
+    allowedFiles: [input.styleConfigPath, input.targetFile],
+    forbiddenFiles: [
+      "economy config",
+      "upgrade value config",
+      "enemy spawn/damage/HP config",
+      "save/progression files",
+      "combat/player/projectile systems",
+      "scoring/reward logic",
+      "ad/monetization files"
+    ],
+    instructions: [
+      "Use this fallback only for visual style integration in existing Cursor Arena UI/render files.",
+      "Read values from the generated Game Polish Lab style config or generated visual module.",
+      "Do not change economy, upgrades, enemy HP, spawn rate, damage, scoring, rewards, save/progression, player/projectile systems, ads, or monetization.",
+      "Do not add player movement, projectile, shooter, helper cursor, or unrelated combat systems.",
+      "Keep feedback alpha, scale, and duration readable so enemies are not obscured."
+    ],
+    manualChecks: [
+      "HUD/card previews remain readable in compact frames",
+      "hit/miss/kill/combo feedback does not hide enemies",
+      "damage, enemy HP, spawn rate, upgrades, scoring, rewards, save/progression, player/projectile behavior are unchanged"
+    ]
   };
 }
 
@@ -488,6 +653,21 @@ function sortPuzzleManualChecks(targetId: string) {
   ];
 }
 
+function cursorArenaManualChecks(targetId: string) {
+  return [
+    {
+      checkId: "cursor_arena_visual_changed",
+      label: "Cursor Arena visual target changed",
+      description: `Open a Cursor Arena scene and confirm ${targetId} visual treatment changed as intended.`
+    },
+    {
+      checkId: "cursor_arena_rules_unchanged",
+      label: "Arena gameplay unchanged",
+      description: "Confirm click cadence, hit detection, damage, enemy HP, spawn rate, upgrades, scoring, rewards, save/progression, player/projectile systems, ads, and monetization did not change."
+    }
+  ];
+}
+
 function sortPuzzleScopeDescriptor(targets: VisualAdapterSurfaceTarget[], surfaceType?: VisualSurfaceType): VisualAdapterScopeDescriptor {
   const base = scopeDescriptor(targets, surfaceType);
   return {
@@ -509,6 +689,66 @@ function sortPuzzleScopeDescriptor(targets: VisualAdapterSurfaceTarget[], surfac
       ...base.forbidden
     ]
   };
+}
+
+function cursorArenaScopeDescriptor(targets: VisualAdapterSurfaceTarget[], surfaceType?: VisualSurfaceType): VisualAdapterScopeDescriptor {
+  const base = scopeDescriptor(targets, surfaceType);
+  return {
+    safe: base.safe,
+    suspicious: [
+      ...base.suspicious,
+      {
+        surfaceType,
+        paths: ["src/**/ArenaScene.*", "src/**/arena/**/ui/**", "src/**/arena/**/effects/**", "src/**/render*/**", "src/**/preload/**", "src/**/manifest*"],
+        reason: "Cursor Arena scene/UI/effect/bootstrap files may be visual integration points but are fallback-only."
+      }
+    ],
+    forbidden: [
+      {
+        surfaceType,
+        paths: ["src/**/economy/**", "src/**/upgrades/**", "src/**/balance*.*", "src/**/spawn*.*", "src/**/damage*.*", "src/**/enemyHp*.*", "src/**/save/**", "src/**/progression/**", "src/**/player/**", "src/**/projectile/**", "src/**/scoring/**", "src/**/rewards/**", "src/**/ads/**", "src/**/monetization/**"],
+        reason: "Cursor Arena economy, upgrades, spawn/damage/HP, save/progression, player/projectile, scoring/reward, and ad/monetization files are forbidden."
+      },
+      ...base.forbidden
+    ]
+  };
+}
+
+function genericOwnerFileHints(surfaceType: StyleSurface): string[] {
+  const common = ["selected Phaser scene files", "selected UI/render files", "selected style/config files", "selected asset manifest files"];
+  if (surfaceType === "background_readability") {
+    return ["selected Phaser scene background renderer", "selected style/config files", "selected asset manifest files"];
+  }
+  if (surfaceType === "panel" || surfaceType === "button" || surfaceType === "slot_card") {
+    return ["selected UI/render files", "selected Phaser scene files", "selected style/config files"];
+  }
+  return common;
+}
+
+function genericSupportedStyleTokens(surfaceType: StyleSurface): string[] {
+  const tokens: Record<StyleSurface, string[]> = {
+    slot_card: ["fillColor", "borderColor", "cornerRadius", "borderWidth", "shadowStrength", "selectedGlowStrength"],
+    background_readability: ["contrastOverlayColor", "contrastOverlayOpacity", "vignetteStrength", "patternOpacity", "brightness", "contrast"],
+    panel: ["fillColor", "borderColor", "cornerRadius", "shadowStrength", "glowStrength", "titleTextSize", "bodyTextSize"],
+    reward_toast: ["durationMs", "riseDistance", "sparkleScale", "textSize", "toastFillColor", "glowStrength"],
+    button: ["fillColor", "borderColor", "cornerRadius", "hoverGlowStrength", "activePressScale", "disabledOpacity"]
+  };
+  return tokens[surfaceType];
+}
+
+function cursorArenaOwnerFiles(surfaceType: StyleSurface, targetId: string): string[] {
+  if (surfaceType === "panel") {
+    return ["src/arena/ui/ArenaHud.ts", "src/arena/ui/StatusPanel.ts", "src/arena/scenes/ArenaScene.ts"];
+  }
+  if (surfaceType === "slot_card" || surfaceType === "button") {
+    return ["src/arena/ui/UpgradePanel.ts", "src/arena/ui/ShopPanel.ts", "src/arena/scenes/ArenaScene.ts"];
+  }
+  if (surfaceType === "reward_toast") {
+    return targetId === "cursor_miss_feedback"
+      ? ["src/arena/systems/CursorAttackSystem.ts", "src/arena/effects/ImpactEffectSystem.ts"]
+      : ["src/arena/effects/ImpactEffectSystem.ts", "src/arena/ui/ComboFeedback.ts"];
+  }
+  return ["src/arena/scenes/ArenaScene.ts", "src/arena/config/backgroundReadability.ts"];
 }
 
 function assetTarget(adapterId: "idle_monster_farm" | "generic_phaser", targetId: string, displayName: string, ownerFiles: string[], limitation: string): VisualAdapterSurfaceTarget {

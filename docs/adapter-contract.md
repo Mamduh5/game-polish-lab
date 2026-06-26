@@ -7,8 +7,9 @@ The current registry includes:
 - Idle Monster Farm
 - Generic Phaser
 - Sort Puzzle
+- Cursor Arena
 
-Sort Puzzle is registered in v0.71 as the first non-Monster-Farm adapter. Cursor Arena, Generic Phaser v2, and future game families are intentionally not registered yet.
+Sort Puzzle and Cursor Arena are registered v0.7 adapters. Generic Phaser v2 is an improvement to the existing `generic_phaser` adapter, not a new adapter id. Future game families are intentionally not registered yet.
 
 ## Contract Purpose
 
@@ -38,7 +39,7 @@ Generic visual surfaces remain the shared vocabulary:
 - `reward_toast`
 - `button`
 
-Each adapter maps those generic surfaces to adapter-specific targets. For example, Idle Monster Farm maps `slot_card` to `farm_slots`, while Generic Phaser maps style surfaces to a manual target selected by the user.
+Each adapter maps those generic surfaces to adapter-specific targets. For example, Idle Monster Farm maps `slot_card` to `farm_slots`, Sort Puzzle maps it to shelf/spirit targets, Cursor Arena maps it to upgrade/skin/reward cards, while Generic Phaser maps style surfaces to a manual target selected by the user.
 
 Each target records preview support, likely owner files, optional style config paths, direct-apply support, fallback support, manual checks, and limitations.
 
@@ -56,9 +57,9 @@ The contract may describe scope, but the existing scope guard remains the enforc
 
 Direct apply is allowed only when a registered direct-apply template exists and the target has a safe style config path. Direct apply remains limited to known safe style config writes and rollback-protected overwrites.
 
-Fallback tasks are for unsupported games, one-time adapter setup, unusual integration, or structural work. They are not the normal polish loop and must keep exact selected file scope.
+Fallback tasks are for unsupported games, one-time adapter setup, unusual integration, or structural work Game Polish Lab cannot safely apply itself. They are not the normal polish loop and must keep exact selected file scope.
 
-`asset_replacement` has no executable direct-apply template in v0.70. Asset contracts and contact sheets can describe and preview assets, but loader or manifest wiring remains manual or fallback-only.
+`asset_replacement` has no executable direct-apply template in v0.7. Asset contracts and contact sheets can describe and preview assets, but loader or manifest wiring remains manual or fallback-only.
 
 ## Adding Future Adapters
 
@@ -72,4 +73,4 @@ Future adapters should:
 6. Add validation tests for contract errors and limitations.
 7. Keep direct apply narrow until a safe template exists.
 
-v0.71 keeps Sort Puzzle scoped to the existing generic surfaces and safe generated config paths. It does not add Cursor Arena or broaden direct apply.
+v0.7 keeps Sort Puzzle and Cursor Arena scoped to existing generic surfaces and safe generated config paths. It does not broaden direct apply into gameplay, rules, save, economy, progression, level, solver, undo/hint, ad, player, or projectile files.

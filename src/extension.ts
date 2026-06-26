@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { addFieldNote } from "./commands/addFieldNote";
+import { annotateScreenshotVisualIssue } from "./commands/annotateScreenshotVisualIssue";
 import { checkCodexScope } from "./commands/checkCodexScope";
 import { clearCache } from "./commands/clearCache";
 import { createFinishStagePolishPlan } from "./commands/createFinishStagePolishPlan";
@@ -13,8 +14,10 @@ import { createStyleGuide } from "./commands/createStyleGuide";
 import { createTuningExperiment } from "./commands/createTuningExperiment";
 import { createTrialReport } from "./commands/createTrialReport";
 import { createVisualDiagnosisTask } from "./commands/createVisualDiagnosisTask";
+import { exportVisualTheme } from "./commands/exportVisualTheme";
 import { generateKitImplementationPrompt } from "./commands/generateKitImplementationPrompt";
 import { generateCodexPrompt } from "./commands/generateCodexPrompt";
+import { importVisualTheme } from "./commands/importVisualTheme";
 import { initializeProfile } from "./commands/initializeProfile";
 import { listPixelPolishKits } from "./commands/listPixelPolishKits";
 import { markLatestTuningResult } from "./commands/markLatestTuningResult";
@@ -59,6 +62,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.openRollbackHistory", () => openRollbackHistory(context)),
     vscode.commands.registerCommand("gamePolishLab.openVisualTuningDashboard", () => openVisualTuningDashboard(context)),
     vscode.commands.registerCommand("gamePolishLab.tuneVisualSurface", (initialState) => tuneVisualSurface(context, initialState)),
+    vscode.commands.registerCommand("gamePolishLab.exportVisualTheme", exportVisualTheme),
+    vscode.commands.registerCommand("gamePolishLab.importVisualTheme", importVisualTheme),
+    vscode.commands.registerCommand("gamePolishLab.annotateScreenshotVisualIssue", () => annotateScreenshotVisualIssue(context)),
     vscode.commands.registerCommand("gamePolishLab.refreshAssetContracts", refreshAssetContracts),
     vscode.commands.registerCommand("gamePolishLab.markLatestTuningResult", markLatestTuningResult),
     vscode.commands.registerCommand("gamePolishLab.addFieldNote", addFieldNote)

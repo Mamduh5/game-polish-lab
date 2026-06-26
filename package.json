@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.7.1",
+  "version": "0.7.9",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"
@@ -36,6 +36,9 @@
     "onCommand:gamePolishLab.openAssetContactSheet",
     "onCommand:gamePolishLab.openVisualTuningDashboard",
     "onCommand:gamePolishLab.tuneVisualSurface",
+    "onCommand:gamePolishLab.exportVisualTheme",
+    "onCommand:gamePolishLab.importVisualTheme",
+    "onCommand:gamePolishLab.annotateScreenshotVisualIssue",
     "onCommand:gamePolishLab.refreshAssetContracts",
     "onCommand:gamePolishLab.addFieldNote",
     "onCommand:gamePolishLab.markLatestTuningResult"
@@ -142,6 +145,18 @@
       {
         "command": "gamePolishLab.tuneVisualSurface",
         "title": "Game Polish Lab: Tune Visual Surface"
+      },
+      {
+        "command": "gamePolishLab.exportVisualTheme",
+        "title": "Game Polish Lab: Export Visual Theme"
+      },
+      {
+        "command": "gamePolishLab.importVisualTheme",
+        "title": "Game Polish Lab: Import Visual Theme"
+      },
+      {
+        "command": "gamePolishLab.annotateScreenshotVisualIssue",
+        "title": "Game Polish Lab: Annotate Screenshot Visual Issue"
       },
       {
         "command": "gamePolishLab.refreshAssetContracts",

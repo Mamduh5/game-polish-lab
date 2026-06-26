@@ -31,6 +31,8 @@ Sort Puzzle uses existing generic surfaces:
 
 Representative preview metadata covers empty shelf, partially filled shelf, full shelf, selected source shelf, selected target shelf, invalid target feedback, completed shelf glow, and spirit scale/offset inside shelf slots.
 
+v0.72 stabilization makes selected source/target preview metadata explicit, keeps invalid move feedback presentation-only, and records completed shelf glow plus spirit scale/offset tokens in adapter metadata.
+
 ## Generated Config Paths
 
 Safe generated style configs are:
@@ -70,7 +72,7 @@ Fallback tasks must not edit:
 - Full shelf renders.
 - Selected source shelf is readable.
 - Selected target shelf is readable.
-- Invalid target feedback appears without changing move validity.
+- Invalid target feedback appears without changing move validity or calling move-validation logic.
 - Completed shelf glow appears without changing completion rules.
 - Spirit scale and offsets stay inside shelf/slot bounds.
 - Valid/invalid move behavior is unchanged.

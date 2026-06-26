@@ -1,7 +1,7 @@
 import { VisualDirectApplyAdapterId, VisualDirectApplyManualCheck } from "./visualDirectApplyTemplate";
 import { VisualSurfaceType } from "./visualSurface";
 
-export type VisualGameAdapterFamily = "idle_monster_farm" | "generic_phaser" | "sort_puzzle";
+export type VisualGameAdapterFamily = "idle_monster_farm" | "generic_phaser" | "sort_puzzle" | "cursor_arena";
 export type VisualAdapterPreviewSupport = "supported" | "not_supported";
 export type VisualAdapterDirectApplySupport = "executable" | "config_only" | "fallback_only" | "unsupported";
 export type VisualAdapterAssetReplacementSupport = "supported" | "manual_required" | "not_supported";
