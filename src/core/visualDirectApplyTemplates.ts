@@ -132,13 +132,13 @@ export function buildVisualDirectApplyPlan(input: BuildVisualDirectApplyPlanInpu
   const blockingReasons: string[] = [];
   const warnings = visualScopeGuardWarnings(scopeGuardResult);
   if (!template) {
-    blockingReasons.push("No executable direct apply template is registered for this adapter/surface/target.");
+    blockingReasons.push(`Direct apply unavailable for ${input.adapterId}/${input.surfaceType}${input.targetId ? `/${input.targetId}` : ""}. Use tuning config or a scoped fallback task instead.`);
   }
   if (scopeGuardResult.recommendedAction === "block") {
-    blockingReasons.push("Scope guard blocked at least one candidate path.");
+    blockingReasons.push(`Scope guard blocked direct apply. Remove forbidden paths before writing: ${scopeGuardResult.classifiedFiles.filter((file) => file.classification === "forbidden").map((file) => file.path).join(", ") || "none listed"}.`);
   }
   if (scopeGuardResult.recommendedAction === "warn") {
-    blockingReasons.push("Scope guard found suspicious or unknown paths; direct apply will not continue without a safer template.");
+    blockingReasons.push(`Scope guard found suspicious or unknown paths. Direct apply stays disabled until the path list is limited to known safe visual config files: ${scopeGuardResult.classifiedFiles.filter((file) => file.classification === "suspicious" || file.classification === "unknown").map((file) => file.path).join(", ") || "none listed"}.`);
   }
   const executable = Boolean(template) && blockingReasons.length === 0 && writePaths.length > 0;
   const planId = `${input.adapterId}:${input.surfaceType}:${safeId(input.targetId ?? input.targetLabel ?? "target")}:${input.intent ?? "style_config_direct_apply"}`;
@@ -185,7 +185,7 @@ export function executeVisualDirectApplyPlan(workspaceRoot: string, plan: Visual
         operationType: planStep.operationType,
         paths: planStep.paths,
         status: planStep.operationType === "run_scope_guard" ? "completed" : "blocked",
-        message: planStep.operationType === "run_scope_guard" ? "Scope guard was evaluated." : "Plan is not executable."
+        message: planStep.operationType === "run_scope_guard" ? "Scope guard was evaluated." : "Direct apply is disabled for this plan; review errors or generate a scoped fallback task."
       })),
       manualChecks: plan.manualChecks,
       warnings: plan.warnings,
@@ -203,7 +203,7 @@ export function executeVisualDirectApplyPlan(workspaceRoot: string, plan: Visual
   for (const write of writes) {
     const relativePath = normalizeRelativePath(write.relativePath);
     if (!plannedWritePaths.has(relativePath)) {
-      errors.push(`Write path was not planned: ${relativePath}`);
+      errors.push(`Write path was not in the approved direct-apply plan: ${relativePath}`);
       continue;
     }
     const resolvedPath = resolveWorkspacePath(workspaceRoot, relativePath);
@@ -212,7 +212,7 @@ export function executeVisualDirectApplyPlan(workspaceRoot: string, plan: Visual
       continue;
     }
     if (!relativePath.startsWith(".game-polish-lab/")) {
-      errors.push(`Direct apply runner only creates/writes lab-owned config paths: ${relativePath}`);
+      errors.push(`Direct apply can only write Game Polish Lab-owned config paths for this template: ${relativePath}`);
       continue;
     }
     const existing = fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile();

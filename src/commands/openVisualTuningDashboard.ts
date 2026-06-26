@@ -635,7 +635,7 @@ function summaryMetric(label: string, value: string): string {
 function devOverlaySummary(model: VisualTuningDashboardModel): string {
   const status = model.summary.devOverlay;
   if (!status || !status.exists) {
-    return "missing";
+    return "not generated";
   }
   return status.generated
     ? `generated ${status.generatedFileCount}/${status.fileCount}`

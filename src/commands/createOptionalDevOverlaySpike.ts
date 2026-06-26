@@ -15,20 +15,20 @@ export async function createOptionalDevOverlaySpike(): Promise<void> {
 
   try {
     const approval = await vscode.window.showWarningMessage(
-      "Create experimental developer-only Game Polish Lab overlay files under .game-polish-lab/dev-overlay? This does not inject game entry files and remains inert unless the game is opened with ?polish=1.",
+      "Create experimental developer-only Game Polish Lab overlay files under .game-polish-lab/dev-overlay? This will not inject game entry files, and the generated runtime stays inert unless the game is opened with ?polish=1.",
       { modal: true },
       approvalLabel
     );
     if (approval !== approvalLabel) {
       logInfo("optional dev overlay spike cancelled before writing files.");
-      vscode.window.showInformationMessage("Game Polish Lab dev overlay spike cancelled. No files were written.");
+      vscode.window.showInformationMessage("Game Polish Lab dev overlay creation cancelled. No files were written.");
       return;
     }
 
     const result = createOptionalPolishDevOverlaySpike(folder.uri.fsPath, true);
     if (!result.result?.ok) {
       const message = result.result?.errors.join(" ") || result.plan?.blockingReasons.join(" ") || "Dev overlay spike was blocked.";
-      vscode.window.showErrorMessage(`Game Polish Lab dev overlay spike blocked: ${message}`);
+      vscode.window.showErrorMessage(`Game Polish Lab dev overlay creation blocked: ${message}`);
       return;
     }
 

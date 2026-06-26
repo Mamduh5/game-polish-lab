@@ -46,7 +46,7 @@ export async function openAssetContactSheet(context: vscode.ExtensionContext): P
     });
   } catch (error) {
     logError("open asset contact sheet failed:", error);
-    vscode.window.showErrorMessage(`Failed to open asset contact sheet: ${errorToMessage(error)}`);
+    vscode.window.showErrorMessage(`Failed to open asset contact sheet. Refresh asset contracts first if the contract file is missing or malformed. ${errorToMessage(error)}`);
   } finally {
     logCommandEnd("gamePolishLab.openAssetContactSheet");
   }

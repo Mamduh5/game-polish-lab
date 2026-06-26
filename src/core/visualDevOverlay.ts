@@ -77,14 +77,14 @@ export function buildPolishDevOverlayInstallPlan(input: { candidatePaths?: strin
 
   for (const candidatePath of candidatePaths) {
     if (!isSafeDevOverlayPath(candidatePath)) {
-      blockingReasons.push(`Dev overlay spike may only write under ${polishDevOverlayRelativeDir}/: ${candidatePath}`);
+      blockingReasons.push(`Dev overlay install is limited to ${polishDevOverlayRelativeDir}/. Remove this path from the plan: ${candidatePath}`);
     }
   }
   if (scopeGuardResult.recommendedAction === "block") {
-    blockingReasons.push("Scope guard blocked at least one candidate path.");
+    blockingReasons.push(`Scope guard blocked the dev overlay plan. Forbidden paths: ${scopeGuardResult.classifiedFiles.filter((file) => file.classification === "forbidden").map((file) => file.path).join(", ") || "none listed"}.`);
   }
   if (scopeGuardResult.recommendedAction === "warn") {
-    blockingReasons.push("Scope guard found suspicious or unknown paths; dev overlay generation will not continue.");
+    blockingReasons.push(`Scope guard found suspicious or unknown paths. Dev overlay generation only accepts generated files under ${polishDevOverlayRelativeDir}/.`);
   }
 
   return {
@@ -129,11 +129,11 @@ export function executePolishDevOverlayInstallPlan(workspaceRoot: string, plan: 
   for (const file of plan.files) {
     const relativePath = normalizeVisualScopePath(file.relativePath);
     if (!plannedWritePaths.has(relativePath)) {
-      errors.push(`Write path was not planned: ${relativePath}`);
+      errors.push(`Write path was not in the approved dev overlay plan: ${relativePath}`);
       continue;
     }
     if (!isSafeDevOverlayPath(relativePath)) {
-      errors.push(`Dev overlay runner only writes ${polishDevOverlayRelativeDir}/ files: ${relativePath}`);
+      errors.push(`Dev overlay generation can only write ${polishDevOverlayRelativeDir}/ files: ${relativePath}`);
       continue;
     }
     const resolvedPath = resolveWorkspacePath(workspaceRoot, relativePath);

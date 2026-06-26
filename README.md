@@ -1,8 +1,12 @@
 # Game Polish Lab
 
-Game Polish Lab is a VS Code extension for solo game developers who want safer, stricter polish workflows for pixel-art Phaser games. It inspects the opened workspace, creates local polish profiles, writes audits, creates task and kit files, and generates Codex-safe prompts.
+Game Polish Lab is a VS Code extension for solo game developers who want safer, stricter polish workflows for pixel-art Phaser games. It inspects the opened workspace, creates local polish profiles, writes audits, creates task and kit files, opens visual polish webviews, and generates Codex-safe prompts.
 
-It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or provide a dashboard webview.
+It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or make the optional in-game dev overlay part of the normal polish loop.
+
+## Current v0.6 Guide
+
+For the stabilized v0.6 workflow, including the Visual Tuning Dashboard, preview renderer, style presets, asset contracts/contact sheets, scope guard, rollback history, direct apply templates, and optional `?polish=1` dev overlay, see [`docs/v0.6-stabilization.md`](docs/v0.6-stabilization.md).
 
 ## What v0.4.2 Does
 
@@ -250,6 +254,13 @@ Each kit creates:
 - `Game Polish Lab: Create Visual Diagnosis Task` creates an inspect-only visual diagnosis task and prompt.
 - `Game Polish Lab: Create Tuning Experiment` creates one rollback-safe visual tuning experiment from a diagnosis.
 - `Game Polish Lab: Create Rollback Prompt` creates a rollback or partial-rollback Codex prompt.
+- `Game Polish Lab: Open Rollback History` opens safe visual rollback snapshots.
+- `Game Polish Lab: Open Asset Contact Sheet` previews existing asset contracts.
+- `Game Polish Lab: Open Visual Tuning Dashboard` opens the v0.6 visual polish console.
+- `Game Polish Lab: Tune Visual Surface` opens the preview/tuning workflow for supported surfaces.
+- `Game Polish Lab: Refresh Asset Contracts` refreshes `.game-polish-lab/assets/asset-contracts.json`.
+- `Game Polish Lab: Mark Latest Tuning Result` records the latest tuning result.
+- `Game Polish Lab: Create Optional In-game Dev Overlay Spike` generates developer-only overlay files after explicit approval.
 - `Game Polish Lab: Add Field Note` records project-specific lessons for future prompts.
 
 ## Visual Polish Contracts
@@ -461,10 +472,19 @@ Scope checks do not full-scan the workspace. They use `git diff --name-only`; if
 
 In restricted Codex shell execution on this Windows machine, standalone `npm run compile` can fail before TypeScript runs with `EPERM: operation not permitted, lstat 'C:\\Users\\mamdu'`. The same compile command passes in normal approved execution and through `npm test`. Extension scanning is guarded to use the opened workspace folder and skip files outside that workspace.
 
+## Current Limitations
+
+- No executable direct apply template exists for `asset_replacement`.
+- The optional dev overlay is experimental, manually integrated, and gated by `?polish=1`.
+- Generic Phaser support is safe-config-first, not full automatic game integration.
+- Direct applies are limited to known safe style config paths.
+- Structural gameplay/layout changes are intentionally out of scope.
+- Manual VS Code webview/dashboard testing may still be needed after automated validation.
+
 ## v0.2 Limitations
 
 - Phaser is the only implemented engine adapter.
-- There is no dashboard webview.
+- Early v0.2 builds had no dashboard webview; current v0.6 builds include the Visual Tuning Dashboard.
 - Kit source config generation is opt-in and creates small template files only.
 - Audits and project-type suggestions are static heuristics, not runtime validators.
 - Scope checks use local git diff output and task JSON path lists.

@@ -468,7 +468,8 @@ const forbiddenDirectApplyPlan = buildVisualDirectApplyPlan({
 });
 assert.strictEqual(forbiddenDirectApplyPlan.executable, false);
 assert.strictEqual(forbiddenDirectApplyPlan.scopeGuardResult.recommendedAction, "block");
-assert.ok(forbiddenDirectApplyPlan.blockingReasons.some((reason) => reason.includes("Scope guard blocked")));
+assert.ok(forbiddenDirectApplyPlan.blockingReasons.some((reason) => reason.includes("Scope guard blocked direct apply")));
+assert.ok(forbiddenDirectApplyPlan.blockingReasons.some((reason) => reason.includes("src/systems/saveSystem.ts")));
 
 const suspiciousDirectApplyPlan = buildVisualDirectApplyPlan({
   adapterId: "generic_phaser",
@@ -479,6 +480,7 @@ const suspiciousDirectApplyPlan = buildVisualDirectApplyPlan({
 });
 assert.strictEqual(suspiciousDirectApplyPlan.executable, false);
 assert.strictEqual(suspiciousDirectApplyPlan.scopeGuardResult.recommendedAction, "warn");
+assert.ok(suspiciousDirectApplyPlan.blockingReasons.some((reason) => reason.includes("Direct apply stays disabled")));
 assert.ok(suspiciousDirectApplyPlan.fallbackAvailable);
 
 const fallbackTask = buildVisualDirectApplyFallbackTask(suspiciousDirectApplyPlan);
@@ -511,7 +513,7 @@ try {
     text: "unsafe"
   }], new Date("2026-06-26T04:00:00.000Z"));
   assert.strictEqual(runnerResult.ok, false);
-  assert.ok(runnerResult.errors.some((error) => error.includes("not planned")));
+  assert.ok(runnerResult.errors.some((error) => error.includes("not in the approved direct-apply plan")));
   assert.strictEqual(fs.existsSync(path.join(unplannedWriteWorkspace, "src", "systems", "saveSystem.ts")), false);
 } finally {
   cleanupTempWorkspace(unplannedWriteWorkspace);
@@ -549,7 +551,7 @@ const forbiddenDevOverlayPlan = buildPolishDevOverlayInstallPlan({
 });
 assert.strictEqual(forbiddenDevOverlayPlan.executable, false);
 assert.strictEqual(forbiddenDevOverlayPlan.scopeGuardResult.recommendedAction, "block");
-assert.ok(forbiddenDevOverlayPlan.blockingReasons.some((reason) => reason.includes("only write under")));
+assert.ok(forbiddenDevOverlayPlan.blockingReasons.some((reason) => reason.includes("limited to .game-polish-lab/dev-overlay")));
 
 const unknownDevOverlayPlan = buildPolishDevOverlayInstallPlan({
   candidatePaths: ["tools/custom-overlay.txt"]
@@ -1769,7 +1771,24 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.8");
+assert.strictEqual(packageJson.version, "0.6.9");
+const packageLockJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8")) as { version: string; packages: Record<string, { version?: string }> };
+assert.strictEqual(packageLockJson.version, "0.6.9");
+assert.strictEqual(packageLockJson.packages[""].version, "0.6.9");
+const requiredV06Commands = [
+  "gamePolishLab.openVisualTuningDashboard",
+  "gamePolishLab.tuneVisualSurface",
+  "gamePolishLab.refreshAssetContracts",
+  "gamePolishLab.openAssetContactSheet",
+  "gamePolishLab.checkCodexScope",
+  "gamePolishLab.openRollbackHistory",
+  "gamePolishLab.markLatestTuningResult",
+  "gamePolishLab.createOptionalDevOverlaySpike"
+];
+for (const commandId of requiredV06Commands) {
+  assert.ok(packageJson.activationEvents.includes(`onCommand:${commandId}`), `missing activation event for ${commandId}`);
+  assert.ok(packageJson.contributes.commands.some((command) => command.command === commandId), `missing command contribution for ${commandId}`);
+}
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.createOptionalDevOverlaySpike"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openAssetContactSheet"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openRollbackHistory"));
@@ -1780,6 +1799,40 @@ assert.ok(packageJson.contributes.commands.some((command) => command.command ===
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.refreshAssetContracts" && command.title === "Game Polish Lab: Refresh Asset Contracts"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.createOptionalDevOverlaySpike" && command.title === "Game Polish Lab: Create Optional In-game Dev Overlay Spike"));
+const stabilizationGuide = fs.readFileSync(path.join(process.cwd(), "docs", "v0.6-stabilization.md"), "utf8");
+for (const requiredSection of [
+  "# Game Polish Lab v0.6 User Guide",
+  "## v0.6 Features",
+  "## Dashboard",
+  "## Preview Renderer",
+  "## Style Presets",
+  "## Asset Contracts and Contact Sheets",
+  "## Scope Guard",
+  "## Rollback History",
+  "## Direct Apply Templates",
+  "## Optional Dev Overlay",
+  "## Fallback Tasks",
+  "## Known Limitations"
+]) {
+  assert.ok(stabilizationGuide.includes(requiredSection), `missing guide section ${requiredSection}`);
+}
+for (const limitation of [
+  "No executable direct apply template exists for `asset_replacement`",
+  "dev overlay is experimental",
+  "Manual VS Code webview/dashboard testing may still be needed",
+  "Generic Phaser support is safe-config-first",
+  "Direct applies are limited to known safe style config paths",
+  "Structural gameplay/layout changes are intentionally out of scope"
+]) {
+  assert.ok(stabilizationGuide.includes(limitation), `missing limitation ${limitation}`);
+}
+assert.ok(stabilizationGuide.includes("?polish=1"));
+assert.ok(stabilizationGuide.includes("Choose a visual surface"));
+assert.ok(stabilizationGuide.includes("Direct apply templates are intentionally narrow"));
+const readmeText = fs.readFileSync(path.join(process.cwd(), "README.md"), "utf8");
+assert.ok(readmeText.includes("docs/v0.6-stabilization.md"));
+assert.ok(readmeText.includes("Current Limitations"));
+assert.ok(!readmeText.includes("or provide a dashboard webview"));
 const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
 assert.ok(tuneVisualSurfaceSource.includes("stylePresetLibrary: visualPresetLibrary"));
 assert.ok(tuneVisualSurfaceSource.includes("presetDescription"));
@@ -1935,6 +1988,8 @@ const disconnectedPanelRow = buildDashboardRow(disconnectedIdlePanelSurface, att
 assert.strictEqual(disconnectedPanelRow.appliedStatus, "config_only");
 assert.strictEqual(disconnectedPanelRow.actions.directApply.enabled, false);
 assert.strictEqual(disconnectedPanelRow.actions.generateFallbackTask.enabled, true);
+assert.ok(disconnectedPanelRow.actions.directApply.reason?.includes("not connected"));
+assert.notStrictEqual(disconnectedPanelRow.appliedStatus, "fallback_ready");
 
 const invalidButtonSurface = {
   ...genericButtonSurface,
@@ -1961,7 +2016,12 @@ const unsupportedAssetSurface = {
   fallbackTaskCount: 0,
   scopeFiles: []
 };
-assert.strictEqual(buildDashboardRow(unsupportedAssetSurface, attemptIndex).appliedStatus, "unsupported");
+const unsupportedAssetRow = buildDashboardRow(unsupportedAssetSurface, attemptIndex);
+assert.strictEqual(unsupportedAssetRow.appliedStatus, "unsupported");
+assert.strictEqual(unsupportedAssetRow.directApplyTemplate.available, false);
+assert.strictEqual(unsupportedAssetRow.actions.directApply.enabled, false);
+assert.strictEqual(unsupportedAssetRow.actions.generateFallbackTask.enabled, true);
+assert.notStrictEqual(unsupportedAssetRow.appliedStatus, "fallback_ready");
 
 const unknownSurface = {
   ...connectedIdleSlotSurface,
@@ -2054,6 +2114,7 @@ const dashboardWithoutContactSheet = buildVisualTuningDashboardModel({
   }
 });
 assert.strictEqual(dashboardWithoutContactSheet.summary.assetContactSheetAvailable, false);
+assert.strictEqual(dashboardWithoutContactSheet.summary.devOverlay, undefined);
 
 const vagueGenericFallback = buildGenericFallbackTask({
   surfaceType: "panel",

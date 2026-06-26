@@ -87,7 +87,7 @@ function renderRollbackHistoryHtml(snapshots: VisualRollbackSnapshot[], warnings
 
 function summarizeRestoreResult(result: VisualRollbackRestoreResult): string {
   const parts = [
-    `Rollback ${result.snapshotId}: ${result.status}.`,
+    `Rollback ${result.snapshotId}: ${result.status}. Safe visual files restore automatically; guarded files remain skipped or blocked.`,
     `restored ${result.restoredFiles.length}`,
     `skipped ${result.skippedFiles.length}`,
     `blocked ${result.blockedFiles.length}`
