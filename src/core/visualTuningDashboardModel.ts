@@ -86,7 +86,8 @@ export function buildVisualTuningDashboardModel(input: BuildDashboardInput): Vis
       assetContractPath: input.assetContracts?.path,
       assetContractStatus: input.assetContracts?.status ?? "missing",
       assetContractStatusCounts: input.assetContracts?.statusCounts ?? emptyAssetContractStatusCounts(),
-      assetContractWarningCount: input.assetContracts?.warningCount ?? 0
+      assetContractWarningCount: input.assetContracts?.warningCount ?? 0,
+      assetContactSheetAvailable: Boolean(input.assetContracts && input.assetContracts.status === "valid" && input.assetContracts.statusCounts.total > 0)
     },
     fieldNotes,
     rows,
@@ -212,6 +213,7 @@ export function dashboardManualChecklist(): string[] {
     "Scope Check shows allowed/suspicious/forbidden status without edits",
     "asset contract summary shows missing/valid/malformed status without building contact sheets",
     "Refresh Asset Contracts writes only .game-polish-lab/assets/asset-contracts.json",
+    "View Asset Contact Sheet opens a preview-only webview from existing contracts",
     "Mark Latest Result uses existing v0.59 flow",
     "no gameplay/save/economy/progression/ad files changed"
   ];

@@ -82,6 +82,11 @@ import {
   writeVisualAssetContractFileSync
 } from "../core/visualAssetContracts";
 import {
+  buildVisualAssetContactSheetFromContractFile,
+  buildVisualAssetContactSheetFromText,
+  resolveContactSheetAssetPreviewPath
+} from "../core/visualAssetContactSheet";
+import {
   backgroundReadabilityStyleConfigRelativePath,
   buildBackgroundReadabilityStyleConfig,
   buildButtonStyleConfig,
@@ -538,6 +543,123 @@ try {
   assert.strictEqual(written, formatVisualAssetContractFile(generatedAssetContracts));
 } finally {
   fs.rmSync(tempAssetContractRoot, { recursive: true, force: true });
+}
+
+assert.strictEqual(buildVisualAssetContactSheetFromText("D:/sample", undefined, new Date("2026-06-26T01:00:00.000Z")).state, "empty");
+const malformedContactSheet = buildVisualAssetContactSheetFromText("D:/sample", "{ nope", new Date("2026-06-26T01:00:00.000Z"));
+assert.strictEqual(malformedContactSheet.state, "error");
+assert.strictEqual(malformedContactSheet.sourceStatus, "malformed");
+assert.ok(malformedContactSheet.warnings.some((warning) => warning.includes("invalid JSON")));
+
+const tempContactSheetRoot = fs.mkdtempSync(path.join(process.cwd(), ".tmp-contact-sheet-"));
+try {
+  fs.mkdirSync(path.join(tempContactSheetRoot, "src", "assets", "monsters"), { recursive: true });
+  fs.mkdirSync(path.join(tempContactSheetRoot, "src", "assets", "rewards"), { recursive: true });
+  fs.writeFileSync(path.join(tempContactSheetRoot, "src", "assets", "monsters", "sprout.png"), opaquePng);
+  const contactSheetContract = {
+    schemaVersion: 1 as const,
+    generatedBy: "game-polish-lab" as const,
+    updatedAt: "2026-06-26T01:00:00.000Z",
+    contracts: [
+      {
+        contractId: "z-last",
+        adapterId: "generic_phaser.assets",
+        targetSurfaceType: "background_readability" as const,
+        targetId: "background",
+        targetLabel: "Background Assets",
+        slots: [
+          {
+            assetSlotId: "backdrop",
+            expectedGlob: "src/assets/backgrounds/*.{png,webp}",
+            expectedWidth: 960,
+            expectedHeight: 540,
+            expectedFormats: ["PNG" as const, "WebP" as const],
+            transparencyRequirement: "optional" as const,
+            loaderHint: "unknown" as const,
+            validation: { status: "unknown" as const, warnings: [], errors: [] }
+          }
+        ]
+      },
+      {
+        contractId: "a-first",
+        adapterId: "idle_monster_farm.assets",
+        targetSurfaceType: "asset_replacement" as const,
+        targetId: "assets",
+        targetLabel: "Monster Farm Assets",
+        slots: [
+          {
+            assetSlotId: "slot_frame",
+            label: "Slot Frame",
+            expectedPath: "src/assets/monsters/missing-frame.png",
+            expectedWidth: 4,
+            expectedHeight: 4,
+            expectedFormat: "PNG" as const,
+            transparencyRequirement: "required" as const,
+            visibleBoundsRequired: true,
+            loaderHint: "manifest" as const,
+            validation: { status: "missing" as const, warnings: ["frame warning"], errors: ["frame missing"] }
+          },
+          {
+            assetSlotId: "monster_art",
+            label: "Monster Art",
+            expectedPath: "src/assets/monsters/sprout.png",
+            expectedWidth: 4,
+            expectedHeight: 4,
+            expectedFormat: "PNG" as const,
+            transparencyRequirement: "required" as const,
+            visibleBoundsRequired: true,
+            loaderHint: "manifest" as const,
+            validation: { status: "valid" as const, warnings: ["readability note"], errors: [] }
+          },
+          {
+            assetSlotId: "reward_icon",
+            label: "Reward Icon",
+            expectedPath: "src/assets/rewards/coin.png",
+            expectedWidth: 64,
+            expectedHeight: 64,
+            expectedFormats: ["PNG" as const, "WebP" as const],
+            transparencyRequirement: "required" as const,
+            visibleBoundsRequired: true,
+            loaderHint: "manual_required" as const,
+            validation: { status: "missing" as const, warnings: [], errors: ["reward missing"] }
+          }
+        ]
+      }
+    ]
+  };
+  const contactSheet = buildVisualAssetContactSheetFromContractFile(tempContactSheetRoot, contactSheetContract, {
+    generatedAt: new Date("2026-06-26T01:00:00.000Z"),
+    sourceStatus: "valid",
+    sourceContractPath: ".game-polish-lab/assets/asset-contracts.json"
+  });
+  assert.strictEqual(contactSheet.schemaVersion, "visual-asset-contact-sheet/v1");
+  assert.strictEqual(contactSheet.state, "ready");
+  assert.deepStrictEqual(contactSheet.groups.map((group) => group.adapterId), ["generic_phaser.assets", "idle_monster_farm.assets"]);
+  assert.deepStrictEqual(contactSheet.groups.map((group) => group.contractId), ["z-last", "a-first"]);
+  assert.deepStrictEqual(contactSheet.groups[1].items.map((item) => item.assetSlotId), ["monster_art", "reward_icon", "slot_frame"]);
+  const monsterContactItem = contactSheet.groups[1].items.find((item) => item.assetSlotId === "monster_art")!;
+  assert.strictEqual(monsterContactItem.assetExists, true);
+  assert.strictEqual(monsterContactItem.actualWidth, 4);
+  assert.strictEqual(monsterContactItem.actualHeight, 4);
+  assert.strictEqual(monsterContactItem.format, "PNG");
+  assert.strictEqual(monsterContactItem.transparencyStatus, "has_alpha");
+  assert.ok(monsterContactItem.warnings.includes("readability note"));
+  assert.ok(monsterContactItem.mockupContexts.some((context) => context.type === "raw_asset"));
+  assert.ok(monsterContactItem.mockupContexts.some((context) => context.type === "slot_card"));
+  const missingFrameContactItem = contactSheet.groups[1].items.find((item) => item.assetSlotId === "slot_frame")!;
+  assert.strictEqual(missingFrameContactItem.assetExists, false);
+  assert.strictEqual(missingFrameContactItem.validationStatus, "missing");
+  assert.ok(missingFrameContactItem.warnings.includes("frame warning"));
+  assert.ok(missingFrameContactItem.errors.includes("frame missing"));
+  assert.ok(missingFrameContactItem.mockupContexts.some((context) => context.type === "slot_card"));
+  const rewardContactItem = contactSheet.groups[1].items.find((item) => item.assetSlotId === "reward_icon")!;
+  assert.ok(rewardContactItem.mockupContexts.some((context) => context.type === "reward_icon"));
+  const backgroundContactItem = contactSheet.groups[0].items[0];
+  assert.deepStrictEqual(backgroundContactItem.mockupContexts.map((context) => context.type), ["raw_asset"]);
+  assert.strictEqual(resolveContactSheetAssetPreviewPath(tempContactSheetRoot, "src/assets/monsters/sprout.png")?.endsWith(path.join("src", "assets", "monsters", "sprout.png")), true);
+  assert.strictEqual(resolveContactSheetAssetPreviewPath(tempContactSheetRoot, "../outside.png"), undefined);
+} finally {
+  fs.rmSync(tempContactSheetRoot, { recursive: true, force: true });
 }
 
 assert.deepStrictEqual(panelStylePresets.map((preset) => preset.name), [
@@ -1141,9 +1263,11 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.3");
+assert.strictEqual(packageJson.version, "0.6.4");
+assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openAssetContactSheet"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.refreshAssetContracts"));
+assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openAssetContactSheet" && command.title === "Game Polish Lab: Open Asset Contact Sheet"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.refreshAssetContracts" && command.title === "Game Polish Lab: Refresh Asset Contracts"));
 const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
@@ -1368,16 +1492,35 @@ assert.strictEqual(dashboardModel.summary.assetContractStatus, "valid");
 assert.strictEqual(dashboardModel.summary.assetContractStatusCounts.total, 5);
 assert.strictEqual(dashboardModel.summary.assetContractStatusCounts.valid, 1);
 assert.strictEqual(dashboardModel.summary.assetContractWarningCount, 3);
+assert.strictEqual(dashboardModel.summary.assetContactSheetAvailable, true);
 assert.strictEqual(dashboardModel.fieldNotes.fieldNotesPath, ".game-polish-lab/field-notes.md");
 assert.ok(dashboardModel.fieldNotes.knownBad.some((note) => note.includes("Magic Glow")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard opens without writing files")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("asset contract summary")));
+assert.ok(dashboardManualChecklist().some((item) => item.includes("Asset Contact Sheet")));
 assert.strictEqual(getVisualSurfaceRecipes().length, 5);
 assert.deepStrictEqual(visualSurfacePickerOrder, ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"]);
 assert.ok(dashboardModel.rows.some((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "slot_card"));
 assert.ok(dashboardModel.rows.some((row) => row.adapterId === "generic_phaser" && row.surfaceType === "button"));
 assert.ok(genericButtonRow.scopeSummary.allowedFiles.includes(genericStyleConfigRelativePath("button")));
 assert.ok(genericButtonRow.scopeSummary.forbiddenFiles.includes("src/ui/ButtonView.ts") || genericButtonRow.scopeSummary.suspiciousFiles.includes("src/ui/ButtonView.ts"));
+
+const dashboardWithoutContactSheet = buildVisualTuningDashboardModel({
+  workspaceFolder: "D:/sample",
+  generatedAt: new Date("2026-06-25T03:00:00.000Z"),
+  phaserDetected: true,
+  detectedAdapter: "idle_monster_farm",
+  adapterConfidence: "high",
+  surfaces: [connectedIdleSlotSurface],
+  attemptIndex,
+  assetContracts: {
+    status: "missing",
+    path: ".game-polish-lab/assets/asset-contracts.json",
+    statusCounts: { valid: 0, warning: 0, invalid: 0, missing: 0, unknown: 0, total: 0 },
+    warningCount: 0
+  }
+});
+assert.strictEqual(dashboardWithoutContactSheet.summary.assetContactSheetAvailable, false);
 
 const vagueGenericFallback = buildGenericFallbackTask({
   surfaceType: "panel",

@@ -73,6 +73,7 @@ export interface VisualTuningProjectSummary {
   assetContractStatus: "missing" | "valid" | "malformed";
   assetContractStatusCounts: VisualAssetContractStatusCounts;
   assetContractWarningCount: number;
+  assetContactSheetAvailable: boolean;
 }
 
 export interface VisualTuningFieldNoteSummary {
