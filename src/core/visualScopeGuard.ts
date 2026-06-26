@@ -25,6 +25,7 @@ const forbiddenRules: PathRule[] = [
   blocked("quest_reward_file", "Quest state, quest data, and quest reward files are outside visual polish scope.", (path) => includesAny(path, ["/state/quest", "/systems/quest", "/data/quest", "queststate", "questreward"])),
   blocked("ad_or_sdk_file", "Ad, monetization, analytics, and SDK files are outside visual polish scope.", (path) => includesAny(path, ["/ads", "/ad/", "admob", "rewardedad", "rewarded-ad", "rewarded_ad", "monetization", "analytics", "sdk"])),
   blocked("level_data_file", "Level data and gameplay rules are outside visual polish scope.", (path) => includesAny(path, ["leveldata", "level-data", "/levels", "spiritSortLevels", "gameplay", "/rules", "rules.ts", "rules.js"])),
+  blocked("sort_puzzle_rule_file", "Sort Puzzle rules, solvers, validation, undo, and hint logic are outside visual polish scope.", (path) => includesAny(path, ["sortrules", "/solver", "sortsolver", "movevalidation", "validmove", "undosystem", "hintsystem"])),
   blocked("package_manager_file", "Package manager files are blocked during visual apply operations.", (path, request) => request.operationType !== "asset_contact_sheet_read" && /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|package\.json)$/.test(path))
 ];
 

@@ -99,9 +99,14 @@ import {
   buildVisualDirectApplyPlan,
   executeVisualDirectApplyPlan,
   getVisualDirectApplyTemplateRegistry,
-  resolveVisualDirectApplyTemplate
+  resolveVisualDirectApplyTemplate,
+  sortPuzzleFeedbackStyleConfigRelativePath,
+  sortPuzzleShelfStyleConfigRelativePath,
+  sortPuzzleSpiritPresentationConfigRelativePath
 } from "../core/visualDirectApplyTemplates";
 import {
+  buildSortPuzzleSpiritSortSceneFallbackTask,
+  detectSortPuzzleProject,
   getVisualGameAdapter,
   getVisualGameAdapterScopeMetadata,
   getVisualGameAdapterSupportedSurfaces,
@@ -392,6 +397,36 @@ const visualScopeFallbackPreflight = checkVisualScopeGuard({
 });
 assert.strictEqual(visualScopeFallbackPreflight.recommendedAction, "block");
 
+const sortPuzzleForbiddenScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "sort_puzzle",
+  surfaceType: "slot_card",
+  targetId: "shelf_card",
+  candidatePaths: [
+    "src/rules/SortRules.ts",
+    "src/data/spiritSortLevels.ts",
+    "src/solver/SortSolver.ts",
+    "src/systems/saveSystem.ts",
+    "src/systems/progressionSystem.ts"
+  ]
+});
+assert.strictEqual(sortPuzzleForbiddenScope.recommendedAction, "block");
+assert.strictEqual(sortPuzzleForbiddenScope.counts.forbidden, 5);
+assert.ok(sortPuzzleForbiddenScope.violations.some((violation) => violation.reasonCode === "sort_puzzle_rule_file"));
+assert.ok(sortPuzzleForbiddenScope.violations.some((violation) => violation.reasonCode === "level_data_file"));
+assert.ok(sortPuzzleForbiddenScope.violations.some((violation) => violation.reasonCode === "save_file"));
+assert.ok(sortPuzzleForbiddenScope.violations.some((violation) => violation.reasonCode === "progression_or_unlock_file"));
+
+const sortPuzzleSceneScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "sort_puzzle",
+  surfaceType: "slot_card",
+  targetId: "shelf_card",
+  candidatePaths: ["src/scenes/SpiritSortScene.ts"]
+});
+assert.strictEqual(sortPuzzleSceneScope.recommendedAction, "warn");
+assert.strictEqual(sortPuzzleSceneScope.counts.suspicious, 1);
+
 const visualRollbackScopeSafe = checkVisualScopeGuard({
   operationType: "rollback_restore",
   adapterId: "idle_monster_farm",
@@ -431,20 +466,23 @@ assert.ok(visualScopeGuardRulesSummary().some((line) => line.includes("forbidden
 
 const directApplyRegistry = getVisualDirectApplyTemplateRegistry();
 const registeredVisualAdapters = listVisualGameAdapters();
-assert.deepStrictEqual(registeredVisualAdapters.map((adapter) => adapter.id), ["idle_monster_farm", "generic_phaser"]);
-assert.strictEqual(registeredVisualAdapters.some((adapter) => adapter.id.includes("sort")), false);
+assert.deepStrictEqual(registeredVisualAdapters.map((adapter) => adapter.id), ["idle_monster_farm", "generic_phaser", "sort_puzzle"]);
+assert.strictEqual(registeredVisualAdapters.some((adapter) => adapter.id.includes("cursor")), false);
 assert.strictEqual(new Set(registeredVisualAdapters.map((adapter) => adapter.id)).size, registeredVisualAdapters.length);
 assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("idle_monster_farm"), visualSurfacePickerOrder);
 assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("generic_phaser"), visualSurfacePickerOrder);
-assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("sort_puzzle"), []);
+assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("sort_puzzle"), ["slot_card", "reward_toast", "asset_replacement"]);
 const registeredAdapterValidation = validateRegisteredVisualGameAdapters();
 assert.strictEqual(registeredAdapterValidation.ok, true);
 assert.deepStrictEqual(registeredAdapterValidation.errors, []);
 const idleContract = getVisualGameAdapter("idle_monster_farm")!;
 const genericContract = getVisualGameAdapter("generic_phaser")!;
+const sortPuzzleContract = getVisualGameAdapter("sort_puzzle")!;
 assert.ok(idleContract);
 assert.ok(genericContract);
-assert.strictEqual(getVisualGameAdapter("sort_puzzle"), undefined);
+assert.ok(sortPuzzleContract);
+assert.strictEqual(getVisualGameAdapter("cursor_arena"), undefined);
+assert.strictEqual(getVisualGameAdapter("generic_phaser_v2"), undefined);
 const idleSlotTargets = getVisualGameAdapterSurfaceTargets("idle_monster_farm", "slot_card");
 assert.strictEqual(idleSlotTargets.length, 1);
 assert.strictEqual(idleSlotTargets[0].targetId, "farm_slots");
@@ -463,15 +501,56 @@ assert.ok(idleAssetContractTargets[0].limitations.some((limitation) => limitatio
 const genericAssetContractTargets = getVisualGameAdapterSurfaceTargets("generic_phaser", "asset_replacement");
 assert.strictEqual(genericAssetContractTargets[0].directApply.support, "unsupported");
 assert.strictEqual(genericAssetContractTargets[0].assetReplacementSupport, "manual_required");
+const sortPuzzleDetection = detectSortPuzzleProject([
+  { relativePath: "package.json", text: "{\"dependencies\":{\"phaser\":\"latest\"}}" },
+  { relativePath: "src/scenes/SpiritSortScene.ts", text: "export class SpiritSortScene extends Phaser.Scene { drawShelf(); drawSpirit(); }" }
+]);
+assert.strictEqual(sortPuzzleDetection.detected, true);
+assert.strictEqual(sortPuzzleDetection.confidence, "high");
+assert.ok(sortPuzzleDetection.evidence.some((entry) => entry.includes("SpiritSortScene")));
+const weakSortPuzzleDetection = detectSortPuzzleProject([{ relativePath: "src/scenes/MenuScene.ts", text: "sort options" }]);
+assert.strictEqual(weakSortPuzzleDetection.detected, false);
+const sortPuzzleSlotTargets = getVisualGameAdapterSurfaceTargets("sort_puzzle", "slot_card");
+assert.deepStrictEqual(sortPuzzleSlotTargets.map((target) => target.targetId), ["shelf_card", "spirit_slot", "completed_shelf", "selected_shelf_state", "invalid_move_feedback"]);
+assert.strictEqual(sortPuzzleSlotTargets.find((target) => target.targetId === "shelf_card")?.styleConfigPath, sortPuzzleShelfStyleConfigRelativePath);
+assert.ok(sortPuzzleSlotTargets.find((target) => target.targetId === "shelf_card")?.supportedStyleTokens?.includes("shelfWidth"));
+assert.ok(sortPuzzleSlotTargets.find((target) => target.targetId === "selected_shelf_state")?.manualChecks.some((check) => check.description.includes("selected source shelf")));
+assert.ok(sortPuzzleSlotTargets.find((target) => target.targetId === "invalid_move_feedback")?.supportedStyleTokens?.includes("invalidFeedbackColor"));
+assert.ok(sortPuzzleSlotTargets.find((target) => target.targetId === "completed_shelf")?.supportedStyleTokens?.includes("completedGlowStrength"));
+assert.ok(sortPuzzleSlotTargets.find((target) => target.targetId === "spirit_slot")?.supportedStyleTokens?.includes("spiritDisplayScale"));
+assert.ok(sortPuzzleSlotTargets.find((target) => target.targetId === "spirit_slot")?.supportedStyleTokens?.includes("spiritVerticalOffset"));
+const sortPuzzleToastTargets = getVisualGameAdapterSurfaceTargets("sort_puzzle", "reward_toast");
+assert.strictEqual(sortPuzzleToastTargets[0].targetId, "win_reward_toast");
+assert.strictEqual(sortPuzzleToastTargets[0].styleConfigPath, sortPuzzleFeedbackStyleConfigRelativePath);
+const sortPuzzleAssetTargets = getVisualGameAdapterSurfaceTargets("sort_puzzle", "asset_replacement");
+assert.strictEqual(sortPuzzleAssetTargets[0].targetId, "spirit_asset_presentation");
+assert.strictEqual(sortPuzzleAssetTargets[0].directApply.support, "unsupported");
+assert.strictEqual(sortPuzzleAssetTargets[0].assetReplacementSupport, "manual_required");
+assert.strictEqual(sortPuzzleContract.getStyleConfigPath("slot_card", "spirit_slot"), sortPuzzleSpiritPresentationConfigRelativePath);
+const spiritFallback = buildSortPuzzleSpiritSortSceneFallbackTask({
+  targetFile: "src/scenes/SpiritSortScene.ts",
+  targetId: "shelf_card",
+  styleConfigPath: sortPuzzleShelfStyleConfigRelativePath
+});
+assert.deepStrictEqual(spiritFallback.allowedFiles, [sortPuzzleShelfStyleConfigRelativePath, "src/scenes/SpiritSortScene.ts"]);
+assert.ok(spiritFallback.instructions.some((instruction) => instruction.includes("visual style integration")));
+assert.ok(spiritFallback.instructions.some((instruction) => instruction.includes("Do not change SortRules")));
+assert.ok(spiritFallback.forbiddenFiles.some((file) => file.includes("level data")));
 const idleScopeContract = getVisualGameAdapterScopeMetadata("idle_monster_farm", "slot_card")!;
 assert.ok(idleScopeContract.safe.some((group) => group.paths.includes(farmSlotStyleConfigRelativePath)));
 assert.ok(idleScopeContract.suspicious.some((group) => group.paths.includes("src/scenes/FarmScene.ts")));
 assert.ok(idleScopeContract.forbidden.some((group) => group.paths.includes("src/systems/saveSystem.ts")));
+const sortPuzzleScopeContract = getVisualGameAdapterScopeMetadata("sort_puzzle", "slot_card")!;
+assert.ok(sortPuzzleScopeContract.safe.some((group) => group.paths.includes(sortPuzzleShelfStyleConfigRelativePath)));
+assert.ok(sortPuzzleScopeContract.suspicious.some((group) => group.paths.includes("src/**/SpiritSortScene.*")));
+assert.ok(sortPuzzleScopeContract.forbidden.some((group) => group.paths.includes("src/**/SortRules.*")));
 const adapterSummaries = summarizeRegisteredVisualGameAdapterContracts();
-assert.deepStrictEqual(adapterSummaries.map((summary) => summary.adapterId), ["idle_monster_farm", "generic_phaser"]);
+assert.deepStrictEqual(adapterSummaries.map((summary) => summary.adapterId), ["idle_monster_farm", "generic_phaser", "sort_puzzle"]);
 assert.ok(adapterSummaries.every((summary) => summary.valid));
-assert.ok(adapterSummaries.every((summary) => summary.supportedSurfaceCount === visualSurfacePickerOrder.length));
-assert.ok(adapterSummaries.every((summary) => summary.directApplyCapableSurfaceCount === 5));
+assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "idle_monster_farm")?.supportedSurfaceCount, visualSurfacePickerOrder.length);
+assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "generic_phaser")?.supportedSurfaceCount, visualSurfacePickerOrder.length);
+assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "sort_puzzle")?.supportedSurfaceCount, 3);
+assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "sort_puzzle")?.directApplyCapableSurfaceCount, 2);
 assert.ok(adapterSummaries.every((summary) => summary.fallbackOnlySurfaceCount === 1));
 assert.strictEqual(summarizeVisualGameAdapterContract(idleContract).knownLimitationsCount > 0, true);
 const duplicateTargetAdapter: VisualGameAdapter = {
@@ -534,6 +613,23 @@ const unsupportedAssetTemplate = resolveVisualDirectApplyTemplate({
 });
 assert.strictEqual(unsupportedAssetTemplate, undefined);
 
+const sortPuzzleShelfTemplate = resolveVisualDirectApplyTemplate({
+  adapterId: "sort_puzzle",
+  surfaceType: "slot_card",
+  targetId: "shelf_card",
+  intent: "style_config_direct_apply"
+});
+assert.ok(sortPuzzleShelfTemplate);
+assert.strictEqual(sortPuzzleShelfTemplate.templateId, "sort-puzzle.slot_card.shelf_card.safe-style-config.v1");
+assert.deepStrictEqual(sortPuzzleShelfTemplate.requiredStyleConfigPaths, [sortPuzzleShelfStyleConfigRelativePath]);
+const sortPuzzleAssetTemplate = resolveVisualDirectApplyTemplate({
+  adapterId: "sort_puzzle",
+  surfaceType: "asset_replacement",
+  targetId: "spirit_asset_presentation",
+  intent: "style_config_direct_apply"
+});
+assert.strictEqual(sortPuzzleAssetTemplate, undefined);
+
 const safeDirectApplyPlan = buildVisualDirectApplyPlan({
   adapterId: "idle_monster_farm",
   surfaceType: "slot_card",
@@ -546,6 +642,26 @@ assert.strictEqual(safeDirectApplyPlan.steps.find((step) => step.operationType =
 assert.ok((safeDirectApplyPlan.steps.find((step) => step.operationType === "create_rollback_snapshot")?.order ?? 0) < (safeDirectApplyPlan.steps.find((step) => step.operationType === "write_style_config")?.order ?? 0));
 assert.strictEqual(safeDirectApplyPlan.scopeGuardResult.recommendedAction, "allow");
 assert.deepStrictEqual(safeDirectApplyPlan.writePaths, [farmSlotStyleConfigRelativePath]);
+
+const sortPuzzleDirectApplyPlan = buildVisualDirectApplyPlan({
+  adapterId: "sort_puzzle",
+  surfaceType: "slot_card",
+  targetId: "shelf_card",
+  candidatePaths: [sortPuzzleShelfStyleConfigRelativePath]
+});
+assert.strictEqual(sortPuzzleDirectApplyPlan.executable, true);
+assert.deepStrictEqual(sortPuzzleDirectApplyPlan.writePaths, [sortPuzzleShelfStyleConfigRelativePath]);
+assert.strictEqual(sortPuzzleDirectApplyPlan.scopeGuardResult.recommendedAction, "allow");
+
+const sortPuzzleSceneDirectApplyPlan = buildVisualDirectApplyPlan({
+  adapterId: "sort_puzzle",
+  surfaceType: "slot_card",
+  targetId: "shelf_card",
+  candidatePaths: [sortPuzzleShelfStyleConfigRelativePath, "src/scenes/SpiritSortScene.ts"]
+});
+assert.strictEqual(sortPuzzleSceneDirectApplyPlan.executable, false);
+assert.strictEqual(sortPuzzleSceneDirectApplyPlan.scopeGuardResult.recommendedAction, "warn");
+assert.ok(sortPuzzleSceneDirectApplyPlan.blockingReasons.some((reason) => reason.includes("Direct apply stays disabled")));
 
 const forbiddenDirectApplyPlan = buildVisualDirectApplyPlan({
   adapterId: "idle_monster_farm",
@@ -592,6 +708,22 @@ try {
   assert.strictEqual(fs.existsSync(path.join(directApplyWorkspace, "src", "systems", "saveSystem.ts")), false);
 } finally {
   cleanupTempWorkspace(directApplyWorkspace);
+}
+
+const sortPuzzleDirectApplyWorkspace = makeTempWorkspace("sort-puzzle-direct-apply");
+try {
+  writeWorkspaceFile(sortPuzzleDirectApplyWorkspace, sortPuzzleShelfStyleConfigRelativePath, "{\"preset\":\"before\"}");
+  const runnerResult = executeVisualDirectApplyPlan(sortPuzzleDirectApplyWorkspace, sortPuzzleDirectApplyPlan, [{
+    relativePath: sortPuzzleShelfStyleConfigRelativePath,
+    text: "{\"surfaceType\":\"slot_card\",\"targetId\":\"shelf_card\",\"values\":{\"completedGlowStrength\":1.2}}\n"
+  }], new Date("2026-06-26T06:00:00.000Z"));
+  assert.strictEqual(runnerResult.ok, true);
+  assert.deepStrictEqual(runnerResult.changedFiles, [sortPuzzleShelfStyleConfigRelativePath]);
+  assert.ok(runnerResult.rollbackPaths[0].startsWith(`${visualRollbackRelativeDir}/2026-06-26T06-00-00-000Z-sort-puzzle-shelf-style.json`));
+  assert.strictEqual(fs.existsSync(path.join(sortPuzzleDirectApplyWorkspace, "src", "scenes", "SpiritSortScene.ts")), false);
+  assert.strictEqual(readWorkspaceFile(sortPuzzleDirectApplyWorkspace, sortPuzzleShelfStyleConfigRelativePath).includes("completedGlowStrength"), true);
+} finally {
+  cleanupTempWorkspace(sortPuzzleDirectApplyWorkspace);
 }
 
 const unplannedWriteWorkspace = makeTempWorkspace("direct-apply-unplanned");
@@ -1859,10 +1991,10 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.7.0");
+assert.strictEqual(packageJson.version, "0.7.1");
 const packageLockJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8")) as { version: string; packages: Record<string, { version?: string }> };
-assert.strictEqual(packageLockJson.version, "0.7.0");
-assert.strictEqual(packageLockJson.packages[""].version, "0.7.0");
+assert.strictEqual(packageLockJson.version, "0.7.1");
+assert.strictEqual(packageLockJson.packages[""].version, "0.7.1");
 const requiredV06Commands = [
   "gamePolishLab.openVisualTuningDashboard",
   "gamePolishLab.tuneVisualSurface",
@@ -1925,9 +2057,16 @@ const adapterContractDoc = fs.readFileSync(path.join(process.cwd(), "docs", "ada
 assert.ok(adapterContractDoc.includes("# Visual Game Adapter Contract"));
 assert.ok(adapterContractDoc.includes("Idle Monster Farm"));
 assert.ok(adapterContractDoc.includes("Generic Phaser"));
-assert.ok(adapterContractDoc.includes("Sort Puzzle is intentionally not registered in v0.70"));
+assert.ok(adapterContractDoc.includes("Sort Puzzle"));
+assert.ok(adapterContractDoc.includes("Cursor Arena, Generic Phaser v2, and future game families are intentionally not registered yet"));
 assert.ok(adapterContractDoc.includes("safe/suspicious/forbidden"));
 assert.ok(adapterContractDoc.includes("Direct apply is allowed only when a registered direct-apply template exists"));
+const sortPuzzleAdapterDoc = fs.readFileSync(path.join(process.cwd(), "docs", "sort-puzzle-adapter.md"), "utf8");
+assert.ok(sortPuzzleAdapterDoc.includes("Adapter id: `sort_puzzle`"));
+assert.ok(sortPuzzleAdapterDoc.includes(".game-polish-lab/styles/sort-puzzle-shelf-style.json"));
+assert.ok(sortPuzzleAdapterDoc.includes("Fallback tasks for `SpiritSortScene` are visual-only"));
+assert.ok(sortPuzzleAdapterDoc.includes("SortRules"));
+assert.ok(sortPuzzleAdapterDoc.includes("Spirit scale and offsets"));
 const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
 assert.ok(tuneVisualSurfaceSource.includes("stylePresetLibrary: visualPresetLibrary"));
 assert.ok(tuneVisualSurfaceSource.includes("presetDescription"));
@@ -2062,6 +2201,34 @@ assert.strictEqual(genericButtonRow.scopeSummary.recommendedAction, "warn");
 assert.strictEqual(genericButtonRow.scopeSummary.classificationCounts.suspicious, 1);
 assert.ok(genericButtonRow.scopeSummary.summaryMessage.includes("suspicious"));
 
+const sortPuzzleShelfSurface = {
+  surfaceType: "slot_card" as const,
+  displayName: "Sort Puzzle Shelf",
+  adapter: {
+    adapterId: "sort_puzzle" as const,
+    targetId: "shelf_card",
+    targetLabel: "Shelf Card",
+    connectedState: "connected" as const,
+    detected: true,
+    confidence: "high" as const,
+    directApplySupported: true,
+    ownerFiles: ["src/scenes/SpiritSortScene.ts"],
+    warnings: []
+  },
+  recipe: dashboardSlotRecipe,
+  config: { status: "valid" as const, path: sortPuzzleShelfStyleConfigRelativePath, exists: true },
+  recipeFile: validRecipeFile,
+  fallbackTaskCount: 1,
+  scopeFiles: [sortPuzzleShelfStyleConfigRelativePath]
+};
+const sortPuzzleShelfRow = buildDashboardRow(sortPuzzleShelfSurface, attemptIndex);
+assert.strictEqual(sortPuzzleShelfRow.appliedStatus, "applied");
+assert.strictEqual(sortPuzzleShelfRow.adapterId, "sort_puzzle");
+assert.strictEqual(sortPuzzleShelfRow.directApplyTemplate.available, true);
+assert.strictEqual(sortPuzzleShelfRow.directApplyTemplate.executable, true);
+assert.strictEqual(sortPuzzleShelfRow.actions.generateFallbackTask.enabled, false);
+assert.ok(sortPuzzleShelfRow.scopeSummary.allowedFiles.includes(sortPuzzleShelfStyleConfigRelativePath));
+
 const disconnectedIdlePanelSurface = {
   ...connectedIdleSlotSurface,
   surfaceType: "panel" as const,
@@ -2131,6 +2298,7 @@ const unknownSurface = {
 assert.strictEqual(buildDashboardRow(unknownSurface, attemptIndex).appliedStatus, "unknown");
 
 assert.strictEqual(calculateAppliedStatus(connectedIdleSlotSurface, connectedIdleSlotRow.scopeSummary), "applied");
+assert.strictEqual(calculateAppliedStatus(sortPuzzleShelfSurface, sortPuzzleShelfRow.scopeSummary), "applied");
 assert.strictEqual(calculateAppliedStatus(disconnectedIdlePanelSurface, disconnectedPanelRow.scopeSummary), "config_only");
 assert.strictEqual(calculateAppliedStatus(invalidButtonSurface, buildDashboardRow(invalidButtonSurface, attemptIndex).scopeSummary), "invalid");
 
@@ -2140,7 +2308,7 @@ const dashboardModel = buildVisualTuningDashboardModel({
   phaserDetected: true,
   detectedAdapter: "idle_monster_farm",
   adapterConfidence: "high",
-  surfaces: [connectedIdleSlotSurface, genericButtonSurface, disconnectedIdlePanelSurface, unsupportedAssetSurface],
+  surfaces: [connectedIdleSlotSurface, genericButtonSurface, sortPuzzleShelfSurface, disconnectedIdlePanelSurface, unsupportedAssetSurface],
   attemptIndex,
   assetContracts: {
     status: "valid",
@@ -2166,8 +2334,8 @@ const dashboardModel = buildVisualTuningDashboardModel({
   }
 });
 assert.strictEqual(dashboardModel.schemaVersion, "visual-tuning-dashboard/v1");
-assert.strictEqual(dashboardModel.summary.totalSurfaces, 4);
-assert.strictEqual(dashboardModel.summary.appliedCount, 1);
+assert.strictEqual(dashboardModel.summary.totalSurfaces, 5);
+assert.strictEqual(dashboardModel.summary.appliedCount, 2);
 assert.strictEqual(dashboardModel.summary.configOnlyCount, 2);
 assert.ok(dashboardModel.summary.warningCount > 0);
 assert.strictEqual(dashboardModel.summary.assetContractStatus, "valid");
@@ -2178,9 +2346,9 @@ assert.strictEqual(dashboardModel.summary.assetContactSheetAvailable, true);
 assert.strictEqual(dashboardModel.summary.devOverlay?.path, polishDevOverlayRelativeDir);
 assert.strictEqual(dashboardModel.summary.devOverlay?.generated, true);
 assert.strictEqual(dashboardModel.summary.devOverlay?.generatedFileCount, 4);
-assert.deepStrictEqual(dashboardModel.summary.adapterContracts.map((contract) => contract.adapterId), ["idle_monster_farm", "generic_phaser"]);
+assert.deepStrictEqual(dashboardModel.summary.adapterContracts.map((contract) => contract.adapterId), ["idle_monster_farm", "generic_phaser", "sort_puzzle"]);
 assert.ok(dashboardModel.summary.adapterContracts.every((contract) => contract.valid));
-assert.ok(dashboardModel.summary.adapterContracts.every((contract) => contract.supportedSurfaceCount === visualSurfacePickerOrder.length));
+assert.strictEqual(dashboardModel.summary.adapterContracts.find((contract) => contract.adapterId === "sort_puzzle")?.supportedSurfaceCount, 3);
 assert.strictEqual(dashboardModel.fieldNotes.fieldNotesPath, ".game-polish-lab/field-notes.md");
 assert.ok(dashboardModel.fieldNotes.knownBad.some((note) => note.includes("Magic Glow")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard opens without writing files")));
@@ -2194,6 +2362,7 @@ assert.strictEqual(getVisualSurfaceRecipes().length, 5);
 assert.deepStrictEqual(visualSurfacePickerOrder, ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"]);
 assert.ok(dashboardModel.rows.some((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "slot_card"));
 assert.ok(dashboardModel.rows.some((row) => row.adapterId === "generic_phaser" && row.surfaceType === "button"));
+assert.ok(dashboardModel.rows.some((row) => row.adapterId === "sort_puzzle" && row.targetId === "shelf_card"));
 assert.ok(genericButtonRow.scopeSummary.allowedFiles.includes(genericStyleConfigRelativePath("button")));
 assert.ok(genericButtonRow.scopeSummary.forbiddenFiles.includes("src/ui/ButtonView.ts") || genericButtonRow.scopeSummary.suspiciousFiles.includes("src/ui/ButtonView.ts"));
 
@@ -2425,6 +2594,9 @@ const sortPuzzleText = sortPuzzleFixture.map((file) => `${file.relativePath}\n${
 assert.ok(sortPuzzleText.includes("spiritsortscene"));
 assert.ok(sortPuzzleText.includes("sortrules"));
 assert.ok(sortPuzzleText.includes("spiritsortlevels"));
+const sortPuzzleFixtureDetection = detectSortPuzzleProject(sortPuzzleFixture);
+assert.strictEqual(sortPuzzleFixtureDetection.detected, true);
+assert.ok(sortPuzzleFixtureDetection.confidence === "high" || sortPuzzleFixtureDetection.confidence === "medium");
 
 function makeTestRgbaPng(width: number, height: number, alphaForPixel: (x: number, y: number) => number): Uint8Array {
   const rowLength = 1 + width * 4;

@@ -16,7 +16,7 @@ export type VisualDirectApplyOperationType =
   | "manual_check";
 
 export type VisualDirectApplyIntent = "style_config_direct_apply" | "dashboard_direct_apply" | "fallback_task";
-export type VisualDirectApplyAdapterId = "idle_monster_farm" | "generic_phaser";
+export type VisualDirectApplyAdapterId = "idle_monster_farm" | "generic_phaser" | "sort_puzzle";
 
 export interface VisualDirectApplyManualCheck {
   checkId: string;

@@ -45,6 +45,23 @@ const idleStyleConfigPaths: Record<Exclude<VisualSurfaceType, "asset_replacement
   button: buttonStyleConfigRelativePath
 };
 
+export const sortPuzzleShelfStyleConfigRelativePath = ".game-polish-lab/styles/sort-puzzle-shelf-style.json";
+export const sortPuzzleSpiritPresentationConfigRelativePath = ".game-polish-lab/styles/sort-puzzle-spirit-presentation.json";
+export const sortPuzzleFeedbackStyleConfigRelativePath = ".game-polish-lab/styles/sort-puzzle-feedback-style.json";
+
+const sortPuzzleTargetConfigPaths: Partial<Record<VisualSurfaceType, Record<string, string>>> = {
+  slot_card: {
+    shelf_card: sortPuzzleShelfStyleConfigRelativePath,
+    spirit_slot: sortPuzzleSpiritPresentationConfigRelativePath,
+    completed_shelf: sortPuzzleShelfStyleConfigRelativePath,
+    selected_shelf_state: sortPuzzleShelfStyleConfigRelativePath,
+    invalid_move_feedback: sortPuzzleFeedbackStyleConfigRelativePath
+  },
+  reward_toast: {
+    win_reward_toast: sortPuzzleFeedbackStyleConfigRelativePath
+  }
+};
+
 const directApplyManualChecks: VisualDirectApplyManualCheck[] = [
   {
     checkId: "visual_surface_changed",
@@ -86,7 +103,8 @@ const idleFallbackTemplate: VisualDirectApplyFallbackTemplate = {
 const registry: VisualDirectApplyTemplateRegistry = {
   templates: [
     ...(["slot_card", "background_readability", "panel", "reward_toast", "button"] as const).map((surfaceType) => idleStyleTemplate(surfaceType)),
-    ...(["slot_card", "background_readability", "panel", "reward_toast", "button"] as const).map((surfaceType) => genericStyleTemplate(surfaceType))
+    ...(["slot_card", "background_readability", "panel", "reward_toast", "button"] as const).map((surfaceType) => genericStyleTemplate(surfaceType)),
+    ...sortPuzzleStyleTemplates()
   ],
   fallbackTemplates: [genericFallbackTemplate, idleFallbackTemplate]
 };
@@ -307,6 +325,42 @@ function genericStyleTemplate(surfaceType: Exclude<VisualSurfaceType, "asset_rep
     fallbackTemplate: genericFallbackTemplate,
     executable: true
   };
+}
+
+function sortPuzzleStyleTemplates(): VisualDirectApplyTemplate[] {
+  return Object.entries(sortPuzzleTargetConfigPaths).flatMap(([surfaceType, targets]) => Object.entries(targets ?? {}).map(([targetId, configPath]) => ({
+    templateId: `sort-puzzle.${surfaceType}.${targetId}.safe-style-config.v1`,
+    displayName: `Sort Puzzle ${surfaceType} ${targetId} Safe Style Config Write`,
+    adapterId: "sort_puzzle" as const,
+    supportedSurfaceType: surfaceType as VisualSurfaceType,
+    supportedTargetIds: [targetId],
+    supportedOperationTypes: ["run_scope_guard", "create_rollback_snapshot", "read_style_config", "write_style_config", "generate_fallback_task", "manual_check"],
+    candidateFilePaths: [configPath],
+    requiredStyleConfigPaths: [configPath],
+    rollbackRequired: true,
+    scopeGuardPolicy: { operationType: "direct_apply", adapterId: "sort_puzzle", surfaceType: surfaceType as VisualSurfaceType, targetId },
+    manualChecks: [
+      ...directApplyManualChecks,
+      {
+        checkId: "sort_rules_unchanged",
+        label: "Sort rules unchanged",
+        description: "Confirm shelf capacity, valid moves, level layout, undo/hint behavior, scoring, and win conditions did not change."
+      }
+    ],
+    fallbackTemplate: {
+      templateId: "sort-puzzle.spirit-sort-scene.fallback-task.v1",
+      displayName: "Sort Puzzle SpiritSortScene Guarded Fallback Task",
+      adapterId: "sort_puzzle" as const,
+      supportedSurfaceType: surfaceType as VisualSurfaceType,
+      instructions: [
+        "This fallback task is only for visual style integration in SpiritSortScene.",
+        "Keep the selected file scope exact and visual-only.",
+        "Do not edit SortRules, level data, solver logic, move validation, save/progression, scoring, undo/hint logic, or gameplay behavior.",
+        "Prefer reading a generated Game Polish Lab style config/module over changing scene rules or layout data."
+      ]
+    },
+    executable: true
+  })));
 }
 
 function targetMatches(template: VisualDirectApplyTemplate, targetId: string | undefined): boolean {

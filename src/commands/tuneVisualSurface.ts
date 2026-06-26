@@ -44,13 +44,14 @@ import { defaultRewardToastStyle, rewardToastPresets, rewardToastStyleBounds } f
 import { defaultSlotCardStyle, slotCardPresets, slotCardStyleBounds } from "../presets/slotCardPresets";
 import { visualPresetLibrary } from "../presets/visualStylePresetLibrary";
 import { AssetReplacementTargetId, BackgroundReadabilityStyleValues, ButtonStyleValues, PanelStyleValues, RewardToastStyleValues, SlotCardStyleValues, VisualSurfaceType } from "../types/visualSurface";
+import { DashboardAdapterId } from "../types/visualTuningDashboard";
 import { VisualTuningApplyMode, VisualTuningAttemptIndex, VisualTuningConnectionState, VisualTuningResultStatus } from "../types/visualTuningAttempt";
 
 type SurfaceValues = SlotCardStyleValues | BackgroundReadabilityStyleValues | PanelStyleValues | RewardToastStyleValues | ButtonStyleValues | Record<string, never>;
 
 export interface TuneVisualSurfaceInitialState {
   surfaceType?: VisualSurfaceType;
-  adapterId?: "idle_monster_farm" | "generic_phaser";
+  adapterId?: DashboardAdapterId;
   targetLabel?: string;
 }
 

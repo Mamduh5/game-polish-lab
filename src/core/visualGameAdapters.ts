@@ -8,12 +8,18 @@ import {
   rewardToastStyleConfigRelativePath
 } from "./visualSurfaceConfig";
 import { checkVisualScopeGuard } from "./visualScopeGuard";
-import { resolveVisualDirectApplyTemplate } from "./visualDirectApplyTemplates";
+import {
+  resolveVisualDirectApplyTemplate,
+  sortPuzzleFeedbackStyleConfigRelativePath,
+  sortPuzzleShelfStyleConfigRelativePath,
+  sortPuzzleSpiritPresentationConfigRelativePath
+} from "./visualDirectApplyTemplates";
 import { visualSurfacePickerOrder } from "./visualRecipeRegistry";
 import {
   VisualAdapterDirectApplyCapability,
   VisualAdapterDirectApplySupport,
   VisualAdapterFallbackCapability,
+  VisualAdapterProjectDetection,
   VisualAdapterScopeDescriptor,
   VisualAdapterScopeGroup,
   VisualAdapterSurfaceTarget,
@@ -73,13 +79,31 @@ const knownForbiddenScopes = [
   "src/state/hatchState.ts",
   "src/data/quests.ts",
   "src/services/rewardedAdService.ts",
-  "src/data/levels.ts"
+  "src/data/levels.ts",
+  "src/rules/SortRules.ts",
+  "src/data/spiritSortLevels.ts",
+  "src/solver/SortSolver.ts",
+  "src/systems/MoveValidation.ts",
+  "src/systems/UndoSystem.ts",
+  "src/systems/HintSystem.ts"
 ];
 
 const adapterRegistry: VisualGameAdapter[] = [
   createIdleMonsterFarmAdapter(),
-  createGenericPhaserAdapter()
+  createGenericPhaserAdapter(),
+  createSortPuzzleAdapter()
 ];
+
+export interface SortPuzzleSpiritSortSceneFallbackTask {
+  adapterId: "sort_puzzle";
+  targetFile: string;
+  targetId: string;
+  styleConfigPath: string;
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  instructions: string[];
+  manualChecks: string[];
+}
 
 export function listVisualGameAdapters(): VisualGameAdapter[] {
   return adapterRegistry;
@@ -253,6 +277,82 @@ function createGenericPhaserAdapter(): VisualGameAdapter {
   };
 }
 
+function createSortPuzzleAdapter(): VisualGameAdapter {
+  const targets: VisualAdapterSurfaceTarget[] = [
+    sortPuzzleTarget("slot_card", "shelf_card", "Sort Puzzle Shelf Card", sortPuzzleShelfStyleConfigRelativePath, [
+      "shelfWidth",
+      "shelfHeight",
+      "gap",
+      "cornerRadius",
+      "fillColor",
+      "borderColor",
+      "borderWidth",
+      "shadowStrength",
+      "selectedGlowStrength"
+    ], ["empty shelf", "partially filled shelf", "full shelf"]),
+    sortPuzzleTarget("slot_card", "spirit_slot", "Sort Puzzle Spirit Slot", sortPuzzleSpiritPresentationConfigRelativePath, [
+      "spiritDisplayScale",
+      "spiritVerticalOffset",
+      "spiritHorizontalOffset"
+    ], ["spirit scale/offset inside shelf slots"]),
+    sortPuzzleTarget("slot_card", "completed_shelf", "Completed Shelf Glow", sortPuzzleShelfStyleConfigRelativePath, [
+      "completedGlowStrength",
+      "completedBorderColor",
+      "completedFillColor"
+    ], ["completed shelf glow"]),
+    sortPuzzleTarget("slot_card", "selected_shelf_state", "Selected Source/Target Shelf", sortPuzzleShelfStyleConfigRelativePath, [
+      "selectedOutlineWidth",
+      "selectedGlowStrength",
+      "targetGlowStrength"
+    ], ["selected source shelf", "selected target shelf"]),
+    sortPuzzleTarget("slot_card", "invalid_move_feedback", "Invalid Move Feedback", sortPuzzleFeedbackStyleConfigRelativePath, [
+      "invalidFeedbackColor",
+      "invalidFeedbackAlpha",
+      "invalidShakeStrength"
+    ], ["invalid target feedback"]),
+    sortPuzzleTarget("reward_toast", "win_reward_toast", "Sort Puzzle Win Reward Toast", sortPuzzleFeedbackStyleConfigRelativePath, [
+      "toastFillColor",
+      "toastBorderColor",
+      "toastDurationMs",
+      "sparkleScale"
+    ], ["win reward toast"], ["Win reward toast uses existing reward_toast preview support only."]),
+    {
+      surfaceType: "asset_replacement",
+      targetId: "spirit_asset_presentation",
+      displayName: "Spirit Asset Presentation",
+      likelyOwnerFiles: ["src/scenes/SpiritSortScene.ts", "src/assets/spirits"],
+      styleConfigPath: sortPuzzleSpiritPresentationConfigRelativePath,
+      previewSupport: "supported",
+      directApply: unsupportedDirectApply("Asset replacement remains non-executable; spirit scale/offset is represented by style config metadata only."),
+      assetReplacementSupport: "manual_required",
+      fallback: { support: "manual_required", reason: "Asset wiring or sprite loading requires explicit scoped handoff." },
+      manualChecks: sortPuzzleManualChecks("spirit_asset_presentation"),
+      limitations: ["Only spirit scale/offset presentation metadata is safe here; asset loader changes are fallback-only."],
+      supportedStyleTokens: ["spiritDisplayScale", "spiritVerticalOffset", "spiritHorizontalOffset"]
+    }
+  ];
+  return {
+    id: "sort_puzzle",
+    displayName: "Sort Puzzle",
+    family: "sort_puzzle",
+    version: "0.7.1",
+    description: "Contract wrapper for shelf/spirit slot visual tuning in Phaser Sort Puzzle projects.",
+    supportedSurfaces: ["slot_card", "reward_toast", "asset_replacement"],
+    detectProject: detectSortPuzzleProject,
+    getSurfaceTargets: (surfaceType) => filterTargets(targets, surfaceType),
+    getSafeScopes: (surfaceType) => sortPuzzleScopeDescriptor(targets, surfaceType),
+    getStyleConfigPath: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.styleConfigPath,
+    getDirectApplyCapabilities: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.directApply ?? unsupportedDirectApply("No Sort Puzzle target is registered for this surface."),
+    getFallbackCapabilities: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.fallback ?? { support: "manual_required", reason: "No Sort Puzzle target is registered for this surface." },
+    getManualChecks: (surfaceType, targetId) => findTarget(targets, surfaceType, targetId)?.manualChecks ?? [],
+    knownLimitations: [
+      "SpiritSortScene source integration is fallback-only unless the project already reads the generated style config.",
+      "SortRules, level data, solver, undo/hint, save/progression, scoring, and move validation are forbidden.",
+      "Asset replacement remains non-executable; spirit presentation uses style metadata only."
+    ]
+  };
+}
+
 function styleTarget(adapterId: "idle_monster_farm" | "generic_phaser", surfaceType: StyleSurface, targetId: string, displayName: string, ownerFiles: string[], styleConfigPath: string, generatedStyleModulePath: string): VisualAdapterSurfaceTarget {
   const template = resolveVisualDirectApplyTemplate({ adapterId, surfaceType, targetId, intent: "style_config_direct_apply" });
   return {
@@ -274,6 +374,140 @@ function styleTarget(adapterId: "idle_monster_farm" | "generic_phaser", surfaceT
     fallback: { support: "available", reason: "Fallback task is available for unsupported source integration or unusual rendering setup." },
     manualChecks,
     limitations: ["Direct apply is limited to known safe style config paths."]
+  };
+}
+
+function sortPuzzleTarget(surfaceType: "slot_card" | "reward_toast", targetId: string, displayName: string, styleConfigPath: string, supportedStyleTokens: string[], previewStates: string[], limitations: string[] = []): VisualAdapterSurfaceTarget {
+  const template = resolveVisualDirectApplyTemplate({ adapterId: "sort_puzzle", surfaceType, targetId, intent: "style_config_direct_apply" });
+  return {
+    surfaceType,
+    targetId,
+    displayName,
+    likelyOwnerFiles: ["src/scenes/SpiritSortScene.ts", "src/scenes/SortPuzzleScene.ts"],
+    styleConfigPath,
+    previewSupport: "supported",
+    directApply: {
+      support: template ? "executable" : "fallback_only",
+      templateId: template?.templateId,
+      styleConfigPath,
+      reason: template ? "Safe Sort Puzzle style config direct apply exists." : "SpiritSortScene source wiring requires guarded fallback."
+    },
+    assetReplacementSupport: "not_supported",
+    fallback: { support: "available", reason: "Fallback task is available for visual-only SpiritSortScene integration." },
+    manualChecks: [
+      ...sortPuzzleManualChecks(targetId),
+      {
+        checkId: "sort_puzzle_preview_states",
+        label: "Sort Puzzle preview states checked",
+        description: `Check representative states: ${previewStates.join(", ")}.`
+      }
+    ],
+    limitations: limitations.length > 0 ? limitations : ["Scene source integration is fallback-only; direct apply writes generated style config only."],
+    supportedStyleTokens
+  };
+}
+
+export function detectSortPuzzleProject(files: Array<{ relativePath: string; text: string }>): VisualAdapterProjectDetection {
+  const evidence: string[] = [];
+  let score = 0;
+  for (const file of files) {
+    const path = file.relativePath.replace(/\\/g, "/");
+    const lowerPath = path.toLowerCase();
+    const text = file.text.toLowerCase();
+    if (text.includes("spiritsortscene") || lowerPath.includes("spiritsortscene")) {
+      evidence.push(`${path}: SpiritSortScene marker found.`);
+      score += 3;
+    }
+    if ((lowerPath.includes("sort") || lowerPath.includes("spirit") || lowerPath.includes("shelf")) && lowerPath.includes("scene")) {
+      evidence.push(`${path}: sort/spirit/shelf scene path found.`);
+      score += 1;
+    }
+    if (text.includes("shelf") && text.includes("spirit") && text.includes("phaser")) {
+      evidence.push(`${path}: Phaser shelf/spirit rendering terms found.`);
+      score += 1;
+    }
+    if (lowerPath.endsWith("package.json") && text.includes("\"phaser\"")) {
+      evidence.push(`${path}: Phaser dependency found.`);
+      score += 1;
+    }
+  }
+  const uniqueEvidence = Array.from(new Set(evidence));
+  const confidence = score >= 4 ? "high" : score >= 2 ? "medium" : score > 0 ? "low" : "unknown";
+  return {
+    detected: score >= 2,
+    confidence,
+    evidence: uniqueEvidence,
+    warnings: score > 0 && score < 2 ? ["Sort Puzzle markers are possible but not strong enough for executable direct apply."] : []
+  };
+}
+
+export function buildSortPuzzleSpiritSortSceneFallbackTask(input: { targetFile: string; targetId: string; styleConfigPath: string }): SortPuzzleSpiritSortSceneFallbackTask {
+  return {
+    adapterId: "sort_puzzle",
+    targetFile: input.targetFile,
+    targetId: input.targetId,
+    styleConfigPath: input.styleConfigPath,
+    allowedFiles: [input.styleConfigPath, input.targetFile],
+    forbiddenFiles: [
+      "SortRules files",
+      "level data files",
+      "solver files",
+      "move validation files",
+      "save/progression files",
+      "scoring files",
+      "undo/hint logic",
+      "gameplay behavior files"
+    ],
+    instructions: [
+      "Use this fallback only for visual style integration in SpiritSortScene.",
+      "Read values from the generated Game Polish Lab style config or generated visual module.",
+      "Do not change SortRules, level data, solver logic, move validation, save/progression, scoring, undo/hint logic, or gameplay behavior.",
+      "Do not change shelf count, shelf capacity, level layouts, spirit count, win conditions, scoring, undo, or hints.",
+      "Keep the patch reversible and visual-only."
+    ],
+    manualChecks: [
+      "empty, partial, full, selected source, selected target, invalid target, and completed shelf states render",
+      "valid/invalid move behavior is unchanged",
+      "level layout, shelf capacity, undo/hint, scoring, and win condition are unchanged"
+    ]
+  };
+}
+
+function sortPuzzleManualChecks(targetId: string) {
+  return [
+    {
+      checkId: "sort_puzzle_visual_changed",
+      label: "Sort Puzzle visual target changed",
+      description: `Open a Sort Puzzle level and confirm ${targetId} visual treatment changed as intended.`
+    },
+    {
+      checkId: "sort_puzzle_rules_unchanged",
+      label: "Puzzle rules unchanged",
+      description: "Confirm valid moves, invalid moves, shelf capacity, level layout, undo/hint behavior, scoring, and win condition did not change."
+    }
+  ];
+}
+
+function sortPuzzleScopeDescriptor(targets: VisualAdapterSurfaceTarget[], surfaceType?: VisualSurfaceType): VisualAdapterScopeDescriptor {
+  const base = scopeDescriptor(targets, surfaceType);
+  return {
+    safe: base.safe,
+    suspicious: [
+      ...base.suspicious,
+      {
+        surfaceType,
+        paths: ["src/**/SpiritSortScene.*", "src/**/SortPuzzleScene.*", "src/**/scenes/**", "src/**/preload/**", "src/**/manifest*"],
+        reason: "Sort Puzzle scene/bootstrap files may be visual integration points but are fallback-only."
+      }
+    ],
+    forbidden: [
+      {
+        surfaceType,
+        paths: ["src/**/SortRules.*", "src/**/spiritSortLevels.*", "src/**/solver/**", "src/**/MoveValidation.*", "src/**/save/**", "src/**/progression/**", "src/**/UndoSystem.*", "src/**/HintSystem.*"],
+        reason: "Sort Puzzle rules, level data, solver, validation, save/progression, undo/hint, and gameplay behavior are forbidden."
+      },
+      ...base.forbidden
+    ]
   };
 }
 

@@ -8,6 +8,8 @@ It does not beautify a game automatically, call external AI APIs, require networ
 
 For the stabilized v0.6 workflow, including the Visual Tuning Dashboard, preview renderer, style presets, asset contracts/contact sheets, scope guard, rollback history, direct apply templates, and optional `?polish=1` dev overlay, see [`docs/v0.6-stabilization.md`](docs/v0.6-stabilization.md).
 
+For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-contract.md). For the Sort Puzzle adapter, see [`docs/sort-puzzle-adapter.md`](docs/sort-puzzle-adapter.md).
+
 ## What v0.4.2 Does
 
 v0.4.2 cleans up Monster Farm audit reporting. `FarmScene` confidence now accepts direct scene files, `class FarmScene`, general `FarmScene` references, and `src/main.ts` scene-list wiring. Monster Farm audits also keep generic action/combat keyword buckets out of the main `Suggested Project Type` section and report them under `Non-Dominant Keyword Noise` instead.

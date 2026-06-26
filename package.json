@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"

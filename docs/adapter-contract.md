@@ -2,12 +2,13 @@
 
 `VisualGameAdapter` is the v0.70 contract layer for describing how an existing game family participates in Game Polish Lab without adding adapter-specific conditionals across the dashboard, tuner, direct-apply planner, fallback task flow, and scope guard.
 
-This milestone is infrastructure only. It registers only the existing adapters:
+The current registry includes:
 
 - Idle Monster Farm
 - Generic Phaser
+- Sort Puzzle
 
-Sort Puzzle is intentionally not registered in v0.70. The contract exists so future adapters can be added with the same metadata shape after the current behavior is stable.
+Sort Puzzle is registered in v0.71 as the first non-Monster-Farm adapter. Cursor Arena, Generic Phaser v2, and future game families are intentionally not registered yet.
 
 ## Contract Purpose
 
@@ -71,4 +72,4 @@ Future adapters should:
 6. Add validation tests for contract errors and limitations.
 7. Keep direct apply narrow until a safe template exists.
 
-v0.70 does not add Sort Puzzle because the goal is to stabilize the contract before implementing another adapter family.
+v0.71 keeps Sort Puzzle scoped to the existing generic surfaces and safe generated config paths. It does not add Cursor Arena or broaden direct apply.
