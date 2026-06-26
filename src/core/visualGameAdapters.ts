@@ -374,39 +374,21 @@ function createSortPuzzleAdapter(): VisualGameAdapter {
 
 function createCursorArenaAdapter(): VisualGameAdapter {
   const targets: VisualAdapterSurfaceTarget[] = [
-    cursorArenaTarget("panel", "arena_hud_panel", "Arena HUD Panel", cursorArenaHudStyleConfigRelativePath, ["panelFillColor", "panelBorderColor", "panelRadius", "panelShadowStrength", "statusTextScale"], ["HUD panel readability", "status panel spacing"]),
-    cursorArenaTarget("slot_card", "upgrade_card", "Upgrade Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["cardFillColor", "cardBorderColor", "cardRadius", "cardGlowStrength", "affordableGlowStrength", "disabledOpacity"], ["normal upgrade card", "hover card", "affordable card", "unaffordable card", "disabled card"]),
-    cursorArenaTarget("slot_card", "skin_card", "Skin Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["cardFillColor", "cardBorderColor", "cardRadius", "cardGlowStrength", "disabledOpacity"], ["skin card", "locked skin card"]),
-    cursorArenaTarget("slot_card", "reward_card", "Reward Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["cardFillColor", "cardBorderColor", "cardRadius", "cardGlowStrength", "disabledOpacity"], ["reward card", "claimed reward card"]),
-    cursorArenaTarget("button", "upgrade_button", "Upgrade Button", cursorArenaUpgradeCardStyleConfigRelativePath, ["buttonFillColor", "buttonBorderColor", "buttonRadius", "hoverGlowStrength", "disabledOpacity"], ["upgrade button normal", "upgrade button hover", "upgrade button disabled"]),
-    cursorArenaTarget("button", "shop_button", "Shop Button", cursorArenaUpgradeCardStyleConfigRelativePath, ["buttonFillColor", "buttonBorderColor", "buttonRadius", "hoverGlowStrength", "disabledOpacity"], ["shop button normal", "shop button disabled"]),
-    cursorArenaTarget("button", "reset_button", "Reset Button", cursorArenaUpgradeCardStyleConfigRelativePath, ["buttonFillColor", "buttonBorderColor", "buttonRadius", "hoverGlowStrength", "disabledOpacity"], ["reset button normal", "reset button hover"]),
-    cursorArenaTarget("button", "mute_button", "Mute Button", cursorArenaUpgradeCardStyleConfigRelativePath, ["buttonFillColor", "buttonBorderColor", "buttonRadius", "hoverGlowStrength", "disabledOpacity"], ["mute button normal", "mute button active"]),
-    cursorArenaTarget("reward_toast", "cursor_hit_feedback", "Cursor Hit Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["hitFlashAlpha", "hitFlashDurationMs", "hitFlashScale", "enemyObscureLimit"], ["cursor hit flash", "enemy still visible"], ["Feedback alpha/scale defaults must keep enemies readable."]),
-    cursorArenaTarget("reward_toast", "cursor_miss_feedback", "Cursor Miss Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["missFeedbackAlpha", "missFeedbackDurationMs", "missFeedbackScale"], ["cursor miss feedback", "enemy still visible"], ["Miss feedback is visual-only and must not alter hit detection."]),
-    cursorArenaTarget("reward_toast", "kill_combo_feedback", "Kill/Combo Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["comboTextScale", "comboRiseDistance", "comboFadeMs", "killFlashAlpha"], ["kill text", "combo text", "enemy still visible"], ["Kill/combo feedback must not alter score, rewards, damage, or spawn behavior."]),
-    cursorArenaTarget("background_readability", "arena_background_readability", "Arena Background Readability", cursorArenaBackgroundReadabilityConfigRelativePath, ["overlayColor", "overlayOpacity", "contrastStrength", "vignetteStrength", "patternOpacity", "enemyReadabilityPreview"], ["enemy-over-background", "cursor-over-background", "busy arena background"]),
-    {
-      surfaceType: "asset_replacement",
-      targetId: "arena_asset_presentation",
-      displayName: "Arena Asset Presentation",
-      likelyOwnerFiles: ["src/arena/scenes/ArenaScene.ts", "src/arena/ui/ArenaHud.ts", "src/assets"],
-      previewSupport: "supported",
-      directApply: unsupportedDirectApply("Asset presentation is validation/manual-only; loaders and manifests are fallback-only."),
-      assetReplacementSupport: "manual_required",
-      fallback: { support: "manual_required", reason: "Enemy/icon/background/effect asset wiring requires explicit scoped handoff." },
-      manualChecks: cursorArenaManualChecks("arena_asset_presentation"),
-      limitations: ["Asset replacement remains non-executable unless an existing asset contract path explicitly supports it."],
-      supportedStyleTokens: ["enemyVisibilityPreview", "iconScale", "effectScale"]
-    }
+    cursorArenaTarget("panel", "arena_hud_panel", "Cursor Arena HUD Panel", cursorArenaHudStyleConfigRelativePath, ["fillColor", "fillOpacity", "borderColor", "borderWidth", "radius", "padding", "shadowStrength", "glowStrength", "textScale", "readabilityBoost"], ["HUD panel readability", "status panel spacing"]),
+    cursorArenaTarget("slot_card", "upgrade_card", "Cursor Arena Upgrade Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["fillColor", "borderColor", "radius", "padding", "selectedBorderColor", "affordableGlowStrength", "unaffordableOpacity", "iconScale", "labelScale", "priceEmphasis"], ["normal upgrade card", "selected card", "affordable card", "unaffordable card"]),
+    cursorArenaTarget("reward_toast", "cursor_hit_feedback", "Cursor Hit Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["impactScale", "ringOpacity", "sparkOpacity", "durationMs", "shakeStrength", "accentColor", "enemyReadabilityGuard"], ["cursor hit flash", "enemy still visible"], ["Feedback alpha/scale defaults must keep enemies readable."]),
+    cursorArenaTarget("reward_toast", "cursor_miss_feedback", "Cursor Miss Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["missMarkerOpacity", "durationMs", "scale", "softness", "neutralAccentColor"], ["cursor miss feedback", "soft neutral miss marker"], ["Miss feedback is visual-only, should avoid strong red/error treatment by default, and must not alter hit detection."]),
+    cursorArenaTarget("reward_toast", "enemy_kill_feedback", "Enemy Kill Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["burstScale", "fadeDurationMs", "sparkCount", "flashStrength", "corpseFadeReadability"], ["enemy kill burst", "enemy fade still readable"], ["Enemy kill feedback must not alter enemy HP, rewards, damage, scoring, or spawn behavior."]),
+    cursorArenaTarget("reward_toast", "combo_feedback", "Combo Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["textScale", "popStrength", "bounceStrength", "durationMs", "glowStrength", "positionOffsetX", "positionOffsetY"], ["combo text", "combo pop", "enemy still visible"], ["Combo feedback must not alter score, rewards, damage, or spawn behavior."]),
+    cursorArenaTarget("background_readability", "arena_background_readability", "Arena Background Readability", cursorArenaBackgroundReadabilityConfigRelativePath, ["overlayOpacity", "vignetteStrength", "contrastOverlayColor", "contrastOverlayOpacity", "patternOpacity", "enemyContrastNote", "cursorContrastNote"], ["enemy-over-background", "cursor-over-background", "busy arena background"])
   ];
   return {
     id: "cursor_arena",
     displayName: "Cursor Arena",
     family: "cursor_arena",
-    version: "0.7.4",
+    version: "0.7.3",
     description: "Contract wrapper for cursor-click arena HUD, cards, feedback, and readability polish.",
-    supportedSurfaces: [...visualSurfacePickerOrder],
+    supportedSurfaces: ["panel", "slot_card", "reward_toast", "background_readability"],
     detectProject: detectCursorArenaProject,
     getSurfaceTargets: (surfaceType) => filterTargets(targets, surfaceType),
     getSafeScopes: (surfaceType) => cursorArenaScopeDescriptor(targets, surfaceType),
@@ -514,6 +496,18 @@ export function detectCursorArenaProject(files: Array<{ relativePath: string; te
     const path = file.relativePath.replace(/\\/g, "/");
     const lowerPath = path.toLowerCase();
     const text = file.text.toLowerCase();
+    if (lowerPath === "arena.html") {
+      evidence.push(`${path}: arena.html entry point found.`);
+      score += 2;
+    }
+    if (lowerPath.startsWith("src/arena/")) {
+      evidence.push(`${path}: src/arena project path found.`);
+      score += 1;
+    }
+    if (lowerPath.includes("arenabalanceconfig") || text.includes("arena_balance_config") || text.includes("balance_config")) {
+      evidence.push(`${path}: arenaBalanceConfig marker found.`);
+      score += 2;
+    }
     if (lowerPath.includes("arena") && (lowerPath.includes("scene") || text.includes("phaser.scene"))) {
       evidence.push(`${path}: arena scene marker found.`);
       score += 2;
@@ -521,6 +515,14 @@ export function detectCursorArenaProject(files: Array<{ relativePath: string; te
     if (lowerPath.includes("cursorattacksystem") || text.includes("cursorattacksystem")) {
       evidence.push(`${path}: CursorAttackSystem marker found.`);
       score += 2;
+    }
+    if (lowerPath.includes("impacteffectsystem") || text.includes("showcursorflash") || text.includes("showmiss")) {
+      evidence.push(`${path}: cursor click feedback renderer found.`);
+      score += 1;
+    }
+    if (lowerPath.includes("arenahud") || lowerPath.includes("upgradepanel") || text.includes("arena-upgrade-card")) {
+      evidence.push(`${path}: arena HUD/upgrade UI marker found.`);
+      score += 1;
     }
     if (text.includes("enemy") && (text.includes("cursor") || text.includes("combo") || text.includes("hit"))) {
       evidence.push(`${path}: cursor/enemy feedback terms found.`);
@@ -738,17 +740,15 @@ function genericSupportedStyleTokens(surfaceType: StyleSurface): string[] {
 
 function cursorArenaOwnerFiles(surfaceType: StyleSurface, targetId: string): string[] {
   if (surfaceType === "panel") {
-    return ["src/arena/ui/ArenaHud.ts", "src/arena/ui/StatusPanel.ts", "src/arena/scenes/ArenaScene.ts"];
+    return ["src/arena/ui/ArenaHud.ts", "src/arena/ui/ArenaHud.js", "arena.html"];
   }
-  if (surfaceType === "slot_card" || surfaceType === "button") {
-    return ["src/arena/ui/UpgradePanel.ts", "src/arena/ui/ShopPanel.ts", "src/arena/scenes/ArenaScene.ts"];
+  if (surfaceType === "slot_card") {
+    return ["src/arena/ui/UpgradePanel.ts", "src/arena/ui/UpgradePanel.js", "arena.html"];
   }
   if (surfaceType === "reward_toast") {
-    return targetId === "cursor_miss_feedback"
-      ? ["src/arena/systems/CursorAttackSystem.ts", "src/arena/effects/ImpactEffectSystem.ts"]
-      : ["src/arena/effects/ImpactEffectSystem.ts", "src/arena/ui/ComboFeedback.ts"];
+    return ["src/arena/systems/ImpactEffectSystem.ts", "src/arena/systems/ImpactEffectSystem.js", "src/arena/systems/CursorAttackSystem.ts", "src/arena/systems/CursorAttackSystem.js"];
   }
-  return ["src/arena/scenes/ArenaScene.ts", "src/arena/config/backgroundReadability.ts"];
+  return ["src/arena/scenes/ArenaScene.ts", "src/arena/scenes/ArenaScene.js", "src/styles/arena.css", "arena.html"];
 }
 
 function assetTarget(adapterId: "idle_monster_farm" | "generic_phaser", targetId: string, displayName: string, ownerFiles: string[], limitation: string): VisualAdapterSurfaceTarget {

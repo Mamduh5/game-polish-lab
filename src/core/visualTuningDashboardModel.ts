@@ -80,6 +80,14 @@ export interface BuildSortPuzzleDashboardSurfaceInputsInput {
   ownerFiles?: string[];
 }
 
+export interface BuildCursorArenaDashboardSurfaceInputsInput {
+  detection: VisualAdapterProjectDetection;
+  configs: Record<string, DashboardConfigInfo>;
+  recipeFiles: Record<string, DashboardRecipeInfo>;
+  fallbackCounts: Record<string, number>;
+  ownerFiles?: string[];
+}
+
 export function buildVisualTuningDashboardModel(input: BuildDashboardInput): VisualTuningDashboardModel {
   const rows = input.surfaces.map((surface) => buildDashboardRow(surface, input.attemptIndex));
   const fieldNotes = buildFieldNoteSummary(rows);
@@ -148,6 +156,40 @@ export function buildSortPuzzleDashboardSurfaceInputs(input: BuildSortPuzzleDash
       config,
       recipeFile: recipe ? input.recipeFiles[recipe.recipeId] : { status: "not_applicable", exists: false },
       fallbackTaskCount: input.fallbackCounts[`sort_puzzle_${target.surfaceType}`] ?? 0,
+      scopeFiles: scopeFilesForRow(adapter, config, recipe)
+    };
+  });
+}
+
+export function buildCursorArenaDashboardSurfaceInputs(input: BuildCursorArenaDashboardSurfaceInputsInput): DashboardSurfaceInput[] {
+  return getVisualGameAdapterSurfaceTargets("cursor_arena").map((target) => {
+    const recipe = target.surfaceType === "asset_replacement" ? undefined : getVisualSurfaceRecipe(target.surfaceType);
+    const config: DashboardConfigInfo = target.styleConfigPath
+      ? input.configs[`cursor_arena_${target.targetId}`] ?? { status: "missing", path: target.styleConfigPath, exists: false }
+      : { status: "not_applicable", exists: false };
+    const directApplySupported = target.directApply.support === "executable";
+    const adapter: DashboardAdapterInfo = {
+      adapterId: "cursor_arena",
+      targetId: target.targetId,
+      targetLabel: target.displayName,
+      connectedState: directApplySupported ? "connected" : "not_applicable",
+      detected: input.detection.detected,
+      confidence: input.detection.confidence,
+      directApplySupported,
+      ownerFiles: Array.from(new Set([...(input.ownerFiles ?? []), ...target.likelyOwnerFiles])).sort(),
+      warnings: [
+        ...input.detection.warnings,
+        "Cursor Arena direct apply is config-only. Runtime arena rendering integration remains fallback-only unless the project already reads the generated config."
+      ]
+    };
+    return {
+      surfaceType: target.surfaceType,
+      displayName: target.displayName,
+      adapter,
+      recipe,
+      config,
+      recipeFile: recipe ? input.recipeFiles[recipe.recipeId] : { status: "not_applicable", exists: false },
+      fallbackTaskCount: input.fallbackCounts[`cursor_arena_${target.surfaceType}`] ?? 0,
       scopeFiles: scopeFilesForRow(adapter, config, recipe)
     };
   });
@@ -223,7 +265,7 @@ export function calculateAppliedStatus(surface: DashboardSurfaceInput, scope: Re
   if (!surface.adapter.directApplySupported) {
     return "unsupported";
   }
-  if (surface.adapter.adapterId === "sort_puzzle" && surface.config.status === "valid" && scope.ok) {
+  if ((surface.adapter.adapterId === "sort_puzzle" || surface.adapter.adapterId === "cursor_arena") && surface.config.status === "valid" && scope.ok) {
     return "config_only";
   }
   if (surface.adapter.connectedState === "connected" && surface.config.status === "valid" && scope.directApplySafe) {
@@ -374,7 +416,7 @@ function fallbackAction(surface: DashboardSurfaceInput, appliedStatus: Dashboard
   if (appliedStatus === "applied") {
     return { enabled: false, label: "Generate Fallback Task", reason: "Connected surfaces should use direct apply first." };
   }
-  if (surface.adapter.adapterId === "sort_puzzle") {
+  if (surface.adapter.adapterId === "sort_puzzle" || surface.adapter.adapterId === "cursor_arena") {
     return { enabled: true, label: "Generate Fallback Task" };
   }
   if (surface.adapter.adapterId === "generic_phaser" || surface.adapter.connectedState !== "connected") {

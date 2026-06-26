@@ -51,7 +51,7 @@ export const sortPuzzleFeedbackStyleConfigRelativePath = ".game-polish-lab/style
 export const cursorArenaHudStyleConfigRelativePath = ".game-polish-lab/styles/cursor-arena-hud-style.json";
 export const cursorArenaUpgradeCardStyleConfigRelativePath = ".game-polish-lab/styles/cursor-arena-upgrade-card-style.json";
 export const cursorArenaFeedbackStyleConfigRelativePath = ".game-polish-lab/styles/cursor-arena-feedback-style.json";
-export const cursorArenaBackgroundReadabilityConfigRelativePath = ".game-polish-lab/styles/cursor-arena-background-readability.json";
+export const cursorArenaBackgroundReadabilityConfigRelativePath = ".game-polish-lab/styles/cursor-arena-background-style.json";
 
 const sortPuzzleTargetConfigPaths: Partial<Record<VisualSurfaceType, Record<string, string>>> = {
   slot_card: {
@@ -68,24 +68,16 @@ const sortPuzzleTargetConfigPaths: Partial<Record<VisualSurfaceType, Record<stri
 
 const cursorArenaTargetConfigPaths: Partial<Record<VisualSurfaceType, Record<string, string>>> = {
   panel: {
-    arena_hud_panel: cursorArenaHudStyleConfigRelativePath,
-    arena_status_panel: cursorArenaHudStyleConfigRelativePath
+    arena_hud_panel: cursorArenaHudStyleConfigRelativePath
   },
   slot_card: {
-    upgrade_card: cursorArenaUpgradeCardStyleConfigRelativePath,
-    skin_card: cursorArenaUpgradeCardStyleConfigRelativePath,
-    reward_card: cursorArenaUpgradeCardStyleConfigRelativePath
-  },
-  button: {
-    upgrade_button: cursorArenaUpgradeCardStyleConfigRelativePath,
-    shop_button: cursorArenaUpgradeCardStyleConfigRelativePath,
-    reset_button: cursorArenaUpgradeCardStyleConfigRelativePath,
-    mute_button: cursorArenaUpgradeCardStyleConfigRelativePath
+    upgrade_card: cursorArenaUpgradeCardStyleConfigRelativePath
   },
   reward_toast: {
     cursor_hit_feedback: cursorArenaFeedbackStyleConfigRelativePath,
     cursor_miss_feedback: cursorArenaFeedbackStyleConfigRelativePath,
-    kill_combo_feedback: cursorArenaFeedbackStyleConfigRelativePath
+    enemy_kill_feedback: cursorArenaFeedbackStyleConfigRelativePath,
+    combo_feedback: cursorArenaFeedbackStyleConfigRelativePath
   },
   background_readability: {
     arena_background_readability: cursorArenaBackgroundReadabilityConfigRelativePath

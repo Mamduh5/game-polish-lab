@@ -12,6 +12,10 @@ import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/outpu
 import { createTuningAttempt, getFallbackFieldNoteGuidance, loadTuningAttemptIndex } from "../core/tuningAttempts";
 import {
   buildVisualDirectApplyPlan,
+  cursorArenaBackgroundReadabilityConfigRelativePath,
+  cursorArenaFeedbackStyleConfigRelativePath,
+  cursorArenaHudStyleConfigRelativePath,
+  cursorArenaUpgradeCardStyleConfigRelativePath,
   executeVisualDirectApplyPlan,
   sortPuzzleFeedbackStyleConfigRelativePath,
   sortPuzzleShelfStyleConfigRelativePath,
@@ -19,9 +23,10 @@ import {
 } from "../core/visualDirectApplyTemplates";
 import { readVisualAssetContractFile, refreshVisualAssetContracts, summarizeVisualAssetContractStatuses } from "../core/visualAssetContracts";
 import { inspectPolishDevOverlayStatus } from "../core/visualDevOverlay";
-import { buildSortPuzzleSpiritSortSceneFallbackTask, detectSortPuzzleProject } from "../core/visualGameAdapters";
+import { buildCursorArenaVisualFallbackTask, buildSortPuzzleSpiritSortSceneFallbackTask, detectCursorArenaProject, detectSortPuzzleProject } from "../core/visualGameAdapters";
 import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "../core/visualScopeGuard";
 import {
+  buildCursorArenaDashboardSurfaceInputs,
   buildSortPuzzleDashboardSurfaceInputs,
   buildVisualTuningDashboardModel,
   DashboardAdapterInfo,
@@ -103,6 +108,7 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     buttonState,
     genericState,
     sortPuzzleState,
+    cursorArenaState,
     attemptIndex,
     assetContractLoad
   ] = await Promise.all([
@@ -113,6 +119,7 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     getIdleMonsterFarmButtonAdapterState(folder),
     getGenericPhaserAdapterState(folder),
     getSortPuzzleAdapterState(folder),
+    getCursorArenaAdapterState(folder),
     loadTuningAttemptIndex(folder),
     readVisualAssetContractFile(folder.uri.fsPath)
   ]);
@@ -125,7 +132,15 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
   const idleConfidence = [slotState, backgroundState, panelState, rewardToastState, buttonState].some((state) => state.detection.confidence === "high") ? "high"
     : [slotState, backgroundState, panelState, rewardToastState, buttonState].some((state) => state.detection.confidence === "medium") ? "medium"
     : idleAdapterDetected ? "low" : "unknown";
-  const detectedAdapter = chooseDashboardDetectedAdapter({ idleDetected: idleAdapterDetected, idleConfidence, sortPuzzleDetected: sortPuzzleState.detection.detected, sortPuzzleConfidence: sortPuzzleState.detection.confidence, genericDetected: genericState.detected });
+  const detectedAdapter = chooseDashboardDetectedAdapter({
+    idleDetected: idleAdapterDetected,
+    idleConfidence,
+    sortPuzzleDetected: sortPuzzleState.detection.detected,
+    sortPuzzleConfidence: sortPuzzleState.detection.confidence,
+    cursorArenaDetected: cursorArenaState.detection.detected,
+    cursorArenaConfidence: cursorArenaState.detection.confidence,
+    genericDetected: genericState.detected
+  });
   const surfaces: DashboardSurfaceInput[] = [
     ...visualSurfacePickerOrder.map((surfaceType) => buildIdleSurfaceInput(surfaceType, configStatuses, recipeFileStatuses, fallbackCounts, {
       slot_card: slotState,
@@ -141,15 +156,23 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
       fallbackCounts,
       ownerFiles: sortPuzzleState.ownerFiles
     }) : []),
+    ...(cursorArenaState.detection.detected ? buildCursorArenaDashboardSurfaceInputs({
+      detection: cursorArenaState.detection,
+      configs: configStatuses,
+      recipeFiles: recipeFileStatuses,
+      fallbackCounts,
+      ownerFiles: cursorArenaState.ownerFiles
+    }) : []),
     ...visualSurfacePickerOrder.map((surfaceType) => buildGenericSurfaceInput(surfaceType, genericState, configStatuses, recipeFileStatuses, fallbackCounts))
   ];
 
   return buildVisualTuningDashboardModel({
     workspaceFolder: folder.uri.fsPath,
-    phaserDetected: genericState.detected || idleAdapterDetected || sortPuzzleState.detection.detected,
+    phaserDetected: genericState.detected || idleAdapterDetected || sortPuzzleState.detection.detected || cursorArenaState.detection.detected,
     detectedAdapter,
     adapterConfidence: detectedAdapter === "idle_monster_farm" ? idleConfidence
       : detectedAdapter === "sort_puzzle" ? sortPuzzleState.detection.confidence
+      : detectedAdapter === "cursor_arena" ? cursorArenaState.detection.confidence
       : detectedAdapter === "generic_phaser" ? genericState.confidence
       : "unknown",
     surfaces,
@@ -193,20 +216,61 @@ async function getSortPuzzleAdapterState(folder: vscode.WorkspaceFolder): Promis
   return { detection, ownerFiles };
 }
 
+async function getCursorArenaAdapterState(folder: vscode.WorkspaceFolder): Promise<{
+  detection: ReturnType<typeof detectCursorArenaProject>;
+  ownerFiles: string[];
+}> {
+  const files = new Map<string, string>();
+  for (const entryPath of ["package.json", "arena.html"]) {
+    const text = await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, entryPath));
+    if (text !== undefined) {
+      files.set(entryPath, text);
+    }
+  }
+  const uris = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, "{src,scripts}/**/*.{ts,tsx,js,jsx,json,html}"), "**/{node_modules,dist,build,out}/**", 180);
+  for (const uri of uris) {
+    const relativePath = path.relative(folder.uri.fsPath, uri.fsPath).replace(/\\/g, "/");
+    const text = await readTextFileIfExists(uri);
+    if (text !== undefined) {
+      files.set(relativePath, text);
+    }
+  }
+  const inspectedFiles = Array.from(files.entries()).map(([relativePath, text]) => ({ relativePath, text }));
+  const detection = detectCursorArenaProject(inspectedFiles);
+  const ownerFiles = inspectedFiles
+    .map((file) => file.relativePath)
+    .filter((relativePath) => {
+      const lowerPath = relativePath.toLowerCase();
+      return lowerPath === "arena.html"
+        || lowerPath.includes("src/arena/ui/")
+        || lowerPath.includes("src/arena/scenes/")
+        || lowerPath.includes("impacteffectsystem")
+        || lowerPath.includes("cursorattacksystem");
+    })
+    .sort();
+  return { detection, ownerFiles };
+}
+
 function chooseDashboardDetectedAdapter(input: {
   idleDetected: boolean;
   idleConfidence: "high" | "medium" | "low" | "unknown";
   sortPuzzleDetected: boolean;
   sortPuzzleConfidence: "high" | "medium" | "low" | "unknown";
+  cursorArenaDetected: boolean;
+  cursorArenaConfidence: "high" | "medium" | "low" | "unknown";
   genericDetected: boolean;
-}): "idle_monster_farm" | "sort_puzzle" | "generic_phaser" | "unknown" {
+}): "idle_monster_farm" | "sort_puzzle" | "cursor_arena" | "generic_phaser" | "unknown" {
   const idleScore = input.idleDetected ? confidenceScore(input.idleConfidence) : 0;
   const sortPuzzleScore = input.sortPuzzleDetected ? confidenceScore(input.sortPuzzleConfidence) : 0;
-  if (idleScore > 0 && idleScore >= sortPuzzleScore) {
+  const cursorArenaScore = input.cursorArenaDetected ? confidenceScore(input.cursorArenaConfidence) : 0;
+  if (idleScore > 0 && idleScore >= sortPuzzleScore && idleScore >= cursorArenaScore) {
     return "idle_monster_farm";
   }
-  if (sortPuzzleScore >= confidenceScore("medium") && sortPuzzleScore > idleScore) {
+  if (sortPuzzleScore >= confidenceScore("medium") && sortPuzzleScore >= cursorArenaScore && sortPuzzleScore > idleScore) {
     return "sort_puzzle";
+  }
+  if (cursorArenaScore >= confidenceScore("medium") && cursorArenaScore > idleScore && cursorArenaScore > sortPuzzleScore) {
+    return "cursor_arena";
   }
   return input.genericDetected ? "generic_phaser" : "unknown";
 }
@@ -313,8 +377,8 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   if (row.surfaceType === "asset_replacement") {
     return { ok: false, message: "Dashboard direct apply is not available for asset replacement rows." };
   }
-  if (row.adapterId !== "idle_monster_farm" && row.adapterId !== "sort_puzzle") {
-    return { ok: false, message: "Dashboard direct apply is available only for connected Idle Monster Farm style surfaces and Sort Puzzle generated config writes." };
+  if (row.adapterId !== "idle_monster_farm" && row.adapterId !== "sort_puzzle" && row.adapterId !== "cursor_arena") {
+    return { ok: false, message: "Dashboard direct apply is available only for connected Idle Monster Farm style surfaces and generated config writes for Sort Puzzle or Cursor Arena." };
   }
   const configText = row.configPath ? await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, ...row.configPath.split("/"))) : undefined;
   if (!configText) {
@@ -333,13 +397,13 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   if (!plan.executable) {
     return { ok: false, message: `Direct apply template blocked: ${plan.blockingReasons.join(" ") || plan.scopeGuardResult.summaryMessage}` };
   }
-  if (row.adapterId === "sort_puzzle") {
+  if (row.adapterId === "sort_puzzle" || row.adapterId === "cursor_arena") {
     const result = executeVisualDirectApplyPlan(folder.uri.fsPath, plan, [{
       relativePath: row.configPath!,
       text: configText.endsWith("\n") ? configText : `${configText}\n`
     }]);
     if (!result.ok) {
-      return { ok: false, message: `Sort Puzzle config-only direct apply failed: ${result.errors.join(" ")}` };
+      return { ok: false, message: `${row.targetLabel} config-only direct apply failed: ${result.errors.join(" ")}` };
     }
     const snapshot = parseJsonObject(configText);
     const values = snapshot && typeof snapshot.values === "object" && snapshot.values !== null && !Array.isArray(snapshot.values)
@@ -363,16 +427,18 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
       warnings: [
         ...plan.warnings,
         ...result.warnings,
-        "Sort Puzzle direct apply wrote generated style config only; SpiritSortScene runtime integration remains fallback-only."
+        row.adapterId === "sort_puzzle"
+          ? "Sort Puzzle direct apply wrote generated style config only; SpiritSortScene runtime integration remains fallback-only."
+          : "Cursor Arena direct apply wrote generated style config only; arena runtime integration remains fallback-only."
       ],
-      tags: ["v0.72-sort-puzzle", "config-only"]
+      tags: [row.adapterId === "sort_puzzle" ? "v0.72-sort-puzzle" : "v0.73-cursor-arena", "config-only"]
     });
     return {
       ok: true,
       message: [
         `Template: ${plan.templateId} (${plan.templateName})`,
-        `Sort Puzzle config-only direct apply wrote ${result.changedFiles.join(", ")}.`,
-        "Runtime SpiritSortScene integration remains fallback-only."
+        `${row.targetLabel} config-only direct apply wrote ${result.changedFiles.join(", ")}.`,
+        row.adapterId === "sort_puzzle" ? "Runtime SpiritSortScene integration remains fallback-only." : "Runtime Cursor Arena integration remains fallback-only."
       ].join("\n"),
       refresh: true
     };
@@ -440,6 +506,27 @@ async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder,
       styleConfigPath: row.configPath
     });
     const relativePath = `.game-polish-lab/fallback-tasks/${new Date().toISOString().replace(/[:.]/g, "-")}-${row.surfaceType}-sort-puzzle.json`;
+    await writeJsonFile(labUri(folder, "fallback-tasks", path.basename(relativePath)), {
+      ...fallback,
+      surfaceType: row.surfaceType,
+      targetLabel: row.targetLabel,
+      recipeId: row.recipeId,
+      fieldNoteGuidance: guidance,
+      guardWarnings: [...row.scopeSummary.warnings, ...guardWarnings]
+    });
+    return { ok: true, message: [`Fallback task generated: ${relativePath}`, ...guardWarnings].join("\n"), refresh: true };
+  }
+  if (row.adapterId === "cursor_arena") {
+    if (!row.configPath) {
+      return { ok: false, message: "Cursor Arena fallback requires a generated style config path." };
+    }
+    const targetFile = pickCursorArenaFallbackTarget(row);
+    const fallback = buildCursorArenaVisualFallbackTask({
+      targetFile,
+      targetId: row.targetId ?? row.targetLabel,
+      styleConfigPath: row.configPath
+    });
+    const relativePath = `.game-polish-lab/fallback-tasks/${new Date().toISOString().replace(/[:.]/g, "-")}-${row.surfaceType}-cursor-arena.json`;
     await writeJsonFile(labUri(folder, "fallback-tasks", path.basename(relativePath)), {
       ...fallback,
       surfaceType: row.surfaceType,
@@ -571,6 +658,22 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
   }
 }
 
+function pickCursorArenaFallbackTarget(row: VisualTuningDashboardRow): string {
+  const candidates = [...row.scopeSummary.suspiciousFiles, ...row.scopeSummary.allowedFiles];
+  const lowerTarget = (row.targetId ?? "").toLowerCase();
+  const preferred = lowerTarget.includes("upgrade") ? ["upgradepanel", "arena.html"]
+    : lowerTarget.includes("hit") || lowerTarget.includes("miss") || lowerTarget.includes("kill") || lowerTarget.includes("combo") ? ["impacteffectsystem", "cursorattacksystem", "arenascene"]
+    : lowerTarget.includes("background") ? ["arenascene", "arena.css", "arena.html"]
+    : ["arenahud", "arena.html"];
+  for (const token of preferred) {
+    const match = candidates.find((file) => file.toLowerCase().includes(token));
+    if (match) {
+      return match;
+    }
+  }
+  return candidates.find((file) => file.startsWith("src/arena/")) ?? "src/arena/scenes/ArenaScene.js";
+}
+
 async function readStyleConfigStatuses(folder: vscode.WorkspaceFolder): Promise<Record<string, DashboardConfigInfo>> {
   return {
     idle_monster_farm_slot_card: await loadConfigInfo(folder, farmSlotStyleConfigRelativePath, (text) => loadSlotCardStyleConfigFromText(text).status),
@@ -591,7 +694,14 @@ async function readStyleConfigStatuses(folder: vscode.WorkspaceFolder): Promise<
     sort_puzzle_selected_shelf_state: await loadGenericConfigInfo(folder, sortPuzzleShelfStyleConfigRelativePath),
     sort_puzzle_invalid_move_feedback: await loadGenericConfigInfo(folder, sortPuzzleFeedbackStyleConfigRelativePath),
     sort_puzzle_win_reward_toast: await loadGenericConfigInfo(folder, sortPuzzleFeedbackStyleConfigRelativePath),
-    sort_puzzle_spirit_asset_presentation: await loadGenericConfigInfo(folder, sortPuzzleSpiritPresentationConfigRelativePath)
+    sort_puzzle_spirit_asset_presentation: await loadGenericConfigInfo(folder, sortPuzzleSpiritPresentationConfigRelativePath),
+    cursor_arena_arena_hud_panel: await loadGenericConfigInfo(folder, cursorArenaHudStyleConfigRelativePath),
+    cursor_arena_upgrade_card: await loadGenericConfigInfo(folder, cursorArenaUpgradeCardStyleConfigRelativePath),
+    cursor_arena_cursor_hit_feedback: await loadGenericConfigInfo(folder, cursorArenaFeedbackStyleConfigRelativePath),
+    cursor_arena_cursor_miss_feedback: await loadGenericConfigInfo(folder, cursorArenaFeedbackStyleConfigRelativePath),
+    cursor_arena_enemy_kill_feedback: await loadGenericConfigInfo(folder, cursorArenaFeedbackStyleConfigRelativePath),
+    cursor_arena_combo_feedback: await loadGenericConfigInfo(folder, cursorArenaFeedbackStyleConfigRelativePath),
+    cursor_arena_arena_background_readability: await loadGenericConfigInfo(folder, cursorArenaBackgroundReadabilityConfigRelativePath)
   };
 }
 
@@ -776,7 +886,7 @@ function renderDashboardHtml(model: VisualTuningDashboardModel): string {
   </style>
 </head>
 <body>
-  <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">${escapeHtml(model.summary.workspaceFolder)}</p></div><div class="toolbar"><select id="adapterFilter"><option value="detected">Detected Adapter</option><option value="idle_monster_farm">Idle Monster Farm</option><option value="sort_puzzle">Sort Puzzle</option><option value="generic_phaser">Generic Phaser</option><option value="all">All</option></select><button id="openRollbackHistory" class="secondary">Rollback History</button><button id="openAssetContactSheet" class="secondary" ${model.summary.assetContactSheetAvailable ? "" : "disabled"} title="${model.summary.assetContactSheetAvailable ? "Open asset contact sheet" : "Refresh asset contracts first"}">View Asset Contact Sheet</button><button id="refreshAssetContracts" class="secondary">Refresh Asset Contracts</button><button id="refresh">Refresh</button></div></div>
+  <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">${escapeHtml(model.summary.workspaceFolder)}</p></div><div class="toolbar"><select id="adapterFilter"><option value="detected">Detected Adapter</option><option value="idle_monster_farm">Idle Monster Farm</option><option value="sort_puzzle">Sort Puzzle</option><option value="cursor_arena">Cursor Arena</option><option value="generic_phaser">Generic Phaser</option><option value="all">All</option></select><button id="openRollbackHistory" class="secondary">Rollback History</button><button id="openAssetContactSheet" class="secondary" ${model.summary.assetContactSheetAvailable ? "" : "disabled"} title="${model.summary.assetContactSheetAvailable ? "Open asset contact sheet" : "Refresh asset contracts first"}">View Asset Contact Sheet</button><button id="refreshAssetContracts" class="secondary">Refresh Asset Contracts</button><button id="refresh">Refresh</button></div></div>
   <section class="summary">${summaryMetric("Adapter", `${model.summary.detectedAdapter} (${model.summary.adapterConfidence})`)}${summaryMetric("Phaser", model.summary.phaserDetected ? "yes" : "no")}${summaryMetric("Surfaces", String(model.summary.totalSurfaces))}${summaryMetric("Applied", String(model.summary.appliedCount))}${summaryMetric("Config Only", String(model.summary.configOnlyCount))}${summaryMetric("Warnings", String(model.summary.warningCount))}${summaryMetric("Worse/Same", String(model.summary.recentWorseOrSameCount))}${summaryMetric("Asset Contracts", `${model.summary.assetContractStatus}: ${model.summary.assetContractStatusCounts.valid}/${model.summary.assetContractStatusCounts.total} valid`)}${summaryMetric("Asset Issues", `${model.summary.assetContractStatusCounts.missing} missing, ${model.summary.assetContractStatusCounts.invalid} invalid, ${model.summary.assetContractStatusCounts.unknown} unknown`)}${summaryMetric("Dev Overlay", devOverlaySummary(model))}${summaryMetric("Adapter Contracts", adapterContractSummary(model))}</section>
   <section class="notes"><div class="row-head"><h2>Field Notes</h2><button class="secondary" data-global="openFieldNotes">Open Field Notes</button></div><div class="grid"><div><b>Known Good</b><ul id="good"></ul></div><div><b>Known Bad</b><ul id="bad"></ul></div><div><b>Mixed</b><ul id="mixed"></ul></div></div></section>
   <section class="rows" id="rows"></section>

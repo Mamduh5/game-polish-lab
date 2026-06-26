@@ -50,6 +50,7 @@ import {
 } from "../core/tuningAttemptModel";
 import {
   buildDashboardRow,
+  buildCursorArenaDashboardSurfaceInputs,
   buildSortPuzzleDashboardSurfaceInputs,
   buildVisualTuningDashboardModel,
   calculateAppliedStatus,
@@ -495,7 +496,7 @@ assert.strictEqual(new Set(registeredVisualAdapters.map((adapter) => adapter.id)
 assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("idle_monster_farm"), visualSurfacePickerOrder);
 assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("generic_phaser"), visualSurfacePickerOrder);
 assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("sort_puzzle"), ["slot_card", "reward_toast", "asset_replacement"]);
-assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("cursor_arena"), visualSurfacePickerOrder);
+assert.deepStrictEqual(getVisualGameAdapterSupportedSurfaces("cursor_arena"), ["panel", "slot_card", "reward_toast", "background_readability"]);
 const registeredAdapterValidation = validateRegisteredVisualGameAdapters();
 assert.strictEqual(registeredAdapterValidation.ok, true);
 assert.deepStrictEqual(registeredAdapterValidation.errors, []);
@@ -558,6 +559,8 @@ assert.strictEqual(sortPuzzleAssetTargets[0].assetReplacementSupport, "manual_re
 assert.strictEqual(sortPuzzleContract.getStyleConfigPath("slot_card", "spirit_slot"), sortPuzzleSpiritPresentationConfigRelativePath);
 const cursorArenaDetection = detectCursorArenaProject([
   { relativePath: "package.json", text: "{\"dependencies\":{\"phaser\":\"latest\"}}" },
+  { relativePath: "arena.html", text: "<script src=\"src/arena/systems/CursorAttackSystem.js\"></script>" },
+  { relativePath: "src/arena/data/arenaBalanceConfig.js", text: "window.ARENA = { BALANCE_CONFIG: {} };" },
   { relativePath: "src/arena/systems/CursorAttackSystem.ts", text: "export class CursorAttackSystem { hit(enemy); combo(); }" },
   { relativePath: "src/arena/scenes/ArenaScene.ts", text: "export class ArenaScene extends Phaser.Scene { enemy cursor combo hit }" }
 ]);
@@ -567,19 +570,22 @@ assert.ok(cursorArenaDetection.evidence.some((entry) => entry.includes("CursorAt
 const weakCursorArenaDetection = detectCursorArenaProject([{ relativePath: "src/scenes/MenuScene.ts", text: "arena settings" }]);
 assert.strictEqual(weakCursorArenaDetection.detected, false);
 const cursorArenaPanelTargets = getVisualGameAdapterSurfaceTargets("cursor_arena", "panel");
-assert.ok(cursorArenaPanelTargets.some((target) => target.targetId === "arena_hud_panel"));
-assert.strictEqual(cursorArenaPanelTargets.find((target) => target.targetId === "arena_hud_panel")?.styleConfigPath, cursorArenaHudStyleConfigRelativePath);
+assert.deepStrictEqual(cursorArenaPanelTargets.map((target) => target.targetId), ["arena_hud_panel"]);
+assert.strictEqual(cursorArenaPanelTargets[0].styleConfigPath, cursorArenaHudStyleConfigRelativePath);
+assert.ok(cursorArenaPanelTargets[0].supportedStyleTokens?.includes("fillOpacity"));
 const cursorArenaCardTargets = getVisualGameAdapterSurfaceTargets("cursor_arena", "slot_card");
-assert.ok(cursorArenaCardTargets.some((target) => target.targetId === "upgrade_card"));
-assert.ok(cursorArenaCardTargets.find((target) => target.targetId === "upgrade_card")?.manualChecks.some((check) => check.description.includes("affordable card")));
+assert.deepStrictEqual(cursorArenaCardTargets.map((target) => target.targetId), ["upgrade_card"]);
+assert.ok(cursorArenaCardTargets[0].manualChecks.some((check) => check.description.includes("affordable card")));
+assert.ok(cursorArenaCardTargets[0].supportedStyleTokens?.includes("priceEmphasis"));
 const cursorArenaFeedbackTargets = getVisualGameAdapterSurfaceTargets("cursor_arena", "reward_toast");
-assert.deepStrictEqual(cursorArenaFeedbackTargets.map((target) => target.targetId), ["cursor_hit_feedback", "cursor_miss_feedback", "kill_combo_feedback"]);
-assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "cursor_hit_feedback")?.supportedStyleTokens?.includes("enemyObscureLimit"));
-assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "kill_combo_feedback")?.limitations.some((limitation) => limitation.includes("score")));
+assert.deepStrictEqual(cursorArenaFeedbackTargets.map((target) => target.targetId), ["cursor_hit_feedback", "cursor_miss_feedback", "enemy_kill_feedback", "combo_feedback"]);
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "cursor_hit_feedback")?.supportedStyleTokens?.includes("enemyReadabilityGuard"));
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "enemy_kill_feedback")?.limitations.some((limitation) => limitation.includes("enemy HP")));
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "combo_feedback")?.supportedStyleTokens?.includes("positionOffsetY"));
 const cursorArenaBackgroundTargets = getVisualGameAdapterSurfaceTargets("cursor_arena", "background_readability");
 assert.strictEqual(cursorArenaBackgroundTargets[0].targetId, "arena_background_readability");
 assert.strictEqual(cursorArenaBackgroundTargets[0].styleConfigPath, cursorArenaBackgroundReadabilityConfigRelativePath);
-assert.strictEqual(cursorArenaContract.getStyleConfigPath("button", "upgrade_button"), cursorArenaUpgradeCardStyleConfigRelativePath);
+assert.strictEqual(cursorArenaContract.getStyleConfigPath("slot_card", "upgrade_card"), cursorArenaUpgradeCardStyleConfigRelativePath);
 assert.strictEqual(cursorArenaContract.getStyleConfigPath("reward_toast", "cursor_hit_feedback"), cursorArenaFeedbackStyleConfigRelativePath);
 const cursorFallback = buildCursorArenaVisualFallbackTask({
   targetFile: "src/arena/ui/ArenaHud.ts",
@@ -617,10 +623,10 @@ assert.ok(adapterSummaries.every((summary) => summary.valid));
 assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "idle_monster_farm")?.supportedSurfaceCount, visualSurfacePickerOrder.length);
 assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "generic_phaser")?.supportedSurfaceCount, visualSurfacePickerOrder.length);
 assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "sort_puzzle")?.supportedSurfaceCount, 3);
-assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "cursor_arena")?.supportedSurfaceCount, visualSurfacePickerOrder.length);
+assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "cursor_arena")?.supportedSurfaceCount, 4);
 assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "sort_puzzle")?.directApplyCapableSurfaceCount, 2);
-assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "cursor_arena")?.directApplyCapableSurfaceCount, 5);
-assert.ok(adapterSummaries.every((summary) => summary.fallbackOnlySurfaceCount >= 1));
+assert.strictEqual(adapterSummaries.find((summary) => summary.adapterId === "cursor_arena")?.directApplyCapableSurfaceCount, 4);
+assert.ok(adapterSummaries.filter((summary) => summary.adapterId !== "cursor_arena").every((summary) => summary.fallbackOnlySurfaceCount >= 1));
 assert.strictEqual(summarizeVisualGameAdapterContract(idleContract).knownLimitationsCount > 0, true);
 const duplicateTargetAdapter: VisualGameAdapter = {
   ...idleContract,
@@ -2263,6 +2269,7 @@ assert.ok(sortPuzzleAdapterDoc.includes("Spirit scale and offsets"));
 const cursorArenaAdapterDoc = fs.readFileSync(path.join(process.cwd(), "docs", "cursor-arena-adapter.md"), "utf8");
 assert.ok(cursorArenaAdapterDoc.includes("Adapter id: `cursor_arena`"));
 assert.ok(cursorArenaAdapterDoc.includes(".game-polish-lab/styles/cursor-arena-hud-style.json"));
+assert.ok(cursorArenaAdapterDoc.includes(".game-polish-lab/styles/cursor-arena-background-style.json"));
 assert.ok(cursorArenaAdapterDoc.includes("CursorAttackSystem"));
 assert.ok(cursorArenaAdapterDoc.includes("Do not add player or projectile systems"));
 const genericPhaserV2Doc = fs.readFileSync(path.join(process.cwd(), "docs", "generic-phaser-v2.md"), "utf8");
@@ -2465,11 +2472,12 @@ const cursorArenaHudSurface = {
   scopeFiles: [cursorArenaHudStyleConfigRelativePath]
 };
 const cursorArenaHudRow = buildDashboardRow(cursorArenaHudSurface, attemptIndex);
-assert.strictEqual(cursorArenaHudRow.appliedStatus, "applied");
+assert.strictEqual(cursorArenaHudRow.appliedStatus, "config_only");
 assert.strictEqual(cursorArenaHudRow.adapterId, "cursor_arena");
 assert.strictEqual(cursorArenaHudRow.directApplyTemplate.available, true);
 assert.strictEqual(cursorArenaHudRow.directApplyTemplate.executable, true);
-assert.strictEqual(cursorArenaHudRow.actions.generateFallbackTask.enabled, false);
+assert.strictEqual(cursorArenaHudRow.actions.directApply.enabled, true);
+assert.strictEqual(cursorArenaHudRow.actions.generateFallbackTask.enabled, true);
 assert.ok(cursorArenaHudRow.scopeSummary.allowedFiles.includes(cursorArenaHudStyleConfigRelativePath));
 
 const disconnectedIdlePanelSurface = {
@@ -2542,6 +2550,7 @@ assert.strictEqual(buildDashboardRow(unknownSurface, attemptIndex).appliedStatus
 
 assert.strictEqual(calculateAppliedStatus(connectedIdleSlotSurface, connectedIdleSlotRow.scopeSummary), "applied");
 assert.strictEqual(calculateAppliedStatus(sortPuzzleShelfSurface, sortPuzzleShelfRow.scopeSummary), "config_only");
+assert.strictEqual(calculateAppliedStatus(cursorArenaHudSurface, cursorArenaHudRow.scopeSummary), "config_only");
 assert.strictEqual(calculateAppliedStatus(disconnectedIdlePanelSurface, disconnectedPanelRow.scopeSummary), "config_only");
 assert.strictEqual(calculateAppliedStatus(invalidButtonSurface, buildDashboardRow(invalidButtonSurface, attemptIndex).scopeSummary), "invalid");
 
@@ -2592,6 +2601,57 @@ assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.configPath === sortP
 assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.configPath === sortPuzzleSpiritPresentationConfigRelativePath));
 assert.ok(sortPuzzleFixtureDashboard.rows.some((row) => row.configPath === sortPuzzleFeedbackStyleConfigRelativePath));
 
+const cursorArenaFixtureFiles = readFixtureFiles(path.join(process.cwd(), "fixtures", "phaser-incremental-arena-sample"));
+const fixtureCursorArenaDetection = detectCursorArenaProject(cursorArenaFixtureFiles);
+assert.strictEqual(fixtureCursorArenaDetection.detected, true);
+assert.strictEqual(fixtureCursorArenaDetection.confidence, "high");
+assert.ok(fixtureCursorArenaDetection.evidence.some((entry) => entry.includes("arena.html")));
+assert.strictEqual(detectCursorArenaProject(sortPuzzleFixtureFiles).detected, false);
+assert.strictEqual(detectCursorArenaProject(files).detected, false);
+const cursorArenaFixtureSurfaces = buildCursorArenaDashboardSurfaceInputs({
+  detection: fixtureCursorArenaDetection,
+  configs: {
+    cursor_arena_arena_hud_panel: { status: "valid", path: cursorArenaHudStyleConfigRelativePath, exists: true },
+    cursor_arena_upgrade_card: { status: "valid", path: cursorArenaUpgradeCardStyleConfigRelativePath, exists: true },
+    cursor_arena_cursor_hit_feedback: { status: "valid", path: cursorArenaFeedbackStyleConfigRelativePath, exists: true },
+    cursor_arena_cursor_miss_feedback: { status: "valid", path: cursorArenaFeedbackStyleConfigRelativePath, exists: true },
+    cursor_arena_enemy_kill_feedback: { status: "valid", path: cursorArenaFeedbackStyleConfigRelativePath, exists: true },
+    cursor_arena_combo_feedback: { status: "valid", path: cursorArenaFeedbackStyleConfigRelativePath, exists: true },
+    cursor_arena_arena_background_readability: { status: "valid", path: cursorArenaBackgroundReadabilityConfigRelativePath, exists: true }
+  },
+  recipeFiles: {
+    panel: recipeFileStatus(getVisualSurfaceRecipe("panel")!, true),
+    "slot-card": recipeFileStatus(getVisualSurfaceRecipe("slot_card")!, true),
+    "reward-toast": recipeFileStatus(getVisualSurfaceRecipe("reward_toast")!, true),
+    "background-readability": recipeFileStatus(getVisualSurfaceRecipe("background_readability")!, true)
+  },
+  fallbackCounts: {},
+  ownerFiles: cursorArenaFixtureFiles.map((file) => file.relativePath).filter((file) => file.startsWith("src/arena/") || file === "arena.html")
+});
+const cursorArenaFixtureDashboard = buildVisualTuningDashboardModel({
+  workspaceFolder: path.join(process.cwd(), "fixtures", "phaser-incremental-arena-sample"),
+  generatedAt: new Date("2026-06-26T10:00:00.000Z"),
+  phaserDetected: true,
+  detectedAdapter: "cursor_arena",
+  adapterConfidence: fixtureCursorArenaDetection.confidence,
+  surfaces: cursorArenaFixtureSurfaces,
+  attemptIndex
+});
+assert.strictEqual(cursorArenaFixtureDashboard.summary.detectedAdapter, "cursor_arena");
+assert.strictEqual(cursorArenaFixtureDashboard.summary.adapterConfidence, "high");
+assert.deepStrictEqual(cursorArenaFixtureDashboard.rows.map((row) => row.targetId), ["arena_hud_panel", "upgrade_card", "cursor_hit_feedback", "cursor_miss_feedback", "enemy_kill_feedback", "combo_feedback", "arena_background_readability"]);
+assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.displayName === "Cursor Arena HUD Panel"));
+assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.displayName === "Cursor Arena Upgrade Card"));
+assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.targetId === "cursor_hit_feedback" && row.configPath === cursorArenaFeedbackStyleConfigRelativePath));
+assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.targetId === "cursor_miss_feedback" && row.configPath === cursorArenaFeedbackStyleConfigRelativePath));
+assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.targetId === "enemy_kill_feedback" && row.configPath === cursorArenaFeedbackStyleConfigRelativePath));
+assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.targetId === "combo_feedback" && row.configPath === cursorArenaFeedbackStyleConfigRelativePath));
+assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.targetId === "arena_background_readability" && row.configPath === cursorArenaBackgroundReadabilityConfigRelativePath));
+assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.adapterId === "cursor_arena"));
+assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.appliedStatus === "config_only"));
+assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.directApply.enabled));
+assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.generateFallbackTask.enabled));
+
 const dashboardModel = buildVisualTuningDashboardModel({
   workspaceFolder: "D:/sample",
   generatedAt: new Date("2026-06-25T03:00:00.000Z"),
@@ -2625,8 +2685,8 @@ const dashboardModel = buildVisualTuningDashboardModel({
 });
 assert.strictEqual(dashboardModel.schemaVersion, "visual-tuning-dashboard/v1");
 assert.strictEqual(dashboardModel.summary.totalSurfaces, 6);
-assert.strictEqual(dashboardModel.summary.appliedCount, 2);
-assert.strictEqual(dashboardModel.summary.configOnlyCount, 3);
+assert.strictEqual(dashboardModel.summary.appliedCount, 1);
+assert.strictEqual(dashboardModel.summary.configOnlyCount, 4);
 assert.ok(dashboardModel.summary.warningCount > 0);
 assert.strictEqual(dashboardModel.summary.assetContractStatus, "valid");
 assert.strictEqual(dashboardModel.summary.assetContractStatusCounts.total, 5);
@@ -2639,7 +2699,7 @@ assert.strictEqual(dashboardModel.summary.devOverlay?.generatedFileCount, 4);
 assert.deepStrictEqual(dashboardModel.summary.adapterContracts.map((contract) => contract.adapterId), ["idle_monster_farm", "generic_phaser", "sort_puzzle", "cursor_arena"]);
 assert.ok(dashboardModel.summary.adapterContracts.every((contract) => contract.valid));
 assert.strictEqual(dashboardModel.summary.adapterContracts.find((contract) => contract.adapterId === "sort_puzzle")?.supportedSurfaceCount, 3);
-assert.strictEqual(dashboardModel.summary.adapterContracts.find((contract) => contract.adapterId === "cursor_arena")?.supportedSurfaceCount, visualSurfacePickerOrder.length);
+assert.strictEqual(dashboardModel.summary.adapterContracts.find((contract) => contract.adapterId === "cursor_arena")?.supportedSurfaceCount, 4);
 assert.strictEqual(dashboardModel.fieldNotes.fieldNotesPath, ".game-polish-lab/field-notes.md");
 assert.ok(dashboardModel.fieldNotes.knownBad.some((note) => note.includes("Magic Glow")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard opens without writing files")));
