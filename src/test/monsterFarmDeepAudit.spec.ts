@@ -55,6 +55,7 @@ import {
   buildVisualTuningDashboardModel,
   calculateAppliedStatus,
   configPathForDashboard,
+  dashboardAdapterFilterOptions,
   dashboardManualChecklist,
   recipeFileStatus
 } from "../core/visualTuningDashboardModel";
@@ -573,18 +574,30 @@ const cursorArenaPanelTargets = getVisualGameAdapterSurfaceTargets("cursor_arena
 assert.deepStrictEqual(cursorArenaPanelTargets.map((target) => target.targetId), ["arena_hud_panel"]);
 assert.strictEqual(cursorArenaPanelTargets[0].styleConfigPath, cursorArenaHudStyleConfigRelativePath);
 assert.ok(cursorArenaPanelTargets[0].supportedStyleTokens?.includes("fillOpacity"));
+assert.ok(cursorArenaPanelTargets[0].supportedStyleTokens?.includes("compactHudGuard"));
+assert.ok(cursorArenaPanelTargets[0].limitations.some((limitation) => limitation.includes("compact enough")));
 const cursorArenaCardTargets = getVisualGameAdapterSurfaceTargets("cursor_arena", "slot_card");
 assert.deepStrictEqual(cursorArenaCardTargets.map((target) => target.targetId), ["upgrade_card"]);
 assert.ok(cursorArenaCardTargets[0].manualChecks.some((check) => check.description.includes("affordable card")));
 assert.ok(cursorArenaCardTargets[0].supportedStyleTokens?.includes("priceEmphasis"));
+assert.ok(cursorArenaCardTargets[0].supportedStyleTokens?.includes("crowdingGuard"));
+assert.ok(cursorArenaCardTargets[0].limitations.some((limitation) => limitation.includes("without changing upgrade cost")));
 const cursorArenaFeedbackTargets = getVisualGameAdapterSurfaceTargets("cursor_arena", "reward_toast");
 assert.deepStrictEqual(cursorArenaFeedbackTargets.map((target) => target.targetId), ["cursor_hit_feedback", "cursor_miss_feedback", "enemy_kill_feedback", "combo_feedback"]);
 assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "cursor_hit_feedback")?.supportedStyleTokens?.includes("enemyReadabilityGuard"));
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "cursor_hit_feedback")?.supportedStyleTokens?.includes("impactScaleMax"));
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "cursor_hit_feedback")?.limitations.some((limitation) => limitation.includes("do not obscure enemies")));
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "cursor_miss_feedback")?.supportedStyleTokens?.includes("avoidErrorRedByDefault"));
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "cursor_miss_feedback")?.limitations.some((limitation) => limitation.includes("subtle/neutral")));
 assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "enemy_kill_feedback")?.limitations.some((limitation) => limitation.includes("enemy HP")));
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "enemy_kill_feedback")?.supportedStyleTokens?.includes("sparkCountMax"));
 assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "combo_feedback")?.supportedStyleTokens?.includes("positionOffsetY"));
+assert.ok(cursorArenaFeedbackTargets.find((target) => target.targetId === "combo_feedback")?.supportedStyleTokens?.includes("gameplayOcclusionGuard"));
 const cursorArenaBackgroundTargets = getVisualGameAdapterSurfaceTargets("cursor_arena", "background_readability");
 assert.strictEqual(cursorArenaBackgroundTargets[0].targetId, "arena_background_readability");
 assert.strictEqual(cursorArenaBackgroundTargets[0].styleConfigPath, cursorArenaBackgroundReadabilityConfigRelativePath);
+assert.ok(cursorArenaBackgroundTargets[0].supportedStyleTokens?.includes("washoutGuard"));
+assert.ok(cursorArenaBackgroundTargets[0].limitations.some((limitation) => limitation.includes("without washing out")));
 assert.strictEqual(cursorArenaContract.getStyleConfigPath("slot_card", "upgrade_card"), cursorArenaUpgradeCardStyleConfigRelativePath);
 assert.strictEqual(cursorArenaContract.getStyleConfigPath("reward_toast", "cursor_hit_feedback"), cursorArenaFeedbackStyleConfigRelativePath);
 const cursorFallback = buildCursorArenaVisualFallbackTask({
@@ -594,8 +607,17 @@ const cursorFallback = buildCursorArenaVisualFallbackTask({
 });
 assert.deepStrictEqual(cursorFallback.allowedFiles, [cursorArenaHudStyleConfigRelativePath, "src/arena/ui/ArenaHud.ts"]);
 assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("Do not change economy")));
-assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("Do not add player movement")));
+assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("upgrade costs/effects/values")));
+assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("enemy HP/speed/spawn/damage")));
+assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("save schema/state persistence")));
+assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("Do not add player systems")));
+assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("auto-shooter behavior")));
+assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("unrelated Sort Puzzle")));
+assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("unrelated Monster Farm")));
 assert.ok(cursorFallback.forbiddenFiles.some((file) => file.includes("projectile")));
+assert.ok(cursorFallback.forbiddenFiles.some((file) => file.includes("upgrade cost/effect")));
+assert.ok(cursorFallback.forbiddenFiles.some((file) => file.includes("enemy HP/speed/spawn/damage")));
+assert.ok(cursorFallback.forbiddenFiles.some((file) => file.includes("ad/monetization")));
 const spiritFallback = buildSortPuzzleSpiritSortSceneFallbackTask({
   targetFile: "src/scenes/SpiritSortScene.ts",
   targetId: "shelf_card",
@@ -765,6 +787,69 @@ assert.strictEqual(cursorArenaForbiddenDirectApplyPlan.executable, false);
 assert.strictEqual(cursorArenaForbiddenDirectApplyPlan.scopeGuardResult.recommendedAction, "block");
 assert.ok(cursorArenaForbiddenDirectApplyPlan.scopeGuardResult.violations.some((violation) => violation.reasonCode === "cursor_arena_balance_file"));
 
+const cursorArenaSafeConfigScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "cursor_arena",
+  surfaceType: "reward_toast",
+  targetId: "combo_feedback",
+  candidatePaths: [cursorArenaFeedbackStyleConfigRelativePath]
+});
+assert.strictEqual(cursorArenaSafeConfigScope.recommendedAction, "allow");
+assert.strictEqual(cursorArenaSafeConfigScope.counts.safe, 1);
+
+const cursorArenaSceneScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "cursor_arena",
+  surfaceType: "background_readability",
+  targetId: "arena_background_readability",
+  candidatePaths: ["src/arena/scenes/ArenaScene.js", "src/arena/systems/ImpactEffectSystem.js"]
+});
+assert.strictEqual(cursorArenaSceneScope.recommendedAction, "warn");
+assert.strictEqual(cursorArenaSceneScope.counts.suspicious, 2);
+
+const cursorArenaUpgradeEconomyScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "cursor_arena",
+  surfaceType: "slot_card",
+  targetId: "upgrade_card",
+  candidatePaths: ["src/arena/data/upgradeCostConfig.js", "src/arena/economy/energyBank.js"]
+});
+assert.strictEqual(cursorArenaUpgradeEconomyScope.recommendedAction, "block");
+assert.ok(cursorArenaUpgradeEconomyScope.violations.some((violation) => violation.reasonCode === "cursor_arena_balance_file"));
+assert.ok(cursorArenaUpgradeEconomyScope.violations.some((violation) => violation.reasonCode === "economy_or_balance_file"));
+
+const cursorArenaEnemyBalanceScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "cursor_arena",
+  surfaceType: "reward_toast",
+  targetId: "enemy_kill_feedback",
+  candidatePaths: ["src/arena/data/enemySpeedConfig.js", "src/arena/systems/EnemySpawnSystem.js", "src/arena/data/arenaBalanceConfig.js"]
+});
+assert.strictEqual(cursorArenaEnemyBalanceScope.recommendedAction, "block");
+assert.strictEqual(cursorArenaEnemyBalanceScope.counts.forbidden, 3);
+
+const cursorArenaPlayerProjectileScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "cursor_arena",
+  surfaceType: "reward_toast",
+  targetId: "cursor_hit_feedback",
+  candidatePaths: ["src/arena/player/PlayerController.js", "src/arena/systems/ProjectileSystem.js", "src/arena/systems/AutoShooterSystem.js"]
+});
+assert.strictEqual(cursorArenaPlayerProjectileScope.recommendedAction, "block");
+assert.ok(cursorArenaPlayerProjectileScope.violations.every((violation) => violation.reasonCode === "cursor_arena_player_projectile_file"));
+
+const unrelatedSortAndMonsterFarmScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  adapterId: "cursor_arena",
+  surfaceType: "panel",
+  targetId: "arena_hud_panel",
+  candidatePaths: ["src/solver/SortSolver.ts", "src/data/spiritSortLevels.ts", "src/systems/saveSystem.ts", "src/systems/monsterMergeSystem.ts", "src/data/quests.ts"]
+});
+assert.strictEqual(unrelatedSortAndMonsterFarmScope.recommendedAction, "block");
+assert.ok(unrelatedSortAndMonsterFarmScope.violations.some((violation) => violation.reasonCode === "sort_puzzle_rule_file"));
+assert.ok(unrelatedSortAndMonsterFarmScope.violations.some((violation) => violation.reasonCode === "merge_rule_file"));
+assert.ok(unrelatedSortAndMonsterFarmScope.violations.some((violation) => violation.reasonCode === "quest_reward_file"));
+
 const forbiddenDirectApplyPlan = buildVisualDirectApplyPlan({
   adapterId: "idle_monster_farm",
   surfaceType: "slot_card",
@@ -840,6 +925,13 @@ try {
   assert.ok(runnerResult.rollbackPaths[0].startsWith(`${visualRollbackRelativeDir}/2026-06-26T07-00-00-000Z-cursor-arena-hud-style.json`));
   assert.strictEqual(fs.existsSync(path.join(cursorArenaDirectApplyWorkspace, "src", "arena", "data", "arenaBalanceConfig.js")), false);
   assert.strictEqual(readWorkspaceFile(cursorArenaDirectApplyWorkspace, cursorArenaHudStyleConfigRelativePath).includes("panelFillColor"), true);
+  const rerunResult = executeVisualDirectApplyPlan(cursorArenaDirectApplyWorkspace, cursorArenaDirectApplyPlan, [{
+    relativePath: cursorArenaHudStyleConfigRelativePath,
+    text: "{\"surfaceType\":\"panel\",\"targetId\":\"arena_hud_panel\",\"values\":{\"fillOpacity\":0.82}}\n"
+  }], new Date("2026-06-26T07:05:00.000Z"));
+  assert.strictEqual(rerunResult.ok, true);
+  assert.ok(rerunResult.rollbackPaths[0].startsWith(`${visualRollbackRelativeDir}/2026-06-26T07-05-00-000Z-cursor-arena-hud-style.json`));
+  assert.strictEqual(readWorkspaceFile(cursorArenaDirectApplyWorkspace, cursorArenaHudStyleConfigRelativePath).includes("fillOpacity"), true);
 } finally {
   cleanupTempWorkspace(cursorArenaDirectApplyWorkspace);
 }
@@ -2608,6 +2700,15 @@ assert.strictEqual(fixtureCursorArenaDetection.confidence, "high");
 assert.ok(fixtureCursorArenaDetection.evidence.some((entry) => entry.includes("arena.html")));
 assert.strictEqual(detectCursorArenaProject(sortPuzzleFixtureFiles).detected, false);
 assert.strictEqual(detectCursorArenaProject(files).detected, false);
+const weakCursorGenericFallbackDetection = detectCursorArenaProject([
+  { relativePath: "package.json", text: "{\"dependencies\":{\"phaser\":\"latest\"}}" },
+  { relativePath: "src/scenes/MenuScene.ts", text: "export class MenuScene extends Phaser.Scene { showArenaOption(); }" }
+]);
+assert.strictEqual(weakCursorGenericFallbackDetection.detected, false);
+assert.strictEqual(detectGenericPhaserProject([
+  { relativePath: "package.json", text: "{\"dependencies\":{\"phaser\":\"latest\"}}" },
+  { relativePath: "src/scenes/MenuScene.ts", text: "export class MenuScene extends Phaser.Scene {}" }
+]).detected, true);
 const cursorArenaFixtureSurfaces = buildCursorArenaDashboardSurfaceInputs({
   detection: fixtureCursorArenaDetection,
   configs: {
@@ -2637,9 +2738,19 @@ const cursorArenaFixtureDashboard = buildVisualTuningDashboardModel({
   surfaces: cursorArenaFixtureSurfaces,
   attemptIndex
 });
+assert.doesNotThrow(() => buildVisualTuningDashboardModel({
+  workspaceFolder: path.join(process.cwd(), "fixtures", "phaser-incremental-arena-sample"),
+  phaserDetected: true,
+  detectedAdapter: "cursor_arena",
+  adapterConfidence: "high",
+  surfaces: cursorArenaFixtureSurfaces,
+  attemptIndex
+}));
+assert.ok(dashboardAdapterFilterOptions().some((option) => option.value === "cursor_arena" && option.label === "Cursor Arena"));
 assert.strictEqual(cursorArenaFixtureDashboard.summary.detectedAdapter, "cursor_arena");
 assert.strictEqual(cursorArenaFixtureDashboard.summary.adapterConfidence, "high");
 assert.deepStrictEqual(cursorArenaFixtureDashboard.rows.map((row) => row.targetId), ["arena_hud_panel", "upgrade_card", "cursor_hit_feedback", "cursor_miss_feedback", "enemy_kill_feedback", "combo_feedback", "arena_background_readability"]);
+assert.deepStrictEqual(cursorArenaFixtureDashboard.rows.map((row) => row.displayName), ["Cursor Arena HUD Panel", "Cursor Arena Upgrade Card", "Cursor Hit Feedback", "Cursor Miss Feedback", "Enemy Kill Feedback", "Combo Feedback", "Arena Background Readability"]);
 assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.displayName === "Cursor Arena HUD Panel"));
 assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.displayName === "Cursor Arena Upgrade Card"));
 assert.ok(cursorArenaFixtureDashboard.rows.some((row) => row.targetId === "cursor_hit_feedback" && row.configPath === cursorArenaFeedbackStyleConfigRelativePath));
@@ -2651,6 +2762,11 @@ assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.adapterId === "cur
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.appliedStatus === "config_only"));
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.directApply.enabled));
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.generateFallbackTask.enabled));
+assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.directApply.label === "Direct Apply"));
+assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.generateFallbackTask.label === "Generate Fallback Task"));
+assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.connectedState === "connected"));
+assert.strictEqual(cursorArenaFixtureDashboard.summary.appliedCount, 0);
+assert.strictEqual(cursorArenaFixtureDashboard.summary.configOnlyCount, cursorArenaFixtureDashboard.rows.length);
 
 const dashboardModel = buildVisualTuningDashboardModel({
   workspaceFolder: "D:/sample",

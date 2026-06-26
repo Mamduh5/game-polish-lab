@@ -374,13 +374,13 @@ function createSortPuzzleAdapter(): VisualGameAdapter {
 
 function createCursorArenaAdapter(): VisualGameAdapter {
   const targets: VisualAdapterSurfaceTarget[] = [
-    cursorArenaTarget("panel", "arena_hud_panel", "Cursor Arena HUD Panel", cursorArenaHudStyleConfigRelativePath, ["fillColor", "fillOpacity", "borderColor", "borderWidth", "radius", "padding", "shadowStrength", "glowStrength", "textScale", "readabilityBoost"], ["HUD panel readability", "status panel spacing"]),
-    cursorArenaTarget("slot_card", "upgrade_card", "Cursor Arena Upgrade Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["fillColor", "borderColor", "radius", "padding", "selectedBorderColor", "affordableGlowStrength", "unaffordableOpacity", "iconScale", "labelScale", "priceEmphasis"], ["normal upgrade card", "selected card", "affordable card", "unaffordable card"]),
-    cursorArenaTarget("reward_toast", "cursor_hit_feedback", "Cursor Hit Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["impactScale", "ringOpacity", "sparkOpacity", "durationMs", "shakeStrength", "accentColor", "enemyReadabilityGuard"], ["cursor hit flash", "enemy still visible"], ["Feedback alpha/scale defaults must keep enemies readable."]),
-    cursorArenaTarget("reward_toast", "cursor_miss_feedback", "Cursor Miss Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["missMarkerOpacity", "durationMs", "scale", "softness", "neutralAccentColor"], ["cursor miss feedback", "soft neutral miss marker"], ["Miss feedback is visual-only, should avoid strong red/error treatment by default, and must not alter hit detection."]),
-    cursorArenaTarget("reward_toast", "enemy_kill_feedback", "Enemy Kill Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["burstScale", "fadeDurationMs", "sparkCount", "flashStrength", "corpseFadeReadability"], ["enemy kill burst", "enemy fade still readable"], ["Enemy kill feedback must not alter enemy HP, rewards, damage, scoring, or spawn behavior."]),
-    cursorArenaTarget("reward_toast", "combo_feedback", "Combo Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["textScale", "popStrength", "bounceStrength", "durationMs", "glowStrength", "positionOffsetX", "positionOffsetY"], ["combo text", "combo pop", "enemy still visible"], ["Combo feedback must not alter score, rewards, damage, or spawn behavior."]),
-    cursorArenaTarget("background_readability", "arena_background_readability", "Arena Background Readability", cursorArenaBackgroundReadabilityConfigRelativePath, ["overlayOpacity", "vignetteStrength", "contrastOverlayColor", "contrastOverlayOpacity", "patternOpacity", "enemyContrastNote", "cursorContrastNote"], ["enemy-over-background", "cursor-over-background", "busy arena background"])
+    cursorArenaTarget("panel", "arena_hud_panel", "Cursor Arena HUD Panel", cursorArenaHudStyleConfigRelativePath, ["fillColor", "fillOpacity", "borderColor", "borderWidth", "radius", "padding", "contentGap", "shadowStrength", "glowStrength", "textScale", "readabilityBoost", "compactHudGuard"], ["HUD panel readability", "status panel spacing"], ["Keep HUD text scale, padding, and gaps compact enough for active play; do not add gameplay counters or change DOM bindings."]),
+    cursorArenaTarget("slot_card", "upgrade_card", "Cursor Arena Upgrade Card", cursorArenaUpgradeCardStyleConfigRelativePath, ["fillColor", "borderColor", "radius", "padding", "selectedBorderColor", "affordableGlowStrength", "unaffordableOpacity", "iconScale", "labelScale", "priceEmphasis", "crowdingGuard"], ["normal upgrade card", "selected card", "affordable card", "unaffordable card"], ["Keep card padding, label scale, icon scale, and price emphasis readable without changing upgrade cost/effect formulas."]),
+    cursorArenaTarget("reward_toast", "cursor_hit_feedback", "Cursor Hit Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["impactScale", "impactScaleMax", "ringOpacity", "ringOpacityMax", "sparkOpacity", "sparkOpacityMax", "durationMs", "durationMsMax", "shakeStrength", "shakeStrengthMax", "accentColor", "enemyReadabilityGuard"], ["cursor hit flash", "enemy still visible"], ["Feedback alpha, scale, shake, and duration must stay bounded so hit effects do not obscure enemies or cursor targeting."]),
+    cursorArenaTarget("reward_toast", "cursor_miss_feedback", "Cursor Miss Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["missMarkerOpacity", "missMarkerOpacityMax", "durationMs", "durationMsMax", "scale", "scaleMax", "softness", "neutralAccentColor", "avoidErrorRedByDefault"], ["cursor miss feedback", "soft neutral miss marker"], ["Miss feedback is visual-only, should stay subtle/neutral by default, and must not imply a new gameplay penalty or alter hit detection."]),
+    cursorArenaTarget("reward_toast", "enemy_kill_feedback", "Enemy Kill Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["burstScale", "burstScaleMax", "fadeDurationMs", "fadeDurationMsMax", "sparkCount", "sparkCountMax", "flashStrength", "flashStrengthMax", "corpseFadeReadability"], ["enemy kill burst", "enemy fade still readable"], ["Enemy kill feedback flash, particles, and fade must stay bounded and must not alter enemy HP, rewards, damage, scoring, or spawn behavior."]),
+    cursorArenaTarget("reward_toast", "combo_feedback", "Combo Feedback", cursorArenaFeedbackStyleConfigRelativePath, ["textScale", "textScaleMax", "popStrength", "popStrengthMax", "bounceStrength", "bounceStrengthMax", "durationMs", "durationMsMax", "glowStrength", "glowStrengthMax", "positionOffsetX", "positionOffsetY", "gameplayOcclusionGuard"], ["combo text", "combo pop", "enemy still visible"], ["Combo feedback text, pop, bounce, glow, and offsets must not block gameplay or alter score, rewards, damage, or spawn behavior."]),
+    cursorArenaTarget("background_readability", "arena_background_readability", "Arena Background Readability", cursorArenaBackgroundReadabilityConfigRelativePath, ["overlayOpacity", "overlayOpacityMax", "vignetteStrength", "vignetteStrengthMax", "contrastOverlayColor", "contrastOverlayOpacity", "contrastOverlayOpacityMax", "patternOpacity", "patternOpacityMax", "enemyContrastNote", "cursorContrastNote", "washoutGuard"], ["enemy-over-background", "cursor-over-background", "busy arena background"], ["Background readability should improve enemy/cursor contrast without washing out arena art or hiding click feedback."])
   ];
   return {
     id: "cursor_arena",
@@ -552,19 +552,25 @@ export function buildCursorArenaVisualFallbackTask(input: { targetFile: string; 
     allowedFiles: [input.styleConfigPath, input.targetFile],
     forbiddenFiles: [
       "economy config",
-      "upgrade value config",
-      "enemy spawn/damage/HP config",
-      "save/progression files",
-      "combat/player/projectile systems",
+      "upgrade cost/effect/value config",
+      "enemy HP/speed/spawn/damage config",
+      "save schema/state persistence files",
+      "progression files",
+      "player systems",
+      "projectile/shooter/auto-shooter systems",
       "scoring/reward logic",
-      "ad/monetization files"
+      "ad/monetization files",
+      "unrelated Sort Puzzle rule/level/solver/save files",
+      "unrelated Monster Farm economy/save/progression/hatch/merge/quest/ad files"
     ],
     instructions: [
-      "Use this fallback only for visual style integration in existing Cursor Arena UI/render files.",
+      "Use this fallback only for visual style integration in existing Cursor Arena UI/render/effect files.",
       "Read values from the generated Game Polish Lab style config or generated visual module.",
-      "Do not change economy, upgrades, enemy HP, spawn rate, damage, scoring, rewards, save/progression, player/projectile systems, ads, or monetization.",
-      "Do not add player movement, projectile, shooter, helper cursor, or unrelated combat systems.",
-      "Keep feedback alpha, scale, and duration readable so enemies are not obscured."
+      "Allowed owner areas are arena HUD/UI rendering, upgrade card rendering, cursor hit/miss feedback rendering, enemy kill/combo feedback rendering, and arena background readability rendering.",
+      "Do not change economy, upgrade costs/effects/values, enemy HP/speed/spawn/damage, scoring, rewards, save schema/state persistence, progression, ads, or monetization.",
+      "Do not add player systems, projectile systems, shooter systems, auto-shooter behavior, helper cursor gameplay, or unrelated combat systems.",
+      "Do not touch unrelated Sort Puzzle rules/levels/solver/save files or unrelated Monster Farm economy/save/progression/hatch/merge/quest/ad files.",
+      "Keep feedback alpha, scale, shake, particles, text pop, and duration readable so enemies and cursor targeting are not obscured."
     ],
     manualChecks: [
       "HUD/card previews remain readable in compact frames",

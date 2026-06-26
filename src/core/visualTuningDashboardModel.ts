@@ -88,6 +88,11 @@ export interface BuildCursorArenaDashboardSurfaceInputsInput {
   ownerFiles?: string[];
 }
 
+export interface DashboardAdapterFilterOption {
+  value: DashboardAdapterId | "detected" | "all";
+  label: string;
+}
+
 export function buildVisualTuningDashboardModel(input: BuildDashboardInput): VisualTuningDashboardModel {
   const rows = input.surfaces.map((surface) => buildDashboardRow(surface, input.attemptIndex));
   const fieldNotes = buildFieldNoteSummary(rows);
@@ -123,6 +128,17 @@ export function buildVisualTuningDashboardModel(input: BuildDashboardInput): Vis
     rows,
     manualChecklist: dashboardManualChecklist()
   };
+}
+
+export function dashboardAdapterFilterOptions(): DashboardAdapterFilterOption[] {
+  return [
+    { value: "detected", label: "Detected Adapter" },
+    { value: "idle_monster_farm", label: "Idle Monster Farm" },
+    { value: "sort_puzzle", label: "Sort Puzzle" },
+    { value: "cursor_arena", label: "Cursor Arena" },
+    { value: "generic_phaser", label: "Generic Phaser" },
+    { value: "all", label: "All" }
+  ];
 }
 
 export function buildSortPuzzleDashboardSurfaceInputs(input: BuildSortPuzzleDashboardSurfaceInputsInput): DashboardSurfaceInput[] {

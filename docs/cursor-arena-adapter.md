@@ -4,7 +4,7 @@ Adapter id: `cursor_arena`
 
 Display name: `Cursor Arena`
 
-Cursor Arena is cursor-click based. The adapter does not add player systems, projectile systems, shooter behavior, helper cursor mechanics, or combat progression.
+Cursor Arena is cursor-click based. The adapter does not add player systems, projectile systems, shooter behavior, auto-shooter behavior, helper cursor mechanics, or combat progression.
 
 ## Detection
 
@@ -38,11 +38,11 @@ Hit, miss, kill, and combo feedback metadata includes scale, opacity, duration, 
 - `.game-polish-lab/styles/cursor-arena-feedback-style.json`
 - `.game-polish-lab/styles/cursor-arena-background-style.json`
 
-Direct apply writes only these generated style configs and creates rollback snapshots before overwriting existing files. Dashboard rows are `config_only` unless a real runtime bridge is implemented and verified.
+Direct apply writes only these generated style configs and creates rollback snapshots before overwriting existing files. In v0.73/v0.74, dashboard rows are `config_only` unless a real runtime bridge is implemented and verified.
 
 ## Fallback
 
-Fallback tasks are visual-only and scoped to existing arena UI/render/effect files. They must not edit economy, upgrade values, enemy HP, spawn rate, damage, scoring, rewards, save/progression, ads, monetization, player systems, or projectile systems.
+Fallback tasks are visual-only and scoped to existing arena UI/render/effect files. They must not edit economy, upgrade costs/effects/values, enemy HP/speed/spawn/damage, scoring, rewards, save schema/state persistence, progression, ads, monetization, player systems, projectile systems, shooter systems, or auto-shooter behavior.
 
 Do not add player or projectile systems.
 
