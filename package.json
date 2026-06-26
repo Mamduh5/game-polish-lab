@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"
@@ -31,6 +31,7 @@
     "onCommand:gamePolishLab.createVisualDiagnosisTask",
     "onCommand:gamePolishLab.createTuningExperiment",
     "onCommand:gamePolishLab.createRollbackPrompt",
+    "onCommand:gamePolishLab.openRollbackHistory",
     "onCommand:gamePolishLab.openAssetContactSheet",
     "onCommand:gamePolishLab.openVisualTuningDashboard",
     "onCommand:gamePolishLab.tuneVisualSurface",
@@ -120,6 +121,10 @@
       {
         "command": "gamePolishLab.createRollbackPrompt",
         "title": "Game Polish Lab: Create Rollback Prompt"
+      },
+      {
+        "command": "gamePolishLab.openRollbackHistory",
+        "title": "Game Polish Lab: Open Rollback History"
       },
       {
         "command": "gamePolishLab.openAssetContactSheet",

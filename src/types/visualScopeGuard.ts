@@ -1,7 +1,14 @@
 import { VisualSurfaceType } from "./visualSurface";
 
 export type VisualScopeClassification = "safe" | "suspicious" | "forbidden" | "unknown";
-export type VisualScopeOperationType = "visual_config_write" | "asset_contract_write" | "asset_contact_sheet_read" | "direct_apply" | "fallback_task_generation";
+export type VisualScopeOperationType =
+  | "visual_config_write"
+  | "asset_contract_write"
+  | "asset_contact_sheet_read"
+  | "direct_apply"
+  | "fallback_task_generation"
+  | "rollback_restore"
+  | "rollback_fallback_task_generation";
 export type VisualScopeRecommendedAction = "allow" | "warn" | "block";
 
 export interface VisualScopeGuardPolicy {

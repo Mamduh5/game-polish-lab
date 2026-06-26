@@ -220,6 +220,7 @@ export function dashboardManualChecklist(): string[] {
     "asset contract summary shows missing/valid/malformed status without building contact sheets",
     "Refresh Asset Contracts writes only .game-polish-lab/assets/asset-contracts.json",
     "View Asset Contact Sheet opens a preview-only webview from existing contracts",
+    "Rollback History lists snapshots and restores only scope-guard-safe visual files",
     "Mark Latest Result uses existing v0.59 flow",
     "no gameplay/save/economy/progression/ad files changed"
   ];

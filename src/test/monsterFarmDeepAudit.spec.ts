@@ -94,6 +94,13 @@ import {
   resolveContactSheetAssetPreviewPath
 } from "../core/visualAssetContactSheet";
 import {
+  buildVisualRollbackFallbackTask,
+  discoverVisualRollbackSnapshots,
+  restoreVisualRollbackSnapshot,
+  visualRollbackFallbackTaskRelativeDir,
+  visualRollbackRelativeDir
+} from "../core/visualRollback";
+import {
   backgroundReadabilityStyleConfigRelativePath,
   buildBackgroundReadabilityStyleConfig,
   buildButtonStyleConfig,
@@ -351,6 +358,31 @@ const visualScopeFallbackPreflight = checkVisualScopeGuard({
 });
 assert.strictEqual(visualScopeFallbackPreflight.recommendedAction, "block");
 
+const visualRollbackScopeSafe = checkVisualScopeGuard({
+  operationType: "rollback_restore",
+  adapterId: "idle_monster_farm",
+  surfaceType: "slot_card",
+  candidatePaths: [farmSlotStyleConfigRelativePath]
+});
+assert.strictEqual(visualRollbackScopeSafe.recommendedAction, "allow");
+
+const visualRollbackScopeForbidden = checkVisualScopeGuard({
+  operationType: "rollback_restore",
+  adapterId: "idle_monster_farm",
+  surfaceType: "slot_card",
+  candidatePaths: ["src/systems/saveSystem.ts", "src/data/economy.ts"]
+});
+assert.strictEqual(visualRollbackScopeForbidden.recommendedAction, "block");
+assert.strictEqual(visualRollbackScopeForbidden.counts.forbidden, 2);
+
+const visualRollbackFallbackScope = checkVisualScopeGuard({
+  operationType: "rollback_fallback_task_generation",
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  candidatePaths: ["src/scenes/MenuScene.ts"]
+});
+assert.strictEqual(visualRollbackFallbackScope.recommendedAction, "warn");
+
 const contactSheetReadScope = checkVisualScopeGuard({
   operationType: "asset_contact_sheet_read",
   adapterId: "idle_monster_farm.assets",
@@ -362,6 +394,142 @@ assert.strictEqual(contactSheetReadScope.counts.forbidden, 0);
 assert.strictEqual(contactSheetReadScope.counts.safe, 1);
 assert.ok(contactSheetReadScope.violations.some((violation) => violation.reasonCode === "read_only_economy_or_balance_file"));
 assert.ok(visualScopeGuardRulesSummary().some((line) => line.includes("forbidden")));
+
+const missingRollbackWorkspace = makeTempWorkspace("missing-rollback");
+try {
+  const missingRollback = discoverVisualRollbackSnapshots(missingRollbackWorkspace);
+  assert.deepStrictEqual(missingRollback.snapshots, []);
+  assert.deepStrictEqual(missingRollback.warnings, []);
+} finally {
+  cleanupTempWorkspace(missingRollbackWorkspace);
+}
+
+const rollbackWorkspace = makeTempWorkspace("rollback-history");
+try {
+  writeWorkspaceFile(rollbackWorkspace, `${visualRollbackRelativeDir}/bad.rollback.json`, "{ nope");
+  writeWorkspaceFile(rollbackWorkspace, `${visualRollbackRelativeDir}/2026-06-25T01-02-03-004Z-panel-style.json`, "{\"old\":true}");
+  writeWorkspaceFile(rollbackWorkspace, `${visualRollbackRelativeDir}/2026-06-26T01-02-03-004Z-farm-slot-style.json`, "{\"new\":true}");
+  writeWorkspaceFile(rollbackWorkspace, `${visualRollbackRelativeDir}/loose-unknown.txt`, "legacy");
+  const discovered = discoverVisualRollbackSnapshots(rollbackWorkspace);
+  assert.ok(discovered.warnings.some((warning) => warning.includes("malformed rollback metadata")));
+  assert.strictEqual(discovered.snapshots[0].createdAt, "2026-06-26T01:02:03.004Z");
+  assert.strictEqual(discovered.snapshots[0].files[0].originalPath, farmSlotStyleConfigRelativePath);
+  assert.strictEqual(discovered.snapshots[0].files[0].fileKind, "style_config");
+  assert.strictEqual(discovered.snapshots[0].files[0].scopeClassification.classification, "safe");
+  assert.strictEqual(discovered.snapshots[0].files[0].restoreEligible, true);
+  assert.strictEqual(discovered.snapshots[1].createdAt, "2026-06-25T01:02:03.004Z");
+  assert.strictEqual(discovered.snapshots[2].sourceOperation, "legacy_raw_snapshot");
+  assert.strictEqual(discovered.snapshots[2].files[0].restoreEligible, false);
+} finally {
+  cleanupTempWorkspace(rollbackWorkspace);
+}
+
+const restoreWorkspace = makeTempWorkspace("rollback-restore");
+try {
+  writeWorkspaceFile(restoreWorkspace, `${visualRollbackRelativeDir}/safe-style.json`, "{\"preset\":\"rollback\"}");
+  writeWorkspaceFile(restoreWorkspace, farmSlotStyleConfigRelativePath, "{\"preset\":\"current\"}");
+  writeWorkspaceFile(restoreWorkspace, `${visualRollbackRelativeDir}/safe-style.rollback.json`, JSON.stringify({
+    id: "safe-style",
+    createdAt: "2026-06-26T02:00:00.000Z",
+    sourceOperation: "visual_config_write",
+    adapterId: "idle_monster_farm",
+    surfaceType: "slot_card",
+    targetId: "farm_slots",
+    files: [{
+      originalPath: farmSlotStyleConfigRelativePath,
+      snapshotPath: `${visualRollbackRelativeDir}/safe-style.json`,
+      fileKind: "style_config"
+    }]
+  }));
+  const result = restoreVisualRollbackSnapshot(restoreWorkspace, { snapshotId: "safe-style", now: new Date("2026-06-26T03:00:00.000Z") });
+  assert.strictEqual(result.status, "restored");
+  assert.strictEqual(result.restoredFiles.length, 1);
+  assert.ok(result.restoredFiles[0].preRestoreBackupPath?.startsWith(`${visualRollbackRelativeDir}/2026-06-26T03-00-00-000Z-pre-restore-`));
+  assert.strictEqual(readWorkspaceFile(restoreWorkspace, farmSlotStyleConfigRelativePath), "{\"preset\":\"rollback\"}");
+  assert.ok(fs.existsSync(path.join(restoreWorkspace, ".game-polish-lab", "rollback", "2026-06-26T03-00-00-000Z-pre-restore-farm-slot-style.json")));
+} finally {
+  cleanupTempWorkspace(restoreWorkspace);
+}
+
+const createParentWorkspace = makeTempWorkspace("rollback-parent");
+try {
+  writeWorkspaceFile(createParentWorkspace, `${visualRollbackRelativeDir}/style.json`, "{}");
+  writeWorkspaceFile(createParentWorkspace, `${visualRollbackRelativeDir}/style.rollback.json`, JSON.stringify({
+    id: "create-parent",
+    createdAt: "2026-06-26T02:00:00.000Z",
+    files: [{
+      originalPath: farmSlotStyleConfigRelativePath,
+      snapshotPath: `${visualRollbackRelativeDir}/style.json`,
+      fileKind: "style_config"
+    }]
+  }));
+  const result = restoreVisualRollbackSnapshot(createParentWorkspace, { snapshotId: "create-parent", now: new Date("2026-06-26T03:00:00.000Z") });
+  assert.strictEqual(result.status, "restored");
+  assert.strictEqual(readWorkspaceFile(createParentWorkspace, farmSlotStyleConfigRelativePath), "{}");
+} finally {
+  cleanupTempWorkspace(createParentWorkspace);
+}
+
+const blockedRollbackWorkspace = makeTempWorkspace("rollback-blocked");
+try {
+  writeWorkspaceFile(blockedRollbackWorkspace, `${visualRollbackRelativeDir}/save.ts`, "unsafe");
+  writeWorkspaceFile(blockedRollbackWorkspace, `${visualRollbackRelativeDir}/save.rollback.json`, JSON.stringify({
+    id: "forbidden-save",
+    createdAt: "2026-06-26T02:00:00.000Z",
+    files: [{
+      originalPath: "src/systems/saveSystem.ts",
+      snapshotPath: `${visualRollbackRelativeDir}/save.ts`,
+      fileKind: "unknown"
+    }]
+  }));
+  const discovered = discoverVisualRollbackSnapshots(blockedRollbackWorkspace).snapshots[0];
+  assert.strictEqual(discovered.files[0].scopeClassification.classification, "forbidden");
+  assert.strictEqual(discovered.files[0].restoreEligible, false);
+  const result = restoreVisualRollbackSnapshot(blockedRollbackWorkspace, { snapshotId: "forbidden-save", now: new Date("2026-06-26T03:00:00.000Z") });
+  assert.strictEqual(result.status, "blocked");
+  assert.strictEqual(result.blockedFiles.length, 1);
+  assert.strictEqual(fs.existsSync(path.join(blockedRollbackWorkspace, "src", "systems", "saveSystem.ts")), false);
+} finally {
+  cleanupTempWorkspace(blockedRollbackWorkspace);
+}
+
+const fallbackRollbackWorkspace = makeTempWorkspace("rollback-fallback");
+try {
+  writeWorkspaceFile(fallbackRollbackWorkspace, `${visualRollbackRelativeDir}/farm-scene.ts`, "visual source snapshot");
+  writeWorkspaceFile(fallbackRollbackWorkspace, `${visualRollbackRelativeDir}/farm-style.ts`, "style bridge snapshot");
+  writeWorkspaceFile(fallbackRollbackWorkspace, `${visualRollbackRelativeDir}/source.rollback.json`, JSON.stringify({
+    id: "source-fallback",
+    createdAt: "2026-06-26T02:00:00.000Z",
+    adapterId: "idle_monster_farm",
+    surfaceType: "slot_card",
+    files: [
+      {
+        originalPath: "src/scenes/FarmScene.ts",
+        snapshotPath: `${visualRollbackRelativeDir}/farm-scene.ts`,
+        fileKind: "unknown"
+      },
+      {
+        originalPath: "src/config/farmSlotStyle.ts",
+        snapshotPath: `${visualRollbackRelativeDir}/farm-style.ts`,
+        fileKind: "generated_style_module"
+      }
+    ]
+  }));
+  const discovered = discoverVisualRollbackSnapshots(fallbackRollbackWorkspace).snapshots[0];
+  assert.strictEqual(discovered.files[0].restoreEligible, false);
+  assert.strictEqual(discovered.files[1].restoreEligible, false);
+  const task = buildVisualRollbackFallbackTask(discovered, discovered.files, new Date("2026-06-26T03:00:00.000Z"));
+  assert.strictEqual(task.scope, "visual_rollback");
+  assert.ok(task.blockedReasons.some((reason) => reason.includes("FarmScene")));
+  assert.ok(task.instructions.some((instruction) => instruction.includes("Do not edit save, economy, progression")));
+  const result = restoreVisualRollbackSnapshot(fallbackRollbackWorkspace, { snapshotId: "source-fallback", now: new Date("2026-06-26T03:00:00.000Z") });
+  assert.strictEqual(result.status, "fallback_task");
+  assert.ok(result.fallbackTaskPath?.startsWith(`${visualRollbackFallbackTaskRelativeDir}/2026-06-26T03-00-00-000Z-rollback-source-fallback`));
+  assert.strictEqual(fs.existsSync(path.join(fallbackRollbackWorkspace, "src", "scenes", "FarmScene.ts")), false);
+  assert.strictEqual(fs.existsSync(path.join(fallbackRollbackWorkspace, "src", "config", "farmSlotStyle.ts")), false);
+} finally {
+  cleanupTempWorkspace(fallbackRollbackWorkspace);
+}
 
 const disconnectedFiles = [
   {
@@ -1365,11 +1533,13 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.5");
+assert.strictEqual(packageJson.version, "0.6.6");
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openAssetContactSheet"));
+assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openRollbackHistory"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.refreshAssetContracts"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openAssetContactSheet" && command.title === "Game Polish Lab: Open Asset Contact Sheet"));
+assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openRollbackHistory" && command.title === "Game Polish Lab: Open Rollback History"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.refreshAssetContracts" && command.title === "Game Polish Lab: Refresh Asset Contracts"));
 const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
@@ -1603,6 +1773,7 @@ assert.ok(dashboardModel.fieldNotes.knownBad.some((note) => note.includes("Magic
 assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard opens without writing files")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("asset contract summary")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("Asset Contact Sheet")));
+assert.ok(dashboardManualChecklist().some((item) => item.includes("Rollback History")));
 assert.strictEqual(getVisualSurfaceRecipes().length, 5);
 assert.deepStrictEqual(visualSurfacePickerOrder, ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"]);
 assert.ok(dashboardModel.rows.some((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "slot_card"));
@@ -1906,6 +2077,26 @@ function concatBytes(...chunks: Uint8Array[]): Uint8Array {
     offset += chunk.length;
   }
   return result;
+}
+
+function makeTempWorkspace(name: string): string {
+  return fs.mkdtempSync(path.join(process.cwd(), `.tmp-${name}-`));
+}
+
+function writeWorkspaceFile(root: string, relativePath: string, text: string): void {
+  const absolutePath = path.join(root, ...relativePath.split("/"));
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, text, "utf8");
+}
+
+function readWorkspaceFile(root: string, relativePath: string): string {
+  return fs.readFileSync(path.join(root, ...relativePath.split("/")), "utf8");
+}
+
+function cleanupTempWorkspace(root: string): void {
+  if (root.startsWith(process.cwd())) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function readFixtureFiles(root: string): InspectedFile[] {
