@@ -15,6 +15,7 @@ import {
   VisualTuningFieldNoteSummary
 } from "../types/visualTuningDashboard";
 import { VisualAssetContractStatusCounts } from "../types/visualAssetContract";
+import { PolishDevOverlayStatus } from "./visualDevOverlay";
 
 export interface DashboardConfigInfo {
   status: DashboardConfigStatus;
@@ -66,6 +67,7 @@ export interface BuildDashboardInput {
     statusCounts: VisualAssetContractStatusCounts;
     warningCount: number;
   };
+  devOverlay?: PolishDevOverlayStatus;
 }
 
 export function buildVisualTuningDashboardModel(input: BuildDashboardInput): VisualTuningDashboardModel {
@@ -88,7 +90,15 @@ export function buildVisualTuningDashboardModel(input: BuildDashboardInput): Vis
       assetContractStatus: input.assetContracts?.status ?? "missing",
       assetContractStatusCounts: input.assetContracts?.statusCounts ?? emptyAssetContractStatusCounts(),
       assetContractWarningCount: input.assetContracts?.warningCount ?? 0,
-      assetContactSheetAvailable: Boolean(input.assetContracts && input.assetContracts.status === "valid" && input.assetContracts.statusCounts.total > 0)
+      assetContactSheetAvailable: Boolean(input.assetContracts && input.assetContracts.status === "valid" && input.assetContracts.statusCounts.total > 0),
+      devOverlay: input.devOverlay ? {
+        path: input.devOverlay.path,
+        exists: input.devOverlay.exists,
+        generated: input.devOverlay.generated,
+        fileCount: input.devOverlay.fileCount,
+        generatedFileCount: input.devOverlay.generatedFileCount,
+        warningCount: input.devOverlay.warnings.length
+      } : undefined
     },
     fieldNotes,
     rows,
@@ -222,6 +232,7 @@ export function dashboardManualChecklist(): string[] {
     "Fallback Task generates scoped fallback only when appropriate",
     "Scope Check shows allowed/suspicious/forbidden status without edits",
     "asset contract summary shows missing/valid/malformed status without building contact sheets",
+    "optional dev overlay status shows generated/missing without installing runtime files",
     "Refresh Asset Contracts writes only .game-polish-lab/assets/asset-contracts.json",
     "View Asset Contact Sheet opens a preview-only webview from existing contracts",
     "Rollback History lists snapshots and restores only scope-guard-safe visual files",

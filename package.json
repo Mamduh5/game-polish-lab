@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"
@@ -15,6 +15,7 @@
     "onCommand:gamePolishLab.runPhaserPixelAudit",
     "onCommand:gamePolishLab.createPolishTask",
     "onCommand:gamePolishLab.createFinishStagePolishPlan",
+    "onCommand:gamePolishLab.createOptionalDevOverlaySpike",
     "onCommand:gamePolishLab.createRescueTask",
     "onCommand:gamePolishLab.createPixelPolishKit",
     "onCommand:gamePolishLab.listPixelPolishKits",
@@ -57,6 +58,10 @@
       {
         "command": "gamePolishLab.createFinishStagePolishPlan",
         "title": "Game Polish Lab: Create Finish-Stage Polish Plan"
+      },
+      {
+        "command": "gamePolishLab.createOptionalDevOverlaySpike",
+        "title": "Game Polish Lab: Create Optional In-game Dev Overlay Spike"
       },
       {
         "command": "gamePolishLab.createRescueTask",

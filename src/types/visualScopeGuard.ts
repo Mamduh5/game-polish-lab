@@ -6,6 +6,7 @@ export type VisualScopeOperationType =
   | "asset_contract_write"
   | "asset_contact_sheet_read"
   | "direct_apply"
+  | "dev_overlay_install"
   | "fallback_task_generation"
   | "rollback_restore"
   | "rollback_fallback_task_generation";

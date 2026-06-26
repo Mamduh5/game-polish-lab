@@ -225,6 +225,15 @@ export function buildVisualRollbackFallbackTask(snapshot: VisualRollbackSnapshot
   };
 }
 
+export function createVisualTextRollbackSnapshot(workspaceRoot: string, relativePath: string, absolutePath: string, now: Date = new Date()): string {
+  const rollbackDir = path.join(workspaceRoot, ...visualRollbackRelativeDir.split("/"));
+  fs.mkdirSync(rollbackDir, { recursive: true });
+  const fileName = `${formatTimestampForFile(now)}-${path.basename(relativePath).replace(/[^a-zA-Z0-9._-]/g, "-") || "snapshot.txt"}`;
+  const rollbackPath = path.join(rollbackDir, fileName);
+  fs.copyFileSync(absolutePath, rollbackPath);
+  return `${visualRollbackRelativeDir}/${fileName}`;
+}
+
 function snapshotFromMetadata(workspaceRoot: string, metadata: RollbackMetadataFile, metadataPath: string, warnings: string[]): VisualRollbackSnapshot {
   const entries = Array.isArray(metadata.files) ? metadata.files as RollbackMetadataFileEntry[] : [];
   const createdAt = asString(metadata.createdAt);

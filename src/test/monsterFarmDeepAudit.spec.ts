@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import * as fs from "fs";
 import * as path from "path";
+import * as vm from "vm";
 
 import {
   buildMonsterFarmAuditDetails,
@@ -107,6 +108,19 @@ import {
   visualRollbackFallbackTaskRelativeDir,
   visualRollbackRelativeDir
 } from "../core/visualRollback";
+import {
+  buildPolishDevOverlayInstallPlan,
+  createOptionalPolishDevOverlaySpike,
+  devOverlayWritePaths,
+  executePolishDevOverlayInstallPlan,
+  inspectPolishDevOverlayStatus,
+  polishDevOverlayGeneratedMarker,
+  polishDevOverlayManifestRelativePath,
+  polishDevOverlayReadmeRelativePath,
+  polishDevOverlayRelativeDir,
+  polishDevOverlayScriptRelativePath,
+  polishDevOverlayStyleRelativePath
+} from "../core/visualDevOverlay";
 import {
   backgroundReadabilityStyleConfigRelativePath,
   buildBackgroundReadabilityStyleConfig,
@@ -513,6 +527,108 @@ try {
   assert.ok(blockedRunnerResult.fallbackTask);
 } finally {
   cleanupTempWorkspace(blockedRunnerWorkspace);
+}
+
+assert.deepStrictEqual(devOverlayWritePaths(), [
+  polishDevOverlayScriptRelativePath,
+  polishDevOverlayStyleRelativePath,
+  polishDevOverlayReadmeRelativePath,
+  polishDevOverlayManifestRelativePath
+]);
+assert.ok(devOverlayWritePaths().every((relativePath) => relativePath.startsWith(`${polishDevOverlayRelativeDir}/`)));
+
+const devOverlayPlan = buildPolishDevOverlayInstallPlan({ generatedAt: new Date("2026-06-26T05:00:00.000Z") });
+assert.strictEqual(devOverlayPlan.executable, true);
+assert.strictEqual(devOverlayPlan.scopeGuardResult.recommendedAction, "allow");
+assert.ok(devOverlayPlan.files.find((file) => file.relativePath === polishDevOverlayScriptRelativePath)?.text.includes("URLSearchParams"));
+assert.ok(devOverlayPlan.files.find((file) => file.relativePath === polishDevOverlayScriptRelativePath)?.text.includes("params.get(\"polish\") !== \"1\""));
+assert.ok(devOverlayPlan.files.every((file) => file.text.includes(polishDevOverlayGeneratedMarker)));
+
+const forbiddenDevOverlayPlan = buildPolishDevOverlayInstallPlan({
+  candidatePaths: ["src/systems/saveSystem.ts"]
+});
+assert.strictEqual(forbiddenDevOverlayPlan.executable, false);
+assert.strictEqual(forbiddenDevOverlayPlan.scopeGuardResult.recommendedAction, "block");
+assert.ok(forbiddenDevOverlayPlan.blockingReasons.some((reason) => reason.includes("only write under")));
+
+const unknownDevOverlayPlan = buildPolishDevOverlayInstallPlan({
+  candidatePaths: ["tools/custom-overlay.txt"]
+});
+assert.strictEqual(unknownDevOverlayPlan.executable, false);
+assert.strictEqual(unknownDevOverlayPlan.scopeGuardResult.recommendedAction, "warn");
+assert.ok(unknownDevOverlayPlan.blockingReasons.some((reason) => reason.includes("suspicious or unknown")));
+
+const cancelledDevOverlayWorkspace = makeTempWorkspace("dev-overlay-cancelled");
+try {
+  const cancelled = createOptionalPolishDevOverlaySpike(cancelledDevOverlayWorkspace, false, new Date("2026-06-26T05:00:00.000Z"));
+  assert.strictEqual(cancelled.approved, false);
+  assert.strictEqual(fs.existsSync(path.join(cancelledDevOverlayWorkspace, ".game-polish-lab")), false);
+} finally {
+  cleanupTempWorkspace(cancelledDevOverlayWorkspace);
+}
+
+const devOverlayWorkspace = makeTempWorkspace("dev-overlay-approved");
+try {
+  const created = createOptionalPolishDevOverlaySpike(devOverlayWorkspace, true, new Date("2026-06-26T05:00:00.000Z"));
+  assert.strictEqual(created.approved, true);
+  assert.strictEqual(created.result?.ok, true);
+  assert.deepStrictEqual(created.result?.changedFiles, devOverlayWritePaths());
+  assert.ok(created.result?.changedFiles.every((relativePath) => relativePath.startsWith(`${polishDevOverlayRelativeDir}/`)));
+  const scriptText = readWorkspaceFile(devOverlayWorkspace, polishDevOverlayScriptRelativePath);
+  assert.ok(scriptText.includes("game-polish-lab:tune-change"));
+  assert.ok(scriptText.includes("params.get(\"polish\") !== \"1\""));
+  assert.ok(readWorkspaceFile(devOverlayWorkspace, polishDevOverlayReadmeRelativePath).includes("production builds should exclude"));
+  const status = inspectPolishDevOverlayStatus(devOverlayWorkspace);
+  assert.strictEqual(status.exists, true);
+  assert.strictEqual(status.generated, true);
+  assert.strictEqual(status.fileCount, 4);
+  assert.strictEqual(status.generatedFileCount, 4);
+  assert.deepStrictEqual(status.warnings, []);
+
+  let domTouched = false;
+  vm.runInNewContext(scriptText, {
+    URLSearchParams,
+    CustomEvent: class {},
+    window: {
+      location: { search: "" },
+      dispatchEvent: () => {
+        domTouched = true;
+      }
+    },
+    document: {
+      createElement: () => {
+        domTouched = true;
+        throw new Error("DOM should not be touched without polish=1.");
+      },
+      documentElement: {
+        classList: {
+          add: () => {
+            domTouched = true;
+          }
+        }
+      },
+      body: {
+        append: () => {
+          domTouched = true;
+        }
+      }
+    }
+  });
+  assert.strictEqual(domTouched, false);
+} finally {
+  cleanupTempWorkspace(devOverlayWorkspace);
+}
+
+const devOverlayRollbackWorkspace = makeTempWorkspace("dev-overlay-rollback");
+try {
+  writeWorkspaceFile(devOverlayRollbackWorkspace, polishDevOverlayScriptRelativePath, "legacy overlay");
+  const overwriteResult = executePolishDevOverlayInstallPlan(devOverlayRollbackWorkspace, devOverlayPlan, new Date("2026-06-26T05:10:00.000Z"));
+  assert.strictEqual(overwriteResult.ok, true);
+  assert.strictEqual(overwriteResult.rollbackPaths.length, 1);
+  assert.ok(overwriteResult.rollbackPaths[0].startsWith(`${visualRollbackRelativeDir}/2026-06-26T05-10-00-000Z-polish-dev-overlay.js`));
+  assert.strictEqual(readWorkspaceFile(devOverlayRollbackWorkspace, overwriteResult.rollbackPaths[0]), "legacy overlay");
+} finally {
+  cleanupTempWorkspace(devOverlayRollbackWorkspace);
 }
 
 const missingRollbackWorkspace = makeTempWorkspace("missing-rollback");
@@ -1653,7 +1769,8 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.7");
+assert.strictEqual(packageJson.version, "0.6.8");
+assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.createOptionalDevOverlaySpike"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openAssetContactSheet"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openRollbackHistory"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
@@ -1662,6 +1779,7 @@ assert.ok(packageJson.contributes.commands.some((command) => command.command ===
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openRollbackHistory" && command.title === "Game Polish Lab: Open Rollback History"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.refreshAssetContracts" && command.title === "Game Polish Lab: Refresh Asset Contracts"));
+assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.createOptionalDevOverlaySpike" && command.title === "Game Polish Lab: Create Optional In-game Dev Overlay Spike"));
 const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
 assert.ok(tuneVisualSurfaceSource.includes("stylePresetLibrary: visualPresetLibrary"));
 assert.ok(tuneVisualSurfaceSource.includes("presetDescription"));
@@ -1881,6 +1999,15 @@ const dashboardModel = buildVisualTuningDashboardModel({
       total: 5
     },
     warningCount: 3
+  },
+  devOverlay: {
+    exists: true,
+    generated: true,
+    path: polishDevOverlayRelativeDir,
+    fileCount: 4,
+    generatedFileCount: 4,
+    files: devOverlayWritePaths().map((relativePath) => ({ relativePath, exists: true, generated: true })),
+    warnings: []
   }
 });
 assert.strictEqual(dashboardModel.schemaVersion, "visual-tuning-dashboard/v1");
@@ -1893,12 +2020,16 @@ assert.strictEqual(dashboardModel.summary.assetContractStatusCounts.total, 5);
 assert.strictEqual(dashboardModel.summary.assetContractStatusCounts.valid, 1);
 assert.strictEqual(dashboardModel.summary.assetContractWarningCount, 3);
 assert.strictEqual(dashboardModel.summary.assetContactSheetAvailable, true);
+assert.strictEqual(dashboardModel.summary.devOverlay?.path, polishDevOverlayRelativeDir);
+assert.strictEqual(dashboardModel.summary.devOverlay?.generated, true);
+assert.strictEqual(dashboardModel.summary.devOverlay?.generatedFileCount, 4);
 assert.strictEqual(dashboardModel.fieldNotes.fieldNotesPath, ".game-polish-lab/field-notes.md");
 assert.ok(dashboardModel.fieldNotes.knownBad.some((note) => note.includes("Magic Glow")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard opens without writing files")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("asset contract summary")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("Asset Contact Sheet")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("Rollback History")));
+assert.ok(dashboardManualChecklist().some((item) => item.includes("optional dev overlay status")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("template availability")));
 assert.strictEqual(getVisualSurfaceRecipes().length, 5);
 assert.deepStrictEqual(visualSurfacePickerOrder, ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"]);

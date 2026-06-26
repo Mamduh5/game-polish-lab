@@ -90,6 +90,14 @@ export interface VisualTuningProjectSummary {
   assetContractStatusCounts: VisualAssetContractStatusCounts;
   assetContractWarningCount: number;
   assetContactSheetAvailable: boolean;
+  devOverlay?: {
+    path: string;
+    exists: boolean;
+    generated: boolean;
+    fileCount: number;
+    generatedFileCount: number;
+    warningCount: number;
+  };
 }
 
 export interface VisualTuningFieldNoteSummary {
