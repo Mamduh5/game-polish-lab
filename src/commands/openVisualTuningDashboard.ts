@@ -10,6 +10,7 @@ import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdap
 import { buildGenericFallbackTask, genericFallbackTaskRelativePath, getGenericPhaserAdapterState, GenericPhaserSurfaceType, genericGeneratedStyleModulePath, genericStyleConfigRelativePath } from "../core/genericPhaserAdapter";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { createTuningAttempt, getFallbackFieldNoteGuidance, loadTuningAttemptIndex } from "../core/tuningAttempts";
+import { readVisualAssetContractFile, refreshVisualAssetContracts, summarizeVisualAssetContractStatuses } from "../core/visualAssetContracts";
 import {
   buildVisualTuningDashboardModel,
   DashboardAdapterInfo,
@@ -43,7 +44,7 @@ import { tuneVisualSurface } from "./tuneVisualSurface";
 import { markLatestTuningResult } from "./markLatestTuningResult";
 
 interface DashboardMessage {
-  command: "tune" | "openConfig" | "directApply" | "generateFallbackTask" | "runScopeCheck" | "markLatestResult" | "openFieldNotes" | "refresh";
+  command: "tune" | "openConfig" | "directApply" | "generateFallbackTask" | "runScopeCheck" | "markLatestResult" | "openFieldNotes" | "refresh" | "refreshAssetContracts";
   rowId?: string;
 }
 
@@ -88,7 +89,8 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     rewardToastState,
     buttonState,
     genericState,
-    attemptIndex
+    attemptIndex,
+    assetContractLoad
   ] = await Promise.all([
     getIdleMonsterFarmFarmSlotAdapterState(folder),
     getIdleMonsterFarmBackgroundAdapterState(folder),
@@ -96,7 +98,8 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     getIdleMonsterFarmRewardToastAdapterState(folder),
     getIdleMonsterFarmButtonAdapterState(folder),
     getGenericPhaserAdapterState(folder),
-    loadTuningAttemptIndex(folder)
+    loadTuningAttemptIndex(folder),
+    readVisualAssetContractFile(folder.uri.fsPath)
   ]);
   const recipeFileStatuses = await readRecipeFileStatuses(folder);
   const fallbackCounts = await readFallbackTaskCounts(folder);
@@ -124,13 +127,28 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     detectedAdapter,
     adapterConfidence: detectedAdapter === "idle_monster_farm" ? idleConfidence : genericState.detected ? genericState.confidence : "unknown",
     surfaces,
-    attemptIndex
+    attemptIndex,
+    assetContracts: {
+      status: assetContractLoad.status,
+      path: ".game-polish-lab/assets/asset-contracts.json",
+      statusCounts: summarizeVisualAssetContractStatuses(assetContractLoad.file),
+      warningCount: assetContractLoad.warnings.length + assetContractLoad.file.contracts.reduce((sum, contract) => sum + contract.slots.reduce((slotSum, slot) => slotSum + slot.validation.warnings.length + slot.validation.errors.length, 0), 0)
+    }
   });
 }
 
 async function handleDashboardMessage(context: vscode.ExtensionContext, folder: vscode.WorkspaceFolder, model: VisualTuningDashboardModel, message: DashboardMessage): Promise<{ ok: boolean; message: string; refresh?: boolean }> {
   if (message.command === "refresh") {
     return { ok: true, message: "Dashboard refreshed.", refresh: true };
+  }
+  if (message.command === "refreshAssetContracts") {
+    const result = await refreshVisualAssetContracts(folder.uri.fsPath);
+    const counts = result.statusCounts;
+    return {
+      ok: true,
+      message: `Asset contracts refreshed. valid ${counts.valid}, warnings ${counts.warning}, invalid ${counts.invalid}, missing ${counts.missing}, unknown ${counts.unknown}.`,
+      refresh: true
+    };
   }
   if (message.command === "openFieldNotes") {
     const uri = labUri(folder, "field-notes.md");
@@ -549,8 +567,8 @@ function renderDashboardHtml(model: VisualTuningDashboardModel): string {
   </style>
 </head>
 <body>
-  <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">${escapeHtml(model.summary.workspaceFolder)}</p></div><div class="toolbar"><select id="adapterFilter"><option value="detected">Detected Adapter</option><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option><option value="all">All</option></select><button id="refresh">Refresh</button></div></div>
-  <section class="summary">${summaryMetric("Adapter", `${model.summary.detectedAdapter} (${model.summary.adapterConfidence})`)}${summaryMetric("Phaser", model.summary.phaserDetected ? "yes" : "no")}${summaryMetric("Surfaces", String(model.summary.totalSurfaces))}${summaryMetric("Applied", String(model.summary.appliedCount))}${summaryMetric("Config Only", String(model.summary.configOnlyCount))}${summaryMetric("Warnings", String(model.summary.warningCount))}${summaryMetric("Worse/Same", String(model.summary.recentWorseOrSameCount))}</section>
+  <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">${escapeHtml(model.summary.workspaceFolder)}</p></div><div class="toolbar"><select id="adapterFilter"><option value="detected">Detected Adapter</option><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option><option value="all">All</option></select><button id="refreshAssetContracts" class="secondary">Refresh Asset Contracts</button><button id="refresh">Refresh</button></div></div>
+  <section class="summary">${summaryMetric("Adapter", `${model.summary.detectedAdapter} (${model.summary.adapterConfidence})`)}${summaryMetric("Phaser", model.summary.phaserDetected ? "yes" : "no")}${summaryMetric("Surfaces", String(model.summary.totalSurfaces))}${summaryMetric("Applied", String(model.summary.appliedCount))}${summaryMetric("Config Only", String(model.summary.configOnlyCount))}${summaryMetric("Warnings", String(model.summary.warningCount))}${summaryMetric("Worse/Same", String(model.summary.recentWorseOrSameCount))}${summaryMetric("Asset Contracts", `${model.summary.assetContractStatus}: ${model.summary.assetContractStatusCounts.valid}/${model.summary.assetContractStatusCounts.total} valid`)}${summaryMetric("Asset Issues", `${model.summary.assetContractStatusCounts.missing} missing, ${model.summary.assetContractStatusCounts.invalid} invalid, ${model.summary.assetContractStatusCounts.unknown} unknown`)}</section>
   <section class="notes"><div class="row-head"><h2>Field Notes</h2><button class="secondary" data-global="openFieldNotes">Open Field Notes</button></div><div class="grid"><div><b>Known Good</b><ul id="good"></ul></div><div><b>Known Bad</b><ul id="bad"></ul></div><div><b>Mixed</b><ul id="mixed"></ul></div></div></section>
   <section class="rows" id="rows"></section>
   <div id="status" class="status muted"></div>
@@ -562,7 +580,7 @@ function renderDashboardHtml(model: VisualTuningDashboardModel): string {
     (model.fieldNotes.mixed.length?model.fieldNotes.mixed:["none"]).forEach(v=>li(document.getElementById("mixed"),v));
     function visible(row){if(filter.value==="all")return true;if(filter.value==="detected")return row.adapterId===model.summary.detectedAdapter||(model.summary.detectedAdapter==="unknown"&&row.adapterId==="generic_phaser");return row.adapterId===filter.value;}
     function render(){rows.textContent="";model.rows.filter(visible).forEach(row=>{const card=document.createElement("article");card.className="card";card.innerHTML='<div class="row-head"><div><h2>'+row.displayName+'</h2><div class="meta">'+row.surfaceType+' | '+row.adapterId+' | '+row.targetLabel+'</div></div><div class="badges"><span class="badge '+row.appliedStatus+'">'+row.appliedStatus+'</span><span class="badge '+row.lastResult+'">result: '+row.lastResult+'</span><span class="badge">warnings: '+row.warningCount+'</span><span class="badge">fallbacks: '+row.fallbackTaskCount+'</span></div></div><div class="grid"><div><b>Config</b><p class="meta">'+(row.configPath||'none')+' ('+row.configStatus+')</p></div><div><b>Recipe</b><p class="meta">'+(row.recipeId||'none')+' ('+row.recipeStatus+')</p></div><div><b>Connection</b><p class="meta">'+row.connectedState+'</p></div><div><b>Last Tuned</b><p class="meta">'+(row.lastTunedAt||'none')+'</p></div></div><p class="meta">'+(row.latestNoteSummary||'')+'</p>';const actions=document.createElement("div");actions.className="actions";for(const [command,action] of Object.entries(row.actions)){const button=document.createElement("button");button.textContent=action.label;button.disabled=!action.enabled&&command!=="openConfig";button.className=command==="tune"?"":"secondary";button.title=action.reason||action.label;button.addEventListener("click",()=>vscode.postMessage({command,rowId:row.rowId}));actions.append(button);}card.append(actions);rows.append(card);});}
-    filter.addEventListener("change",render);document.getElementById("refresh").addEventListener("click",()=>vscode.postMessage({command:"refresh"}));document.querySelectorAll("[data-global]").forEach(b=>b.addEventListener("click",()=>vscode.postMessage({command:b.dataset.global})));window.addEventListener("message",event=>{const m=event.data;status.textContent=(m.ok?'OK: ':'Blocked: ')+m.message;});render();
+    filter.addEventListener("change",render);document.getElementById("refresh").addEventListener("click",()=>vscode.postMessage({command:"refresh"}));document.getElementById("refreshAssetContracts").addEventListener("click",()=>vscode.postMessage({command:"refreshAssetContracts"}));document.querySelectorAll("[data-global]").forEach(b=>b.addEventListener("click",()=>vscode.postMessage({command:b.dataset.global})));window.addEventListener("message",event=>{const m=event.data;status.textContent=(m.ok?'OK: ':'Blocked: ')+m.message;});render();
   </script>
 </body>
 </html>`;

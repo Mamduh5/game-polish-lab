@@ -13,6 +13,7 @@ import {
   VisualTuningDashboardRow,
   VisualTuningFieldNoteSummary
 } from "../types/visualTuningDashboard";
+import { VisualAssetContractStatusCounts } from "../types/visualAssetContract";
 
 export interface DashboardConfigInfo {
   status: DashboardConfigStatus;
@@ -58,6 +59,12 @@ export interface BuildDashboardInput {
   adapterConfidence: "high" | "medium" | "low" | "unknown";
   surfaces: DashboardSurfaceInput[];
   attemptIndex: VisualTuningAttemptIndex;
+  assetContracts?: {
+    status: "missing" | "valid" | "malformed";
+    path?: string;
+    statusCounts: VisualAssetContractStatusCounts;
+    warningCount: number;
+  };
 }
 
 export function buildVisualTuningDashboardModel(input: BuildDashboardInput): VisualTuningDashboardModel {
@@ -75,11 +82,26 @@ export function buildVisualTuningDashboardModel(input: BuildDashboardInput): Vis
       appliedCount: rows.filter((row) => row.appliedStatus === "applied").length,
       configOnlyCount: rows.filter((row) => row.appliedStatus === "config_only").length,
       warningCount: rows.reduce((sum, row) => sum + row.warningCount, 0),
-      recentWorseOrSameCount: rows.filter((row) => row.lastResult === "worse" || row.lastResult === "same").length
+      recentWorseOrSameCount: rows.filter((row) => row.lastResult === "worse" || row.lastResult === "same").length,
+      assetContractPath: input.assetContracts?.path,
+      assetContractStatus: input.assetContracts?.status ?? "missing",
+      assetContractStatusCounts: input.assetContracts?.statusCounts ?? emptyAssetContractStatusCounts(),
+      assetContractWarningCount: input.assetContracts?.warningCount ?? 0
     },
     fieldNotes,
     rows,
     manualChecklist: dashboardManualChecklist()
+  };
+}
+
+function emptyAssetContractStatusCounts(): VisualAssetContractStatusCounts {
+  return {
+    valid: 0,
+    warning: 0,
+    invalid: 0,
+    missing: 0,
+    unknown: 0,
+    total: 0
   };
 }
 
@@ -188,6 +210,8 @@ export function dashboardManualChecklist(): string[] {
     "Direct Apply refuses when not connected",
     "Fallback Task generates scoped fallback only when appropriate",
     "Scope Check shows allowed/suspicious/forbidden status without edits",
+    "asset contract summary shows missing/valid/malformed status without building contact sheets",
+    "Refresh Asset Contracts writes only .game-polish-lab/assets/asset-contracts.json",
     "Mark Latest Result uses existing v0.59 flow",
     "no gameplay/save/economy/progression/ad files changed"
   ];

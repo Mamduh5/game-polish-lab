@@ -2,7 +2,7 @@
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
   "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.90.0"
@@ -33,6 +33,7 @@
     "onCommand:gamePolishLab.createRollbackPrompt",
     "onCommand:gamePolishLab.openVisualTuningDashboard",
     "onCommand:gamePolishLab.tuneVisualSurface",
+    "onCommand:gamePolishLab.refreshAssetContracts",
     "onCommand:gamePolishLab.addFieldNote",
     "onCommand:gamePolishLab.markLatestTuningResult"
   ],
@@ -126,6 +127,10 @@
       {
         "command": "gamePolishLab.tuneVisualSurface",
         "title": "Game Polish Lab: Tune Visual Surface"
+      },
+      {
+        "command": "gamePolishLab.refreshAssetContracts",
+        "title": "Game Polish Lab: Refresh Asset Contracts"
       },
       {
         "command": "gamePolishLab.addFieldNote",

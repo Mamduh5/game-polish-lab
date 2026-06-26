@@ -1,5 +1,6 @@
 import { VisualSurfaceType } from "./visualSurface";
 import { VisualTuningResultStatus } from "./visualTuningAttempt";
+import { VisualAssetContractStatusCounts } from "./visualAssetContract";
 
 export type DashboardAdapterId = "idle_monster_farm" | "generic_phaser";
 export type DashboardAppliedStatus = "applied" | "config_only" | "fallback_ready" | "unapplied" | "unsupported" | "invalid" | "unknown";
@@ -68,6 +69,10 @@ export interface VisualTuningProjectSummary {
   configOnlyCount: number;
   warningCount: number;
   recentWorseOrSameCount: number;
+  assetContractPath?: string;
+  assetContractStatus: "missing" | "valid" | "malformed";
+  assetContractStatusCounts: VisualAssetContractStatusCounts;
+  assetContractWarningCount: number;
 }
 
 export interface VisualTuningFieldNoteSummary {

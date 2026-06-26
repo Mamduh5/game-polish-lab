@@ -19,6 +19,7 @@ import { listPixelPolishKits } from "./commands/listPixelPolishKits";
 import { markLatestTuningResult } from "./commands/markLatestTuningResult";
 import { openTrialReports } from "./commands/openTrialReports";
 import { openVisualTuningDashboard } from "./commands/openVisualTuningDashboard";
+import { refreshAssetContracts } from "./commands/refreshAssetContracts";
 import { runPhaserPixelAudit } from "./commands/runPhaserPixelAudit";
 import { setPerformanceMode } from "./commands/setPerformanceMode";
 import { showPerformanceDiagnostics } from "./commands/showPerformanceDiagnostics";
@@ -52,6 +53,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.createRollbackPrompt", createRollbackPrompt),
     vscode.commands.registerCommand("gamePolishLab.openVisualTuningDashboard", () => openVisualTuningDashboard(context)),
     vscode.commands.registerCommand("gamePolishLab.tuneVisualSurface", (initialState) => tuneVisualSurface(context, initialState)),
+    vscode.commands.registerCommand("gamePolishLab.refreshAssetContracts", refreshAssetContracts),
     vscode.commands.registerCommand("gamePolishLab.markLatestTuningResult", markLatestTuningResult),
     vscode.commands.registerCommand("gamePolishLab.addFieldNote", addFieldNote)
   );

@@ -70,6 +70,18 @@ import {
   validateReplacementAsset
 } from "../core/assetReplacement";
 import {
+  assetContractRelativePath,
+  assetContractSchemaVersion,
+  assetContractWritePaths,
+  buildMonsterFarmAssetContractFile,
+  formatVisualAssetContractFile,
+  loadVisualAssetContractFileFromText,
+  resolveAssetContractFilePath,
+  summarizeVisualAssetContractStatuses,
+  validateVisualAssetSlotContractSync,
+  writeVisualAssetContractFileSync
+} from "../core/visualAssetContracts";
+import {
   backgroundReadabilityStyleConfigRelativePath,
   buildBackgroundReadabilityStyleConfig,
   buildButtonStyleConfig,
@@ -442,6 +454,7 @@ assert.strictEqual(noAlphaBackground.model.transparencyRequired, false);
 
 const assetScope = checkV05VisualScope([
   ".game-polish-lab/assets/imported.png",
+  ".game-polish-lab/assets/asset-contracts.json",
   "src/assets/monsters/monster.png",
   "src/config/monsterFarmAssetManifest.ts",
   "src/systems/saveSystem.ts",
@@ -449,6 +462,7 @@ const assetScope = checkV05VisualScope([
   "src/gameplay/rules.ts"
 ], { throughAdapter: true });
 assert.ok(assetScope.allowedFiles.includes(".game-polish-lab/assets/imported.png"));
+assert.ok(assetScope.allowedFiles.includes(".game-polish-lab/assets/asset-contracts.json"));
 assert.ok(assetScope.allowedFiles.includes("src/assets/monsters/monster.png"));
 assert.ok(assetScope.allowedFiles.includes("src/config/monsterFarmAssetManifest.ts"));
 assert.ok(assetScope.forbiddenFiles.includes("src/systems/saveSystem.ts"));
@@ -459,6 +473,72 @@ assert.strictEqual(
   buildAssetRollbackSnapshotName(new Date("2026-06-24T10:11:12.123Z"), "src/assets/monsters/monster.png", "monster_art"),
   "2026-06-24T10-11-12-123Z-monster_art-monster.png"
 );
+
+assert.strictEqual(assetContractRelativePath, ".game-polish-lab/assets/asset-contracts.json");
+assert.strictEqual(assetContractSchemaVersion, 1);
+assert.ok(resolveAssetContractFilePath("project-root").replace(/\\/g, "/").endsWith(".game-polish-lab/assets/asset-contracts.json"));
+const missingAssetContractLoad = loadVisualAssetContractFileFromText(undefined, "2026-06-26T00:00:00.000Z");
+assert.strictEqual(missingAssetContractLoad.status, "missing");
+assert.strictEqual(missingAssetContractLoad.file.schemaVersion, 1);
+assert.deepStrictEqual(missingAssetContractLoad.file.contracts, []);
+const malformedAssetContractLoad = loadVisualAssetContractFileFromText("{ nope", "2026-06-26T00:00:00.000Z");
+assert.strictEqual(malformedAssetContractLoad.status, "malformed");
+assert.ok(malformedAssetContractLoad.warnings.some((warning) => warning.includes("invalid JSON")));
+const generatedAssetContracts = buildMonsterFarmAssetContractFile("2026-06-26T00:00:00.000Z");
+assert.strictEqual(generatedAssetContracts.schemaVersion, 1);
+assert.strictEqual(generatedAssetContracts.contracts.length, 1);
+assert.strictEqual(generatedAssetContracts.contracts[0].adapterId, "idle_monster_farm.assets");
+assert.strictEqual(generatedAssetContracts.contracts[0].targetSurfaceType, "asset_replacement");
+assert.ok(generatedAssetContracts.contracts[0].slots.some((slot) => slot.assetSlotId === "monster_art" && slot.validation.status === "unknown"));
+assert.ok(generatedAssetContracts.contracts[0].slots.every((slot) => !slot.expectedPath));
+const generatedAssetContractCounts = summarizeVisualAssetContractStatuses(generatedAssetContracts);
+assert.strictEqual(generatedAssetContractCounts.unknown, generatedAssetContractCounts.total);
+assert.strictEqual(generatedAssetContractCounts.total, monsterFarmTargets.length);
+assert.deepStrictEqual(assetContractWritePaths(), [".game-polish-lab/assets/asset-contracts.json"]);
+const formattedAssetContracts = formatVisualAssetContractFile(generatedAssetContracts);
+assert.ok(formattedAssetContracts.endsWith("\n"));
+assert.ok(formattedAssetContracts.includes('"schemaVersion": 1'));
+assert.ok(formattedAssetContracts.includes('"assetSlotId": "background_image"'));
+
+const tempAssetContractRoot = fs.mkdtempSync(path.join(process.cwd(), ".tmp-asset-contracts-"));
+try {
+  fs.mkdirSync(path.join(tempAssetContractRoot, "src", "assets", "monsters"), { recursive: true });
+  fs.writeFileSync(path.join(tempAssetContractRoot, "src", "assets", "monsters", "monster.png"), opaquePng);
+  const validSlot = validateVisualAssetSlotContractSync(tempAssetContractRoot, {
+    assetSlotId: "monster_art",
+    expectedPath: "src/assets/monsters/monster.png",
+    expectedWidth: 4,
+    expectedHeight: 4,
+    expectedFormat: "PNG",
+    transparencyRequirement: "required",
+    visibleBoundsRequired: true,
+    loaderHint: "manifest",
+    validation: { status: "unknown", warnings: [], errors: [] }
+  }, "2026-06-26T00:00:00.000Z");
+  assert.strictEqual(validSlot.validation.status, "valid");
+  const missingSlot = validateVisualAssetSlotContractSync(tempAssetContractRoot, {
+    ...validSlot,
+    expectedPath: "src/assets/monsters/missing.png",
+    validation: { status: "unknown", warnings: [], errors: [] }
+  }, "2026-06-26T00:00:00.000Z");
+  assert.strictEqual(missingSlot.validation.status, "missing");
+  const unsafeSlot = validateVisualAssetSlotContractSync(tempAssetContractRoot, {
+    ...validSlot,
+    expectedPath: "../outside.png",
+    validation: { status: "unknown", warnings: [], errors: [] }
+  }, "2026-06-26T00:00:00.000Z");
+  assert.strictEqual(unsafeSlot.validation.status, "invalid");
+  assert.ok(unsafeSlot.validation.errors.some((error) => error.includes("Unsafe")));
+  const globOnlySlot = validateVisualAssetSlotContractSync(tempAssetContractRoot, generatedAssetContracts.contracts[0].slots[0], "2026-06-26T00:00:00.000Z");
+  assert.strictEqual(globOnlySlot.validation.status, "unknown");
+  assert.ok(globOnlySlot.validation.warnings.some((warning) => warning.includes("not concrete")));
+  const writePath = writeVisualAssetContractFileSync(tempAssetContractRoot, generatedAssetContracts);
+  assert.strictEqual(path.relative(tempAssetContractRoot, writePath).replace(/\\/g, "/"), ".game-polish-lab/assets/asset-contracts.json");
+  const written = fs.readFileSync(writePath, "utf8");
+  assert.strictEqual(written, formatVisualAssetContractFile(generatedAssetContracts));
+} finally {
+  fs.rmSync(tempAssetContractRoot, { recursive: true, force: true });
+}
 
 assert.deepStrictEqual(panelStylePresets.map((preset) => preset.name), [
   "Cozy Card",
@@ -1061,9 +1141,11 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.2");
+assert.strictEqual(packageJson.version, "0.6.3");
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
+assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.refreshAssetContracts"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
+assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.refreshAssetContracts" && command.title === "Game Polish Lab: Refresh Asset Contracts"));
 const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
 assert.ok(tuneVisualSurfaceSource.includes("stylePresetLibrary: visualPresetLibrary"));
 assert.ok(tuneVisualSurfaceSource.includes("presetDescription"));
@@ -1262,16 +1344,34 @@ const dashboardModel = buildVisualTuningDashboardModel({
   detectedAdapter: "idle_monster_farm",
   adapterConfidence: "high",
   surfaces: [connectedIdleSlotSurface, genericButtonSurface, disconnectedIdlePanelSurface, unsupportedAssetSurface],
-  attemptIndex
+  attemptIndex,
+  assetContracts: {
+    status: "valid",
+    path: ".game-polish-lab/assets/asset-contracts.json",
+    statusCounts: {
+      valid: 1,
+      warning: 1,
+      invalid: 1,
+      missing: 1,
+      unknown: 1,
+      total: 5
+    },
+    warningCount: 3
+  }
 });
 assert.strictEqual(dashboardModel.schemaVersion, "visual-tuning-dashboard/v1");
 assert.strictEqual(dashboardModel.summary.totalSurfaces, 4);
 assert.strictEqual(dashboardModel.summary.appliedCount, 1);
 assert.strictEqual(dashboardModel.summary.configOnlyCount, 2);
 assert.ok(dashboardModel.summary.warningCount > 0);
+assert.strictEqual(dashboardModel.summary.assetContractStatus, "valid");
+assert.strictEqual(dashboardModel.summary.assetContractStatusCounts.total, 5);
+assert.strictEqual(dashboardModel.summary.assetContractStatusCounts.valid, 1);
+assert.strictEqual(dashboardModel.summary.assetContractWarningCount, 3);
 assert.strictEqual(dashboardModel.fieldNotes.fieldNotesPath, ".game-polish-lab/field-notes.md");
 assert.ok(dashboardModel.fieldNotes.knownBad.some((note) => note.includes("Magic Glow")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard opens without writing files")));
+assert.ok(dashboardManualChecklist().some((item) => item.includes("asset contract summary")));
 assert.strictEqual(getVisualSurfaceRecipes().length, 5);
 assert.deepStrictEqual(visualSurfacePickerOrder, ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"]);
 assert.ok(dashboardModel.rows.some((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "slot_card"));
