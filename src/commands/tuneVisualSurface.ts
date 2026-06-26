@@ -9,6 +9,7 @@ import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdap
 import { logCommandEnd, logCommandStart, logError, logInfo, logWarn } from "../core/output";
 import { applyGenericPhaserAsset, applyGenericPhaserStyle, getGenericPhaserAdapterState, GenericPhaserDetection, GenericPhaserSurfaceType } from "../core/genericPhaserAdapter";
 import { createTuningAttempt, getFallbackFieldNoteGuidance, getTreatmentSummary, loadTuningAttemptIndex, updateTuningAttemptResult } from "../core/tuningAttempts";
+import { buildVisualDirectApplyPlan, executeVisualDirectApplyPlan } from "../core/visualDirectApplyTemplates";
 import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "../core/visualScopeGuard";
 import { buildVisualPreviewRenderRequest } from "../core/visualPreviewModel";
 import { ensureVisualRecipeFiles } from "../core/visualRecipeFiles";
@@ -20,7 +21,6 @@ import {
   buildBackgroundReadabilityStyleConfig,
   buildPanelStyleConfig,
   buildRewardToastStyleConfig,
-  buildRollbackSnapshotName,
   buildSlotCardStyleConfig,
   farmSlotStyleConfigRelativePath,
   loadBackgroundReadabilityStyleConfigFromText,
@@ -36,7 +36,7 @@ import {
   RewardToastStyleConfigLoadResult,
   StyleConfigLoadResult
 } from "../core/visualSurfaceConfig";
-import { ensureDirectory, labUri, pathExists, readTextFile, readTextFileIfExists, requireWorkspaceFolder, writeJsonFile, writeTextFile } from "../core/workspace";
+import { labUri, readTextFileIfExists, requireWorkspaceFolder } from "../core/workspace";
 import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { buttonStyleBounds, buttonStylePresets, defaultButtonStyle } from "../presets/buttonStylePresets";
 import { defaultPanelStyle, panelStyleBounds, panelStylePresets } from "../presets/panelStylePresets";
@@ -80,6 +80,8 @@ interface SaveResultMessage {
   generatedStyleModulePath?: string;
   assetPath?: string;
   fallbackTaskPath?: string;
+  directApplyTemplateId?: string;
+  directApplyTemplateName?: string;
   attemptId?: string;
   attemptPath?: string;
   resultStatus?: VisualTuningResultStatus;
@@ -216,46 +218,41 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
     }
     if (message.surfaceType === "background_readability") {
       const config = buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues);
-      const result = await saveConfigAndApply(folder, "background_readability", backgroundReadabilityStyleConfigRelativePath, "background-readability-style.json", backgroundLoad, async () => summarizeBackgroundApplyResult(folder, await applyIdleMonsterFarmBackgroundStyle(folder, config)));
+      const result = await saveConfigAndApply(folder, "background_readability", backgroundReadabilityStyleConfigRelativePath, backgroundLoad, config, async () => summarizeBackgroundApplyResult(folder, await applyIdleMonsterFarmBackgroundStyle(folder, config)));
       if (!result.ok) {
         return result;
       }
-      await writeJsonFile(labUri(folder, "styles", "background-readability-style.json"), config);
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability" });
     }
     if (message.surfaceType === "panel") {
       const config = buildPanelStyleConfig(message.presetName, message.values as PanelStyleValues);
-      const result = await saveConfigAndApply(folder, "panel", panelStyleConfigRelativePath, "panel-style.json", panelLoad, async () => summarizePanelApplyResult(folder, await applyIdleMonsterFarmPanelStyle(folder, config)));
+      const result = await saveConfigAndApply(folder, "panel", panelStyleConfigRelativePath, panelLoad, config, async () => summarizePanelApplyResult(folder, await applyIdleMonsterFarmPanelStyle(folder, config)));
       if (!result.ok) {
         return result;
       }
-      await writeJsonFile(labUri(folder, "styles", "panel-style.json"), config);
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm panels" });
     }
     if (message.surfaceType === "reward_toast") {
       const config = buildRewardToastStyleConfig(message.presetName, message.values as RewardToastStyleValues);
-      const result = await saveConfigAndApply(folder, "reward_toast", rewardToastStyleConfigRelativePath, "reward-toast-style.json", rewardToastLoad, async () => summarizeRewardToastApplyResult(folder, await applyIdleMonsterFarmRewardToastStyle(folder, config)));
+      const result = await saveConfigAndApply(folder, "reward_toast", rewardToastStyleConfigRelativePath, rewardToastLoad, config, async () => summarizeRewardToastApplyResult(folder, await applyIdleMonsterFarmRewardToastStyle(folder, config)));
       if (!result.ok) {
         return result;
       }
-      await writeJsonFile(labUri(folder, "styles", "reward-toast-style.json"), config);
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm reward toast" });
     }
     if (message.surfaceType === "button") {
       const config = buildButtonStyleConfig(message.presetName, message.values as ButtonStyleValues);
-      const result = await saveConfigAndApply(folder, "button", buttonStyleConfigRelativePath, "button-style.json", buttonLoad, async () => summarizeButtonApplyResult(folder, await applyIdleMonsterFarmButtonStyle(folder, config)));
+      const result = await saveConfigAndApply(folder, "button", buttonStyleConfigRelativePath, buttonLoad, config, async () => summarizeButtonApplyResult(folder, await applyIdleMonsterFarmButtonStyle(folder, config)));
       if (!result.ok) {
         return result;
       }
-      await writeJsonFile(labUri(folder, "styles", "button-style.json"), config);
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons" });
     }
     const config = buildSlotCardStyleConfig(message.presetName, message.values as SlotCardStyleValues);
-    const result = await saveConfigAndApply(folder, "slot_card", farmSlotStyleConfigRelativePath, "farm-slot-style.json", slotLoad, async () => summarizeFarmSlotApplyResult(folder, await applyIdleMonsterFarmFarmSlotStyle(folder, config)));
+    const result = await saveConfigAndApply(folder, "slot_card", farmSlotStyleConfigRelativePath, slotLoad, config, async () => summarizeFarmSlotApplyResult(folder, await applyIdleMonsterFarmFarmSlotStyle(folder, config)));
     if (!result.ok) {
       return result;
     }
-    await writeJsonFile(labUri(folder, "styles", "farm-slot-style.json"), config);
     return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm farm slots" });
   } catch (error) {
     logError("save/apply visual surface failed:", error);
@@ -267,37 +264,49 @@ async function saveConfigAndApply(
   folder: vscode.WorkspaceFolder,
   surfaceType: Exclude<VisualSurfaceType, "asset_replacement">,
   configRelativePath: string,
-  fileName: string,
   load: StyleConfigLoadResult | BackgroundStyleConfigLoadResult | PanelStyleConfigLoadResult | RewardToastStyleConfigLoadResult | ButtonStyleConfigLoadResult,
+  config: unknown,
   apply: () => Promise<string[]>
 ): Promise<SaveResultMessage> {
-  const scope = checkVisualScopeGuard({
-    operationType: "visual_config_write",
+  const plan = buildVisualDirectApplyPlan({
     adapterId: "idle_monster_farm",
     surfaceType,
+    styleConfigPath: configRelativePath,
     candidatePaths: [configRelativePath]
   });
-  if (scope.recommendedAction === "block") {
-    const error = `v0.65 scope guard blocked config save: ${renderVisualScopeGuardMessage(scope)}`;
+  if (!plan.executable) {
+    const error = `v0.67 direct apply template blocked config save: ${plan.blockingReasons.join(" ") || plan.scopeGuardResult.summaryMessage}`;
     logWarn(error);
-    return { command: "saveResult", ok: false, surfaceType, error, warnings: visualScopeGuardWarnings(scope) };
+    return { command: "saveResult", ok: false, surfaceType, error, warnings: plan.warnings, directApplyTemplateId: plan.templateId, directApplyTemplateName: plan.templateName };
   }
-  await ensureDirectory(labUri(folder, "styles"));
-  const configUri = labUri(folder, "styles", fileName);
-  const configRollbacks = await createRollbackSnapshotIfNeeded(folder, configUri, configRelativePath);
   const applySummary = await apply();
+  const templateResult = executeVisualDirectApplyPlan(folder.uri.fsPath, plan, [{
+    relativePath: configRelativePath,
+    text: `${JSON.stringify(config, null, 2)}\n`
+  }]);
+  if (!templateResult.ok) {
+    const error = `v0.67 direct apply template runner failed: ${templateResult.errors.join(" ")}`;
+    logWarn(error);
+    return { command: "saveResult", ok: false, surfaceType, error, warnings: templateResult.warnings, directApplyTemplateId: plan.templateId, directApplyTemplateName: plan.templateName };
+  }
   logSummary(applySummary, []);
-  const checklist = checklistFor(surfaceType, load, configRollbacks.length > 0, applySummary);
+  const checklist = [...checklistFor(surfaceType, load, templateResult.rollbackPaths.length > 0, applySummary), ...templateResult.manualChecks.map((check) => check.label)];
   logChecklist(`v0.58 ${surfaceType} manual test checklist:`, checklist);
   return {
     command: "saveResult",
     ok: true,
     surfaceType,
     configPath: configRelativePath,
-    rollbackPaths: configRollbacks,
+    directApplyTemplateId: plan.templateId,
+    directApplyTemplateName: plan.templateName,
+    rollbackPaths: templateResult.rollbackPaths,
     checklist,
-    applySummary,
-    warnings: visualScopeGuardWarnings(scope)
+    applySummary: [
+      `direct apply template: ${plan.templateId ?? "none"} (${plan.templateName ?? "unresolved"})`,
+      `direct apply plan executable: ${plan.executable ? "yes" : "no"}`,
+      ...applySummary
+    ],
+    warnings: templateResult.warnings
   };
 }
 
@@ -498,18 +507,6 @@ async function recordTuningAttemptForResult(
     checklist,
     warnings: [...(response.warnings ?? []), ...treatmentSummary.warnings]
   };
-}
-
-async function createRollbackSnapshotIfNeeded(folder: vscode.WorkspaceFolder, configUri: vscode.Uri, affectedRelativePath: string): Promise<string[]> {
-  if (!(await pathExists(configUri))) {
-    return [];
-  }
-  const existingText = await readTextFile(configUri);
-  await ensureDirectory(labUri(folder, "rollback"));
-  const fileName = buildRollbackSnapshotName(new Date(), affectedRelativePath);
-  const rollbackUri = labUri(folder, "rollback", fileName);
-  await writeTextFile(rollbackUri, existingText);
-  return [`.game-polish-lab/rollback/${fileName}`];
 }
 
 function setupResponse(surfaceType: VisualSurfaceType, configPath: string, blockedFiles: string[], rollbackPaths: string[], checklist: string[], applySummary: string[], warnings: string[]): SaveResultMessage {

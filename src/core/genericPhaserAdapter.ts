@@ -3,6 +3,7 @@ import type * as vscode from "vscode";
 
 import { buildAssetRollbackSnapshotName, validateReplacementAsset } from "./assetReplacement";
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
+import { buildVisualDirectApplyPlan, executeVisualDirectApplyPlan } from "./visualDirectApplyTemplates";
 import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "./visualScopeGuard";
 import { buildRollbackSnapshotName } from "./visualSurfaceConfig";
 import { ensureVisualRecipeFiles } from "./visualRecipeFiles";
@@ -361,12 +362,31 @@ export async function applyGenericPhaserStyle(folder: vscode.WorkspaceFolder, in
     return failedGenericStyleResult(configPath, errors, warnings);
   }
 
-  const configUri = labUri(folder, "styles", genericStyleFileNames[input.surfaceType]);
-  const rollbackPaths = await createTextRollbackIfNeeded(folder, configPath, configUri);
-  await ensureDirectory(labUri(folder, "styles"));
-  await writeJsonFile(configUri, buildGenericStyleConfig({ surfaceType: input.surfaceType, targetLabel: input.targetLabel, selectedFiles, values: input.values }));
+  const directApplyPlan = buildVisualDirectApplyPlan({
+    adapterId: "generic_phaser",
+    surfaceType: input.surfaceType,
+    targetId: "manual_target",
+    targetLabel: input.targetLabel,
+    styleConfigPath: configPath,
+    candidatePaths: [configPath]
+  });
+  if (!directApplyPlan.executable) {
+    errors.push(`Direct apply template blocked Generic Phaser config write: ${directApplyPlan.blockingReasons.join(" ")}`);
+    warnings.push(...directApplyPlan.warnings);
+    return failedGenericStyleResult(configPath, errors, warnings);
+  }
+  const configWrite = executeVisualDirectApplyPlan(folder.uri.fsPath, directApplyPlan, [{
+    relativePath: configPath,
+    text: `${JSON.stringify(buildGenericStyleConfig({ surfaceType: input.surfaceType, targetLabel: input.targetLabel, selectedFiles, values: input.values }), null, 2)}\n`
+  }]);
+  if (!configWrite.ok) {
+    errors.push(`Direct apply template runner failed Generic Phaser config write: ${configWrite.errors.join(" ")}`);
+    warnings.push(...configWrite.warnings);
+    return failedGenericStyleResult(configPath, errors, warnings);
+  }
 
-  const changedFiles = [configPath];
+  const rollbackPaths = [...configWrite.rollbackPaths];
+  const changedFiles = [...configWrite.changedFiles];
   let fallbackTaskPath: string | undefined;
   let modulePath: string | undefined;
   if (input.directApplyAllowed) {

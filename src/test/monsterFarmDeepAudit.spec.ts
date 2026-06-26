@@ -94,6 +94,13 @@ import {
   resolveContactSheetAssetPreviewPath
 } from "../core/visualAssetContactSheet";
 import {
+  buildVisualDirectApplyFallbackTask,
+  buildVisualDirectApplyPlan,
+  executeVisualDirectApplyPlan,
+  getVisualDirectApplyTemplateRegistry,
+  resolveVisualDirectApplyTemplate
+} from "../core/visualDirectApplyTemplates";
+import {
   buildVisualRollbackFallbackTask,
   discoverVisualRollbackSnapshots,
   restoreVisualRollbackSnapshot,
@@ -394,6 +401,119 @@ assert.strictEqual(contactSheetReadScope.counts.forbidden, 0);
 assert.strictEqual(contactSheetReadScope.counts.safe, 1);
 assert.ok(contactSheetReadScope.violations.some((violation) => violation.reasonCode === "read_only_economy_or_balance_file"));
 assert.ok(visualScopeGuardRulesSummary().some((line) => line.includes("forbidden")));
+
+const directApplyRegistry = getVisualDirectApplyTemplateRegistry();
+const idleFarmSlotTemplate = resolveVisualDirectApplyTemplate({
+  adapterId: "idle_monster_farm",
+  surfaceType: "slot_card",
+  targetId: "farm_slots",
+  intent: "style_config_direct_apply"
+});
+assert.ok(idleFarmSlotTemplate);
+assert.strictEqual(idleFarmSlotTemplate.templateId, "idle-monster-farm.slot_card.style-config.v1");
+assert.ok(idleFarmSlotTemplate.supportedOperationTypes.includes("write_style_config"));
+assert.ok(idleFarmSlotTemplate.requiredStyleConfigPaths.includes(farmSlotStyleConfigRelativePath));
+
+const genericSafeTemplate = resolveVisualDirectApplyTemplate({
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  targetId: "manual_target",
+  intent: "style_config_direct_apply"
+});
+assert.ok(genericSafeTemplate);
+assert.strictEqual(genericSafeTemplate.templateId, "generic-phaser.button.safe-style-config.v1");
+assert.ok(directApplyRegistry.fallbackTemplates.some((template) => template.templateId === "generic-phaser.fallback-task.v1"));
+
+const unsupportedAssetTemplate = resolveVisualDirectApplyTemplate({
+  adapterId: "generic_phaser",
+  surfaceType: "asset_replacement",
+  targetId: "manual_target",
+  intent: "style_config_direct_apply"
+});
+assert.strictEqual(unsupportedAssetTemplate, undefined);
+
+const safeDirectApplyPlan = buildVisualDirectApplyPlan({
+  adapterId: "idle_monster_farm",
+  surfaceType: "slot_card",
+  targetId: "farm_slots",
+  styleConfigPath: farmSlotStyleConfigRelativePath,
+  candidatePaths: [farmSlotStyleConfigRelativePath]
+});
+assert.strictEqual(safeDirectApplyPlan.executable, true);
+assert.strictEqual(safeDirectApplyPlan.steps.find((step) => step.operationType === "run_scope_guard")?.order, 1);
+assert.ok((safeDirectApplyPlan.steps.find((step) => step.operationType === "create_rollback_snapshot")?.order ?? 0) < (safeDirectApplyPlan.steps.find((step) => step.operationType === "write_style_config")?.order ?? 0));
+assert.strictEqual(safeDirectApplyPlan.scopeGuardResult.recommendedAction, "allow");
+assert.deepStrictEqual(safeDirectApplyPlan.writePaths, [farmSlotStyleConfigRelativePath]);
+
+const forbiddenDirectApplyPlan = buildVisualDirectApplyPlan({
+  adapterId: "idle_monster_farm",
+  surfaceType: "slot_card",
+  targetId: "farm_slots",
+  styleConfigPath: "src/systems/saveSystem.ts",
+  candidatePaths: ["src/systems/saveSystem.ts"]
+});
+assert.strictEqual(forbiddenDirectApplyPlan.executable, false);
+assert.strictEqual(forbiddenDirectApplyPlan.scopeGuardResult.recommendedAction, "block");
+assert.ok(forbiddenDirectApplyPlan.blockingReasons.some((reason) => reason.includes("Scope guard blocked")));
+
+const suspiciousDirectApplyPlan = buildVisualDirectApplyPlan({
+  adapterId: "generic_phaser",
+  surfaceType: "button",
+  targetId: "manual_target",
+  styleConfigPath: genericStyleConfigRelativePath("button"),
+  candidatePaths: [genericStyleConfigRelativePath("button"), "src/ui/ButtonView.ts"]
+});
+assert.strictEqual(suspiciousDirectApplyPlan.executable, false);
+assert.strictEqual(suspiciousDirectApplyPlan.scopeGuardResult.recommendedAction, "warn");
+assert.ok(suspiciousDirectApplyPlan.fallbackAvailable);
+
+const fallbackTask = buildVisualDirectApplyFallbackTask(suspiciousDirectApplyPlan);
+assert.ok(fallbackTask);
+assert.strictEqual(fallbackTask.templateId, "generic-phaser.fallback-task.v1");
+assert.ok(fallbackTask.suspiciousFiles.some((file) => file.includes("src/ui/ButtonView.ts")));
+assert.ok(fallbackTask.instructions.some((instruction) => instruction.includes("not part of the normal polish loop")));
+assert.ok(fallbackTask.instructions.some((instruction) => instruction.includes("Do not touch gameplay")));
+
+const directApplyWorkspace = makeTempWorkspace("direct-apply");
+try {
+  writeWorkspaceFile(directApplyWorkspace, farmSlotStyleConfigRelativePath, "{\"preset\":\"before\"}");
+  const runnerResult = executeVisualDirectApplyPlan(directApplyWorkspace, safeDirectApplyPlan, [{
+    relativePath: farmSlotStyleConfigRelativePath,
+    text: "{\"preset\":\"after\"}\n"
+  }], new Date("2026-06-26T04:00:00.000Z"));
+  assert.strictEqual(runnerResult.ok, true);
+  assert.deepStrictEqual(runnerResult.changedFiles, [farmSlotStyleConfigRelativePath]);
+  assert.ok(runnerResult.rollbackPaths[0].startsWith(`${visualRollbackRelativeDir}/2026-06-26T04-00-00-000Z-farm-slot-style.json`));
+  assert.strictEqual(readWorkspaceFile(directApplyWorkspace, farmSlotStyleConfigRelativePath), "{\"preset\":\"after\"}\n");
+  assert.strictEqual(fs.existsSync(path.join(directApplyWorkspace, "src", "systems", "saveSystem.ts")), false);
+} finally {
+  cleanupTempWorkspace(directApplyWorkspace);
+}
+
+const unplannedWriteWorkspace = makeTempWorkspace("direct-apply-unplanned");
+try {
+  const runnerResult = executeVisualDirectApplyPlan(unplannedWriteWorkspace, safeDirectApplyPlan, [{
+    relativePath: "src/systems/saveSystem.ts",
+    text: "unsafe"
+  }], new Date("2026-06-26T04:00:00.000Z"));
+  assert.strictEqual(runnerResult.ok, false);
+  assert.ok(runnerResult.errors.some((error) => error.includes("not planned")));
+  assert.strictEqual(fs.existsSync(path.join(unplannedWriteWorkspace, "src", "systems", "saveSystem.ts")), false);
+} finally {
+  cleanupTempWorkspace(unplannedWriteWorkspace);
+}
+
+const blockedRunnerWorkspace = makeTempWorkspace("direct-apply-blocked");
+try {
+  const blockedRunnerResult = executeVisualDirectApplyPlan(blockedRunnerWorkspace, suspiciousDirectApplyPlan, [{
+    relativePath: genericStyleConfigRelativePath("button"),
+    text: "{}"
+  }]);
+  assert.strictEqual(blockedRunnerResult.ok, false);
+  assert.ok(blockedRunnerResult.fallbackTask);
+} finally {
+  cleanupTempWorkspace(blockedRunnerWorkspace);
+}
 
 const missingRollbackWorkspace = makeTempWorkspace("missing-rollback");
 try {
@@ -1533,7 +1653,7 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.6.6");
+assert.strictEqual(packageJson.version, "0.6.7");
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openAssetContactSheet"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openRollbackHistory"));
 assert.ok(packageJson.activationEvents.includes("onCommand:gamePolishLab.openVisualTuningDashboard"));
@@ -1634,6 +1754,9 @@ assert.strictEqual(connectedIdleSlotRow.actions.openConfig.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.directApply.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.runScopeCheck.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.fallbackTaskCount, 1);
+assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.available, true);
+assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.templateId, "idle-monster-farm.slot_card.style-config.v1");
+assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.executable, true);
 
 const genericButtonSurface = {
   surfaceType: "button" as const,
@@ -1667,6 +1790,8 @@ assert.strictEqual(genericButtonRow.actions.directApply.enabled, false);
 assert.ok(genericButtonRow.actions.directApply.reason?.includes("not connected"));
 assert.strictEqual(genericButtonRow.actions.generateFallbackTask.enabled, true);
 assert.strictEqual(genericButtonRow.actions.markLatestResult.enabled, true);
+assert.strictEqual(genericButtonRow.directApplyTemplate.available, true);
+assert.strictEqual(genericButtonRow.directApplyTemplate.fallbackAvailable, true);
 assert.strictEqual(genericButtonRow.scopeSummary.recommendedAction, "warn");
 assert.strictEqual(genericButtonRow.scopeSummary.classificationCounts.suspicious, 1);
 assert.ok(genericButtonRow.scopeSummary.summaryMessage.includes("suspicious"));
@@ -1774,6 +1899,7 @@ assert.ok(dashboardManualChecklist().some((item) => item.includes("dashboard ope
 assert.ok(dashboardManualChecklist().some((item) => item.includes("asset contract summary")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("Asset Contact Sheet")));
 assert.ok(dashboardManualChecklist().some((item) => item.includes("Rollback History")));
+assert.ok(dashboardManualChecklist().some((item) => item.includes("template availability")));
 assert.strictEqual(getVisualSurfaceRecipes().length, 5);
 assert.deepStrictEqual(visualSurfacePickerOrder, ["slot_card", "background_readability", "asset_replacement", "panel", "reward_toast", "button"]);
 assert.ok(dashboardModel.rows.some((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "slot_card"));

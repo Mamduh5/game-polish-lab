@@ -29,6 +29,17 @@ export interface DashboardScopeSummary {
   setupOrFallbackRequired: boolean;
 }
 
+export interface DashboardDirectApplyTemplateSummary {
+  available: boolean;
+  templateId?: string;
+  templateName?: string;
+  executable: boolean;
+  warningCount: number;
+  blockCount: number;
+  fallbackAvailable: boolean;
+  reason?: string;
+}
+
 export interface VisualTuningDashboardRow {
   rowId: string;
   surfaceType: VisualSurfaceType;
@@ -53,6 +64,7 @@ export interface VisualTuningDashboardRow {
   warningCount: number;
   fallbackTaskCount: number;
   scopeSummary: DashboardScopeSummary;
+  directApplyTemplate: DashboardDirectApplyTemplateSummary;
   actions: {
     tune: DashboardActionState;
     openConfig: DashboardActionState;

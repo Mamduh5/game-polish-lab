@@ -10,6 +10,7 @@ import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdap
 import { buildGenericFallbackTask, genericFallbackTaskRelativePath, getGenericPhaserAdapterState, GenericPhaserSurfaceType, genericGeneratedStyleModulePath, genericStyleConfigRelativePath } from "../core/genericPhaserAdapter";
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import { createTuningAttempt, getFallbackFieldNoteGuidance, loadTuningAttemptIndex } from "../core/tuningAttempts";
+import { buildVisualDirectApplyPlan } from "../core/visualDirectApplyTemplates";
 import { readVisualAssetContractFile, refreshVisualAssetContracts, summarizeVisualAssetContractStatuses } from "../core/visualAssetContracts";
 import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "../core/visualScopeGuard";
 import {
@@ -233,15 +234,18 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   if (!configText) {
     return { ok: false, message: "A valid config is required before direct apply." };
   }
-  const preflight = checkVisualScopeGuard({
-    operationType: "direct_apply",
+  const plan = buildVisualDirectApplyPlan({
     adapterId: row.adapterId,
     surfaceType: row.surfaceType,
     targetId: row.targetId,
-    candidatePaths: [row.configPath, row.generatedStyleModulePath].filter((value): value is string => Boolean(value))
+    targetLabel: row.targetLabel,
+    styleConfigPath: row.configPath,
+    generatedStyleModulePath: row.generatedStyleModulePath,
+    candidatePaths: [row.configPath, row.generatedStyleModulePath].filter((value): value is string => Boolean(value)),
+    intent: "dashboard_direct_apply"
   });
-  if (preflight.recommendedAction === "block") {
-    return { ok: false, message: renderVisualScopeGuardMessage(preflight) };
+  if (!plan.executable) {
+    return { ok: false, message: `Direct apply template blocked: ${plan.blockingReasons.join(" ") || plan.scopeGuardResult.summaryMessage}` };
   }
   const result = await applyIdleStyleConfig(folder, row.surfaceType, configText);
   if (!result.ok) {
@@ -263,10 +267,10 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
     scopeSummary: result.changedFiles.join(", ") || row.configPath,
     rollbackPaths: result.rollbackPaths,
     manualChecklist: result.checklist,
-    warnings: [...visualScopeGuardWarnings(preflight), ...result.warnings],
+    warnings: [...plan.warnings, ...result.warnings],
     tags: ["v0.60-dashboard"]
   });
-  return { ok: true, message: result.message, refresh: true };
+  return { ok: true, message: [`Template: ${plan.templateId} (${plan.templateName})`, result.message].join("\n"), refresh: true };
 }
 
 async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder, row: VisualTuningDashboardRow): Promise<{ ok: boolean; message: string; refresh?: boolean }> {
@@ -614,7 +618,7 @@ function renderDashboardHtml(model: VisualTuningDashboardModel): string {
     (model.fieldNotes.knownBad.length?model.fieldNotes.knownBad:["none"]).forEach(v=>li(document.getElementById("bad"),v));
     (model.fieldNotes.mixed.length?model.fieldNotes.mixed:["none"]).forEach(v=>li(document.getElementById("mixed"),v));
     function visible(row){if(filter.value==="all")return true;if(filter.value==="detected")return row.adapterId===model.summary.detectedAdapter||(model.summary.detectedAdapter==="unknown"&&row.adapterId==="generic_phaser");return row.adapterId===filter.value;}
-    function render(){rows.textContent="";model.rows.filter(visible).forEach(row=>{const card=document.createElement("article");card.className="card";card.innerHTML='<div class="row-head"><div><h2>'+row.displayName+'</h2><div class="meta">'+row.surfaceType+' | '+row.adapterId+' | '+row.targetLabel+'</div></div><div class="badges"><span class="badge '+row.appliedStatus+'">'+row.appliedStatus+'</span><span class="badge '+row.lastResult+'">result: '+row.lastResult+'</span><span class="badge">warnings: '+row.warningCount+'</span><span class="badge">fallbacks: '+row.fallbackTaskCount+'</span></div></div><div class="grid"><div><b>Config</b><p class="meta">'+(row.configPath||'none')+' ('+row.configStatus+')</p></div><div><b>Recipe</b><p class="meta">'+(row.recipeId||'none')+' ('+row.recipeStatus+')</p></div><div><b>Connection</b><p class="meta">'+row.connectedState+'</p></div><div><b>Last Tuned</b><p class="meta">'+(row.lastTunedAt||'none')+'</p></div></div><p class="meta">'+(row.latestNoteSummary||'')+'</p>';const actions=document.createElement("div");actions.className="actions";for(const [command,action] of Object.entries(row.actions)){const button=document.createElement("button");button.textContent=action.label;button.disabled=!action.enabled&&command!=="openConfig";button.className=command==="tune"?"":"secondary";button.title=action.reason||action.label;button.addEventListener("click",()=>vscode.postMessage({command,rowId:row.rowId}));actions.append(button);}card.append(actions);rows.append(card);});}
+    function render(){rows.textContent="";model.rows.filter(visible).forEach(row=>{const card=document.createElement("article");card.className="card";card.innerHTML='<div class="row-head"><div><h2>'+row.displayName+'</h2><div class="meta">'+row.surfaceType+' | '+row.adapterId+' | '+row.targetLabel+'</div></div><div class="badges"><span class="badge '+row.appliedStatus+'">'+row.appliedStatus+'</span><span class="badge '+row.lastResult+'">result: '+row.lastResult+'</span><span class="badge">template: '+(row.directApplyTemplate.available?(row.directApplyTemplate.executable?'ready':'guarded'):'none')+'</span><span class="badge">warnings: '+row.warningCount+'</span><span class="badge">fallbacks: '+row.fallbackTaskCount+'</span></div></div><div class="grid"><div><b>Config</b><p class="meta">'+(row.configPath||'none')+' ('+row.configStatus+')</p></div><div><b>Recipe</b><p class="meta">'+(row.recipeId||'none')+' ('+row.recipeStatus+')</p></div><div><b>Template</b><p class="meta">'+(row.directApplyTemplate.templateId||'none')+' | warn '+row.directApplyTemplate.warningCount+' | block '+row.directApplyTemplate.blockCount+'</p></div><div><b>Last Tuned</b><p class="meta">'+(row.lastTunedAt||'none')+'</p></div></div><p class="meta">'+(row.latestNoteSummary||row.directApplyTemplate.reason||'')+'</p>';const actions=document.createElement("div");actions.className="actions";for(const [command,action] of Object.entries(row.actions)){const button=document.createElement("button");button.textContent=action.label;button.disabled=!action.enabled&&command!=="openConfig";button.className=command==="tune"?"":"secondary";button.title=action.reason||action.label;button.addEventListener("click",()=>vscode.postMessage({command,rowId:row.rowId}));actions.append(button);}card.append(actions);rows.append(card);});}
     filter.addEventListener("change",render);document.getElementById("refresh").addEventListener("click",()=>vscode.postMessage({command:"refresh"}));document.getElementById("refreshAssetContracts").addEventListener("click",()=>vscode.postMessage({command:"refreshAssetContracts"}));document.getElementById("openRollbackHistory").addEventListener("click",()=>vscode.postMessage({command:"openRollbackHistory"}));document.getElementById("openAssetContactSheet").addEventListener("click",()=>vscode.postMessage({command:"openAssetContactSheet"}));document.querySelectorAll("[data-global]").forEach(b=>b.addEventListener("click",()=>vscode.postMessage({command:b.dataset.global})));window.addEventListener("message",event=>{const m=event.data;status.textContent=(m.ok?'OK: ':'Blocked: ')+m.message;});render();
   </script>
 </body>

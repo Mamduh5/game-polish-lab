@@ -1,3 +1,4 @@
+import { buildVisualDirectApplyPlan } from "./visualDirectApplyTemplates";
 import { checkVisualScopeGuard, visualScopeGuardWarnings } from "./visualScopeGuard";
 import { visualRecipeRelativePath } from "./visualRecipeRegistry";
 import { VisualSurfaceRecipe } from "../types/visualRecipe";
@@ -116,6 +117,7 @@ export function buildDashboardRow(surface: DashboardSurfaceInput, attemptIndex: 
     targetId: surface.adapter.targetId,
     candidatePaths: surface.scopeFiles
   }), surface);
+  const directApplyTemplate = buildDashboardDirectApplyTemplateSummary(surface);
   const appliedStatus = calculateAppliedStatus(surface, scope);
   const warningCount = surface.adapter.warnings.length + treatment.knownBad.length + treatment.noMeaningfulEffect.length + treatment.mixed.length + scope.warnings.length + scope.forbiddenFiles.length;
   const row: VisualTuningDashboardRow = {
@@ -142,12 +144,13 @@ export function buildDashboardRow(surface: DashboardSurfaceInput, attemptIndex: 
     warningCount,
     fallbackTaskCount: surface.fallbackTaskCount,
     scopeSummary: scope,
+    directApplyTemplate,
     actions: {
       tune: { enabled: true, label: "Tune" },
       openConfig: surface.config.exists
         ? { enabled: true, label: "Open Config" }
         : { enabled: false, label: "Create Config / Open Tuner", reason: "Config is missing; open the tuner to create it safely." },
-      directApply: directApplyAction(surface, appliedStatus),
+      directApply: directApplyAction(surface, appliedStatus, directApplyTemplate),
       generateFallbackTask: fallbackAction(surface, appliedStatus),
       runScopeCheck: { enabled: true, label: "Run Scope Check" },
       markLatestResult: latest ? { enabled: true, label: "Mark Latest Result" } : { enabled: false, label: "Mark Latest Result", reason: "No tuning attempt exists for this row yet." }
@@ -215,6 +218,7 @@ export function dashboardManualChecklist(): string[] {
     "Tune opens the existing tuner for the selected surface",
     "Open Config opens existing config or offers safe create/init",
     "Direct Apply refuses when not connected",
+    "Direct Apply rows show template availability and warning/block counts",
     "Fallback Task generates scoped fallback only when appropriate",
     "Scope Check shows allowed/suspicious/forbidden status without edits",
     "asset contract summary shows missing/valid/malformed status without building contact sheets",
@@ -262,9 +266,12 @@ function toDashboardScopeSummary(scope: ReturnType<typeof checkVisualScopeGuard>
   };
 }
 
-function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: DashboardAppliedStatus) {
+function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: DashboardAppliedStatus, template: ReturnType<typeof buildDashboardDirectApplyTemplateSummary>) {
   if (surface.surfaceType === "asset_replacement") {
     return { enabled: false, label: "Direct Apply", reason: "Asset replacement requires choosing an asset in the tuner." };
+  }
+  if (!template.available) {
+    return { enabled: false, label: "Direct Apply", reason: template.reason ?? "No direct apply template is available for this row." };
   }
   if (!surface.adapter.directApplySupported) {
     return { enabled: false, label: "Direct Apply", reason: "This adapter cannot directly apply this surface." };
@@ -276,6 +283,29 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
     return { enabled: false, label: "Direct Apply", reason: "A valid config is required before direct apply." };
   }
   return { enabled: appliedStatus !== "invalid", label: "Direct Apply" };
+}
+
+function buildDashboardDirectApplyTemplateSummary(surface: DashboardSurfaceInput) {
+  const plan = buildVisualDirectApplyPlan({
+    adapterId: surface.adapter.adapterId,
+    surfaceType: surface.surfaceType,
+    targetId: surface.adapter.targetId,
+    targetLabel: surface.adapter.targetLabel,
+    styleConfigPath: surface.config.path,
+    generatedStyleModulePath: surface.adapter.generatedStyleModulePath,
+    candidatePaths: [surface.config.path, surface.adapter.generatedStyleModulePath].filter((value): value is string => Boolean(value)),
+    intent: "dashboard_direct_apply"
+  });
+  return {
+    available: Boolean(plan.templateId),
+    templateId: plan.templateId,
+    templateName: plan.templateName,
+    executable: plan.executable,
+    warningCount: plan.scopeGuardResult.counts.suspicious + plan.scopeGuardResult.counts.unknown,
+    blockCount: plan.scopeGuardResult.counts.forbidden,
+    fallbackAvailable: plan.fallbackAvailable,
+    reason: plan.executable ? undefined : plan.blockingReasons.join(" ") || undefined
+  };
 }
 
 function fallbackAction(surface: DashboardSurfaceInput, appliedStatus: DashboardAppliedStatus) {
