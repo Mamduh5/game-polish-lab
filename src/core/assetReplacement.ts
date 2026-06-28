@@ -1,5 +1,5 @@
 import * as path from "path";
-import { inflateSync } from "zlib";
+import { deflateSync, inflateSync } from "zlib";
 
 import { buildRollbackSnapshotName } from "./visualSurfaceConfig";
 import { AcceptedAssetFileType, AssetReplacementModel, AssetReplacementTarget } from "../types/visualSurface";
@@ -16,6 +16,12 @@ export interface AssetImageInfo {
   hasAlpha: boolean;
   visiblePixelCount?: number;
   visibleBounds?: { x: number; y: number; width: number; height: number };
+}
+
+export interface RgbaPngPixels {
+  width: number;
+  height: number;
+  rgba: Uint8Array;
 }
 
 export interface AssetValidationResult {
@@ -111,6 +117,49 @@ export function buildAssetRollbackSnapshotName(date: Date, affectedRelativePath:
   return baseName.replace(`${timestampPrefix}-`, `${timestampPrefix}-${assetTargetId}-`);
 }
 
+export function readRgbaPngPixels(bytes: Uint8Array): RgbaPngPixels | undefined {
+  if (!isPng(bytes)) {
+    return undefined;
+  }
+  const width = readUint32BE(bytes, 16);
+  const height = readUint32BE(bytes, 20);
+  const colorType = bytes[25];
+  if (colorType !== 6 || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  const idatChunks = findPngChunks(bytes, "IDAT");
+  if (idatChunks.length === 0) {
+    return undefined;
+  }
+  const idat = inflateOrUseRaw(concatBytes(...idatChunks));
+  const rowLength = 1 + width * 4;
+  if (idat.length < rowLength * height) {
+    return undefined;
+  }
+  const rgba = unfilterRgbaRows(idat, width, height);
+  return rgba ? { width, height, rgba } : undefined;
+}
+
+export function writeRgbaPngPixels(width: number, height: number, rgba: Uint8Array): Uint8Array {
+  if (width <= 0 || height <= 0 || rgba.length !== width * height * 4) {
+    throw new Error("Invalid RGBA PNG dimensions or pixel data.");
+  }
+  const rowLength = 1 + width * 4;
+  const raw = new Uint8Array(rowLength * height);
+  for (let y = 0; y < height; y += 1) {
+    const rawStart = y * rowLength;
+    const rgbaStart = y * width * 4;
+    raw[rawStart] = 0;
+    raw.set(rgba.slice(rgbaStart, rgbaStart + width * 4), rawStart + 1);
+  }
+  return concatBytes(
+    new Uint8Array(pngSignature),
+    pngChunk("IHDR", concatBytes(uint32BE(width), uint32BE(height), new Uint8Array([8, 6, 0, 0, 0]))),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", new Uint8Array())
+  );
+}
+
 function isPng(bytes: Uint8Array): boolean {
   return bytes.length >= 24 && pngSignature.every((value, index) => bytes[index] === value);
 }
@@ -161,24 +210,11 @@ function inspectWebP(bytes: Uint8Array): AssetImageInfo {
 }
 
 function inspectSimpleRgbaPngVisibleBounds(bytes: Uint8Array, width: number, height: number, colorType: number): Pick<AssetImageInfo, "visiblePixelCount" | "visibleBounds"> | undefined {
-  if (colorType !== 6 || width <= 0 || height <= 0) {
+  const decoded = colorType === 6 ? readRgbaPngPixels(bytes) : undefined;
+  if (!decoded) {
     return undefined;
   }
-  const idatChunks = findPngChunks(bytes, "IDAT");
-  if (idatChunks.length === 0) {
-    return undefined;
-  }
-  const compressed = concatBytes(...idatChunks);
-  const idat = inflateOrUseRaw(compressed);
-  const rowLength = 1 + width * 4;
-  const expectedLength = rowLength * height;
-  if (idat.length < expectedLength) {
-    return undefined;
-  }
-  const rgba = unfilterRgbaRows(idat, width, height);
-  if (!rgba) {
-    return undefined;
-  }
+  const rgba = decoded.rgba;
   let visiblePixelCount = 0;
   let minX = width;
   let minY = height;
@@ -296,6 +332,34 @@ function concatBytes(...chunks: Uint8Array[]): Uint8Array {
     offset += chunk.length;
   }
   return result;
+}
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  const typeBytes = asciiBytes(type);
+  return concatBytes(uint32BE(data.length), typeBytes, data, uint32BE(crc32(concatBytes(typeBytes, data))));
+}
+
+function uint32BE(value: number): Uint8Array {
+  return new Uint8Array([(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff]);
+}
+
+function asciiBytes(value: string): Uint8Array {
+  const bytes = new Uint8Array(value.length);
+  for (let index = 0; index < value.length; index += 1) {
+    bytes[index] = value.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let index = 0; index < 8; index += 1) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function readUint32BE(bytes: Uint8Array, offset: number): number {

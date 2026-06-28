@@ -156,6 +156,14 @@ export function buildMonsterFarmAssetContract(updatedAt?: string): VisualAssetCo
       expectedFormats: ["PNG", "WebP"],
       transparencyRequirement: target.transparencyRequired ? "required" : "optional",
       visibleBoundsRequired: target.transparencyRequired,
+      expectedVisibleBoundsMinRatio: 0.03,
+      expectedVisibleBoundsMaxRatio: 0.92,
+      safePadding: 0,
+      centerTolerancePct: 0.1,
+      edgeTouchAllowed: false,
+      normalizationAllowed: true,
+      scaleDownAllowed: false,
+      upscaleAllowed: false,
       loaderHint: loaderHintFromAssignmentMode(target.assignmentMode),
       validation: {
         status: "unknown",
@@ -232,6 +240,7 @@ export async function validateVisualAssetSlotContract(workspaceFolderPath: strin
       warnings.push("Visible bounds could not be checked cheaply for this image.");
     }
   }
+  appendGeometryContractWarnings(slot, imageInfo, warnings);
 
   return withValidation(slot, statusFromMessages(warnings, errors), warnings, errors, checkedAt);
 }
@@ -350,8 +359,38 @@ function validateVisualAssetSlotBytes(slot: VisualAssetSlotContract, bytes: Uint
       warnings.push("Visible bounds could not be checked cheaply for this image.");
     }
   }
+  appendGeometryContractWarnings(slot, imageInfo, warnings);
 
   return withValidation(slot, statusFromMessages(warnings, errors), warnings, errors, checkedAt);
+}
+
+function appendGeometryContractWarnings(slot: VisualAssetSlotContract, imageInfo: ReturnType<typeof inspectAssetImage>, warnings: string[]): void {
+  if (!imageInfo.width || !imageInfo.height || !imageInfo.visibleBounds) {
+    return;
+  }
+  const bounds = imageInfo.visibleBounds;
+  const ratio = (bounds.width * bounds.height) / (imageInfo.width * imageInfo.height);
+  if (slot.expectedVisibleBoundsMinRatio !== undefined && ratio > 0 && ratio < slot.expectedVisibleBoundsMinRatio) {
+    warnings.push(`Visible bounds area ratio ${formatRatio(ratio)} is below expected minimum ${formatRatio(slot.expectedVisibleBoundsMinRatio)}.`);
+  }
+  if (slot.expectedVisibleBoundsMaxRatio !== undefined && ratio > slot.expectedVisibleBoundsMaxRatio) {
+    warnings.push(`Visible bounds area ratio ${formatRatio(ratio)} is above expected maximum ${formatRatio(slot.expectedVisibleBoundsMaxRatio)}.`);
+  }
+  const touchesEdge = bounds.x <= 0 || bounds.y <= 0 || bounds.x + bounds.width >= imageInfo.width || bounds.y + bounds.height >= imageInfo.height;
+  if (touchesEdge && slot.edgeTouchAllowed === false) {
+    warnings.push("Visible bounds touch the canvas edge, which may indicate cropped content.");
+  }
+  if (slot.centerTolerancePct !== undefined) {
+    const offsetXPct = ((bounds.x + bounds.width / 2) - imageInfo.width / 2) / imageInfo.width;
+    const offsetYPct = ((bounds.y + bounds.height / 2) - imageInfo.height / 2) / imageInfo.height;
+    if (Math.abs(offsetXPct) > slot.centerTolerancePct || Math.abs(offsetYPct) > slot.centerTolerancePct) {
+      warnings.push("Visible bounds are outside the configured center tolerance.");
+    }
+  }
+}
+
+function formatRatio(value: number): string {
+  return `${Math.round(value * 1000) / 10}%`;
 }
 
 function statusFromMessages(warnings: string[], errors: string[]): VisualAssetValidationStatus {

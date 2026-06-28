@@ -19,6 +19,14 @@ export interface VisualAssetSlotContract {
   expectedGlob?: string;
   expectedWidth?: number;
   expectedHeight?: number;
+  expectedVisibleBoundsMinRatio?: number;
+  expectedVisibleBoundsMaxRatio?: number;
+  safePadding?: number;
+  centerTolerancePct?: number;
+  edgeTouchAllowed?: boolean;
+  normalizationAllowed?: boolean;
+  scaleDownAllowed?: boolean;
+  upscaleAllowed?: boolean;
   expectedFormat?: VisualAssetFormat;
   expectedFormats?: VisualAssetFormat[];
   transparencyRequirement: VisualAssetTransparencyRequirement;

@@ -2,13 +2,22 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { inspectAssetImage, normalizeAssetFileName } from "./assetReplacement";
+import {
+  readVisualAssetBoundsResults,
+  readVisualAssetNormalizationResults,
+  visualAssetBoundsResultsRelativePath,
+  visualAssetNormalizationResultsRelativePath,
+  visualAssetNormalizedRelativeDir
+} from "./visualAssetBoundsNormalization";
 import { detectGenericPhaserProject } from "./genericPhaserAdapterModel";
 import { monsterFarmAssetTargets } from "./monsterFarmAssetTargets";
 import { detectCursorArenaProject, detectSortPuzzleProject } from "./visualGameAdapters";
 import { checkVisualScopeGuard, normalizeVisualScopePath } from "./visualScopeGuard";
 import {
   AssignedVisualAsset,
+  VisualAssetBoundsAnalysisResult,
   ImportedVisualAssetCandidate,
+  VisualAssetNormalizationResult,
   VisualAssetDashboardModel,
   VisualAssetDashboardRow,
   VisualAssetDimensions,
@@ -32,6 +41,7 @@ export const visualAssetImportedRelativeDir = ".game-polish-lab/assets/imported"
 export const visualAssetAssignmentsRelativeDir = ".game-polish-lab/assets/assignments";
 export const visualAssetValidationRelativePath = ".game-polish-lab/assets/validation-results.json";
 export const visualAssetContractRelativePath = ".game-polish-lab/assets/asset-contracts.json";
+export { visualAssetBoundsResultsRelativePath, visualAssetNormalizationResultsRelativePath, visualAssetNormalizedRelativeDir };
 
 const supportedExtensions = [".png", ".webp"];
 const reasonableAssetBytes = 5 * 1024 * 1024;
@@ -65,7 +75,9 @@ export function buildVisualAssetDashboardModel(input: {
   const slots = discoverVisualAssetSlots(input.files, activeAdapter);
   const candidates = input.candidates ?? readVisualAssetCandidates(input.workspaceRoot);
   const assignments = input.assignments ?? readVisualAssetAssignments(input.workspaceRoot);
-  const rows = buildVisualAssetDashboardRows(slots, candidates, assignments, input.updatedAt);
+  const boundsResults = readVisualAssetBoundsResults(input.workspaceRoot);
+  const normalizationResults = readVisualAssetNormalizationResults(input.workspaceRoot);
+  const rows = buildVisualAssetDashboardRows(slots, candidates, assignments, input.updatedAt, boundsResults, normalizationResults);
   return {
     schemaVersion: "visual-asset-pipeline-dashboard/v1",
     activeAdapter,
@@ -73,6 +85,8 @@ export function buildVisualAssetDashboardModel(input: {
     slots,
     candidates,
     assignments,
+    boundsResults,
+    normalizationResults,
     rows,
     groupedSurfaceIds: Array.from(new Set(slots.map((slot) => slot.surfaceId))).sort(),
     statusCounts: countValidationStatuses(rows),
@@ -81,13 +95,16 @@ export function buildVisualAssetDashboardModel(input: {
   };
 }
 
-export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidates: ImportedVisualAssetCandidate[], assignments: AssignedVisualAsset[], checkedAt?: string): VisualAssetDashboardRow[] {
+export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidates: ImportedVisualAssetCandidate[], assignments: AssignedVisualAsset[], checkedAt?: string, boundsResults: VisualAssetBoundsAnalysisResult[] = [], normalizationResults: VisualAssetNormalizationResult[] = []): VisualAssetDashboardRow[] {
   return slots.map((slot) => {
     const assignment = assignments.find((candidate) => candidate.slotId === slot.slotId);
     const candidate = assignment
       ? candidates.find((entry) => entry.candidateId === assignment.candidateId)
       : candidates.find((entry) => entry.targetSlotId === slot.slotId && entry.approvalStatus !== "rejected");
     const validation = validationFromSlotCandidate(slot, candidate, assignment, checkedAt);
+    const boundsAnalysis = candidate ? boundsResults.find((entry) => entry.candidateId === candidate.candidateId) : undefined;
+    const normalization = candidate ? normalizationResults.find((entry) => entry.sourceCandidateId === candidate.candidateId && entry.status === "created") : undefined;
+    const assignmentAssetPath = assignment?.normalizedAssetPath ?? assignment?.copiedAssetPath;
     return {
       rowId: slot.slotId,
       slot: {
@@ -97,6 +114,9 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
       },
       candidate,
       assignment,
+      boundsAnalysis,
+      normalization,
+      assignmentAssetPath,
       validation,
       previewMode: slot.directApplyCapability === "config_only" || slot.directApplyCapability === "asset_copy_only" ? "context" : "asset_card",
       runtimeApplied: Boolean(assignment?.runtimeApplied),
@@ -105,6 +125,10 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
         validateAsset: Boolean(candidate),
         previewInContext: Boolean(candidate),
         assignReplacement: Boolean(candidate && candidate.approvalStatus === "approved" && slot.directApplyCapability !== "unsupported"),
+        analyzeBounds: Boolean(candidate),
+        normalizeBounds: Boolean(candidate && boundsAnalysis && boundsAnalysis.errors.length === 0 && boundsAnalysis.recommendedAction !== "manual_review" && slot.normalizationAllowed !== false),
+        openNormalizedAsset: Boolean(normalization?.outputPath),
+        useNormalizedAssetForAssignment: Boolean(candidate && normalization?.status === "created" && candidate.approvalStatus === "approved" && slot.directApplyCapability !== "unsupported"),
         openAssetContract: true,
         generateFallbackTask: slot.directApplyCapability === "fallback_required" || slot.safetyStatus !== "safe",
         runScopeCheck: true
@@ -276,9 +300,87 @@ export function assignVisualAssetCandidate(input: {
   };
 }
 
+export function useNormalizedVisualAssetForAssignment(input: {
+  workspaceRoot: string;
+  slot: VisualAssetSlot;
+  candidate: ImportedVisualAssetCandidate;
+  normalization: VisualAssetNormalizationResult;
+  now?: Date;
+}): { assignment: AssignedVisualAsset; result: VisualAssetOperationResult } {
+  const now = input.now ?? new Date();
+  const normalizedCandidate: ImportedVisualAssetCandidate = {
+    ...input.candidate,
+    copiedAssetPath: input.normalization.outputPath,
+    dimensions: { width: input.normalization.targetWidth, height: input.normalization.targetHeight },
+    validationWarnings: input.normalization.validationResult.warnings,
+    validationErrors: input.normalization.validationResult.errors
+  };
+  const validation = validateImportedVisualAssetCandidate(input.workspaceRoot, input.slot, normalizedCandidate, now.toISOString());
+  const changedFiles: string[] = [];
+  const rollbackPaths: string[] = [];
+  const warnings = [...validation.warnings];
+  const errors = [...validation.errors];
+  if (input.normalization.status !== "created") {
+    errors.push("Normalized asset must be created before assignment metadata can reference it.");
+  }
+  if (input.candidate.approvalStatus !== "approved") {
+    errors.push("Candidate must be approved before assigning the normalized asset.");
+  }
+  if (input.slot.directApplyCapability === "unsupported") {
+    errors.push("Slot is unsupported; create a fallback task instead of assigning it.");
+  }
+  const assignment = buildAssignment(input.slot, input.candidate, validation, now, input.normalization.outputPath);
+  if (errors.length > 0) {
+    return {
+      assignment,
+      result: {
+        status: "blocked",
+        message: "Normalized asset assignment was blocked.",
+        changedFiles,
+        rollbackPaths,
+        warnings,
+        errors
+      }
+    };
+  }
+
+  const absoluteAssignmentPath = path.join(input.workspaceRoot, ...assignment.assignmentPath.split("/"));
+  if (fs.existsSync(absoluteAssignmentPath)) {
+    const rollbackPath = createAssetPipelineRollback(input.workspaceRoot, assignment.assignmentPath, now);
+    if (rollbackPath) {
+      rollbackPaths.push(rollbackPath);
+      assignment.rollbackSnapshotPath = rollbackPath;
+    }
+  }
+  fs.mkdirSync(path.dirname(absoluteAssignmentPath), { recursive: true });
+  fs.writeFileSync(absoluteAssignmentPath, `${JSON.stringify(assignment, null, 2)}\n`, "utf8");
+  changedFiles.push(assignment.assignmentPath);
+  writeVisualAssetDashboardFile(input.workspaceRoot, { assignments: [assignment], candidates: [input.candidate] }, now);
+  changedFiles.push(visualAssetDashboardRelativePath);
+
+  if (assignment.fallbackRequired) {
+    warnings.push("Assignment metadata points at the normalized asset, but runtime/source loader wiring remains fallback-required.");
+  }
+  return {
+    assignment,
+    result: {
+      status: warnings.length > 0 ? "warning" : "ok",
+      message: assignment.fallbackRequired
+        ? "Assigned normalized asset metadata only; runtime wiring is fallback-required."
+        : "Assigned normalized asset through Game Polish Lab-owned assignment metadata.",
+      changedFiles,
+      rollbackPaths,
+      warnings,
+      errors
+    }
+  };
+}
+
 export function buildVisualAssetFallbackTask(input: {
   slot: VisualAssetSlot;
   candidate?: ImportedVisualAssetCandidate;
+  boundsAnalysis?: VisualAssetBoundsAnalysisResult;
+  normalization?: VisualAssetNormalizationResult;
   validation?: VisualAssetValidationResult;
   now?: Date;
 }): VisualAssetFallbackTask {
@@ -298,6 +400,17 @@ export function buildVisualAssetFallbackTask(input: {
     slotId: input.slot.slotId,
     slotLabel: input.slot.slotLabel,
     importedAssetPath: input.candidate?.copiedAssetPath,
+    normalizedAssetPath: input.normalization?.outputPath,
+    boundsAnalysisSummary: input.boundsAnalysis
+      ? {
+        visibleBounds: input.boundsAnalysis.visibleBounds,
+        visibleAreaRatio: input.boundsAnalysis.visibleAreaRatio,
+        centerOffset: input.boundsAnalysis.centerOffset,
+        recommendedAction: input.boundsAnalysis.recommendedAction,
+        warnings: input.boundsAnalysis.warnings,
+        errors: input.boundsAnalysis.errors
+      }
+      : undefined,
     validation,
     targetConfigPath: input.slot.targetConfigPath,
     knownManifestPath: input.slot.knownManifestPath,
@@ -305,9 +418,12 @@ export function buildVisualAssetFallbackTask(input: {
     allowedFiles: Array.from(new Set([
       visualAssetDashboardRelativePath,
       visualAssetValidationRelativePath,
+      visualAssetBoundsResultsRelativePath,
+      visualAssetNormalizationResultsRelativePath,
       input.slot.targetConfigPath,
       input.slot.knownManifestPath,
       input.candidate?.copiedAssetPath,
+      input.normalization?.outputPath,
       ...input.slot.ownerSourceFileHints
     ].filter((value): value is string => Boolean(value)))).sort(),
     forbiddenAreas: [
@@ -322,7 +438,9 @@ export function buildVisualAssetFallbackTask(input: {
       "unrelated adapter changes",
       "broad rewrites outside chosen file scope"
     ],
-    instruction: "wire this approved imported asset into this selected visual asset slot only.",
+    instruction: input.normalization
+      ? "wire this approved normalized asset into this selected visual asset slot only."
+      : "wire this approved imported asset into this selected visual asset slot only.",
     manualVisualTestChecklist: [
       "Confirm the selected asset slot renders in the intended surface only.",
       "Confirm dimensions/transparency warnings were reviewed.",
@@ -346,6 +464,11 @@ export function assetPipelineScopePaths(slot: VisualAssetSlot): string[] {
     visualAssetDashboardRelativePath,
     visualAssetValidationRelativePath,
     visualAssetContractRelativePath,
+    visualAssetBoundsResultsRelativePath,
+    visualAssetNormalizationResultsRelativePath,
+    `${visualAssetNormalizedRelativeDir}/example.png`,
+    `${visualAssetImportedRelativeDir}/example.png`,
+    `${visualAssetAssignmentsRelativeDir}/example.json`,
     slot.targetConfigPath,
     slot.knownManifestPath,
     ...slot.ownerSourceFileHints
@@ -609,6 +732,8 @@ function writeVisualAssetDashboardFile(workspaceRoot: string, patch: { candidate
     slots: existing.slots ?? [],
     candidates,
     assignments,
+    boundsResults: existing.boundsResults ?? [],
+    normalizationResults: existing.normalizationResults ?? [],
     rows: existing.rows ?? [],
     groupedSurfaceIds: existing.groupedSurfaceIds ?? [],
     statusCounts: existing.statusCounts ?? { missing: 0, valid: 0, warning: 0, invalid: 0, unvalidated: 0 },
@@ -620,7 +745,7 @@ function writeVisualAssetDashboardFile(workspaceRoot: string, patch: { candidate
   fs.writeFileSync(filePath, `${JSON.stringify(model, null, 2)}\n`, "utf8");
 }
 
-function buildAssignment(slot: VisualAssetSlot, candidate: ImportedVisualAssetCandidate, validation: VisualAssetValidationResult, now: Date): AssignedVisualAsset {
+function buildAssignment(slot: VisualAssetSlot, candidate: ImportedVisualAssetCandidate, validation: VisualAssetValidationResult, now: Date, normalizedAssetPath?: string): AssignedVisualAsset {
   const fallbackRequired = slot.directApplyCapability === "fallback_required" || slot.safetyStatus !== "safe";
   return {
     assignmentId: `${slot.slotId}-${candidate.candidateId}`,
@@ -628,7 +753,9 @@ function buildAssignment(slot: VisualAssetSlot, candidate: ImportedVisualAssetCa
     candidateId: candidate.candidateId,
     adapterId: slot.adapterId,
     surfaceId: slot.surfaceId,
-    copiedAssetPath: candidate.copiedAssetPath,
+    copiedAssetPath: normalizedAssetPath ?? candidate.copiedAssetPath,
+    normalizedAssetPath,
+    usesNormalizedAsset: Boolean(normalizedAssetPath),
     assignmentPath: slot.targetConfigPath ?? `${visualAssetAssignmentsRelativeDir}/${slot.slotId.replace(/\./g, "-")}.json`,
     targetConfigPath: slot.targetConfigPath,
     knownManifestPath: slot.knownManifestPath,
@@ -638,6 +765,7 @@ function buildAssignment(slot: VisualAssetSlot, candidate: ImportedVisualAssetCa
     assignedAt: now.toISOString(),
     notes: [
       "Assignment is metadata/config-first and does not overwrite original game assets.",
+      normalizedAssetPath ? "Assignment references a Game Polish Lab-owned normalized copy; the original imported candidate is preserved." : "Assignment references the original imported candidate copy.",
       fallbackRequired ? "Loader/source integration remains fallback-only for this slot." : "Known safe Game Polish Lab-owned assignment metadata was updated."
     ]
   };

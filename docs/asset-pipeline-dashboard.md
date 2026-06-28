@@ -1,8 +1,8 @@
 # Asset Pipeline Dashboard
 
-Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface.
+Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization.
 
-This milestone manages metadata and imported candidates only. It does not generate artwork, normalize bounds, create asset style guides, automate manifest direct applies, or compare contact sheets.
+This milestone manages metadata, imported candidates, and Game Polish Lab-owned normalized copies only. It does not generate artwork, create asset style guides, automate manifest direct applies, or compare contact sheets.
 
 ## Command
 
@@ -14,6 +14,8 @@ The dashboard shows:
 - detected visual asset slots grouped by surface
 - current asset path when known
 - imported candidate path when assigned
+- visible bounds status when analyzed
+- normalized asset path when created
 - basic validation status
 - direct apply capability
 - runtime-applied status, which remains separate from imported or assigned metadata
@@ -24,10 +26,19 @@ Imported assets are copied into:
 
 - `.game-polish-lab/assets/imported/`
 
+Normalized managed copies are written to:
+
+- `.game-polish-lab/assets/normalized/`
+
 Assignment metadata is written to:
 
 - `.game-polish-lab/assets/assignments/`
 - `.game-polish-lab/assets/asset-dashboard.json`
+
+Bounds and normalization result metadata are written to:
+
+- `.game-polish-lab/assets/bounds-results.json`
+- `.game-polish-lab/assets/normalization-results.json`
 
 Existing asset contracts remain at:
 
@@ -47,7 +58,15 @@ v0.80 validation checks:
 - filename/path safety
 - slot compatibility when dimensions or transparency requirements are known
 
-Validation warnings do not rewrite images. v0.81 Asset Bounds Normalization is not included.
+Validation warnings do not rewrite images. v0.81 normalization runs only from explicit dashboard/model actions.
+
+## Bounds Normalization
+
+See [`asset-bounds-normalization.md`](asset-bounds-normalization.md).
+
+v0.81 can analyze visible alpha bounds for decoded PNG candidates and create an opt-in normalized copy that centers visible content in a transparent target canvas. Original imported candidates and original game/runtime assets are preserved.
+
+Normalized does not mean runtime applied. Normalized does not mean assigned unless Game Polish Lab-owned assignment metadata is explicitly updated to reference the normalized copy.
 
 ## Assignment
 
@@ -57,9 +76,10 @@ Allowed:
 
 - assign an approved imported asset to a Game Polish Lab-owned assignment record
 - update Game Polish Lab-owned asset dashboard metadata
+- point assignment metadata at a Game Polish Lab-owned normalized copy
 - create rollback snapshots before overwriting assignment metadata
 
-Not allowed by v0.80:
+Not allowed:
 
 - overwriting original runtime assets
 - patching unknown loader code
@@ -75,13 +95,12 @@ Fallback tasks are visual-only and scoped. They instruct Codex to:
 
 `wire this approved imported asset into this selected visual asset slot only.`
 
-Fallback tasks include adapter, surface, slot, imported asset path, validation result, known config/manifest hints, exact allowed files, forbidden areas, and a manual visual test checklist.
+Fallback tasks include adapter, surface, slot, imported asset path, normalized asset path when created, bounds summary, validation result, known config/manifest hints, exact allowed files, forbidden areas, and a manual visual test checklist.
 
 ## Out Of Scope
 
-v0.80 does not include:
+v0.81 does not include:
 
-- v0.81 bounds normalization
 - v0.82 style guide generator v2
 - v0.83 manifest direct applies
 - v0.84 contact-sheet comparison

@@ -4,6 +4,8 @@ export type VisualAssetPipelineValidationStatus = "missing" | "valid" | "warning
 export type VisualAssetDirectApplyCapability = "config_only" | "asset_copy_only" | "manifest_supported" | "fallback_required" | "unsupported";
 export type VisualAssetApprovalStatus = "pending" | "approved" | "rejected";
 export type VisualAssetOperationStatus = "ok" | "blocked" | "warning";
+export type VisualAssetBoundsRecommendedAction = "none" | "warn" | "normalize" | "reject" | "manual_review";
+export type VisualAssetNormalizationStatus = "created" | "skipped" | "failed";
 
 export interface VisualAssetDimensions {
   width: number;
@@ -28,6 +30,14 @@ export interface VisualAssetSlot {
   expectedFileExtensions: string[];
   expectedDimensions?: VisualAssetDimensions;
   transparencyRequired?: boolean;
+  expectedVisibleBoundsMinRatio?: number;
+  expectedVisibleBoundsMaxRatio?: number;
+  safePadding?: number;
+  centerTolerancePct?: number;
+  edgeTouchAllowed?: boolean;
+  normalizationAllowed?: boolean;
+  scaleDownAllowed?: boolean;
+  upscaleAllowed?: boolean;
   currentAssetPath?: string;
   generatedAssetPath?: string;
   targetConfigPath?: string;
@@ -37,6 +47,72 @@ export interface VisualAssetSlot {
   validationStatus: VisualAssetPipelineValidationStatus;
   directApplyCapability: VisualAssetDirectApplyCapability;
   notes?: string[];
+}
+
+export interface VisualAssetVisibleBoundsRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface VisualAssetVisibleBoundsPercentRect {
+  xPct: number;
+  yPct: number;
+  widthPct: number;
+  heightPct: number;
+}
+
+export interface VisualAssetEdgeTouchFlags {
+  left: boolean;
+  right: boolean;
+  top: boolean;
+  bottom: boolean;
+}
+
+export interface VisualAssetCenterOffset {
+  x: number;
+  y: number;
+  xPct: number;
+  yPct: number;
+}
+
+export interface VisualAssetBoundsAnalysisResult {
+  candidateId: string;
+  sourceAssetPath: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  visibleBounds?: VisualAssetVisibleBoundsRect;
+  normalizedVisibleBounds?: VisualAssetVisibleBoundsPercentRect;
+  visibleAreaRatio?: number;
+  emptyTransparentImage: boolean;
+  touchesCanvasEdge: VisualAssetEdgeTouchFlags;
+  centerOffset: VisualAssetCenterOffset;
+  expectedTargetCanvasWidth?: number;
+  expectedTargetCanvasHeight?: number;
+  recommendedAction: VisualAssetBoundsRecommendedAction;
+  warnings: string[];
+  errors: string[];
+  checkedAt: string;
+}
+
+export interface VisualAssetNormalizationResult {
+  normalizedAssetId: string;
+  sourceCandidateId: string;
+  sourcePath: string;
+  outputPath: string;
+  targetWidth: number;
+  targetHeight: number;
+  paddingApplied: { left: number; right: number; top: number; bottom: number };
+  scaleApplied: number;
+  contentOffsetApplied: { x: number; y: number };
+  originalPreserved: boolean;
+  validationResult: VisualAssetValidationResult;
+  rollbackSnapshotPath?: string;
+  status: VisualAssetNormalizationStatus;
+  warnings: string[];
+  errors: string[];
+  createdAt: string;
 }
 
 export interface ImportedVisualAssetCandidate {
@@ -62,6 +138,8 @@ export interface AssignedVisualAsset {
   adapterId: string;
   surfaceId: string;
   copiedAssetPath: string;
+  normalizedAssetPath?: string;
+  usesNormalizedAsset?: boolean;
   assignmentPath: string;
   targetConfigPath?: string;
   knownManifestPath?: string;
@@ -78,6 +156,9 @@ export interface VisualAssetDashboardRow {
   slot: VisualAssetSlot;
   candidate?: ImportedVisualAssetCandidate;
   assignment?: AssignedVisualAsset;
+  boundsAnalysis?: VisualAssetBoundsAnalysisResult;
+  normalization?: VisualAssetNormalizationResult;
+  assignmentAssetPath?: string;
   validation: VisualAssetValidationResult;
   previewMode: "context" | "asset_card";
   runtimeApplied: boolean;
@@ -86,6 +167,10 @@ export interface VisualAssetDashboardRow {
     validateAsset: boolean;
     previewInContext: boolean;
     assignReplacement: boolean;
+    analyzeBounds: boolean;
+    normalizeBounds: boolean;
+    openNormalizedAsset: boolean;
+    useNormalizedAssetForAssignment: boolean;
     openAssetContract: boolean;
     generateFallbackTask: boolean;
     runScopeCheck: boolean;
@@ -99,6 +184,8 @@ export interface VisualAssetDashboardModel {
   slots: VisualAssetSlot[];
   candidates: ImportedVisualAssetCandidate[];
   assignments: AssignedVisualAsset[];
+  boundsResults: VisualAssetBoundsAnalysisResult[];
+  normalizationResults: VisualAssetNormalizationResult[];
   rows: VisualAssetDashboardRow[];
   groupedSurfaceIds: string[];
   statusCounts: Record<VisualAssetPipelineValidationStatus, number>;
@@ -124,13 +211,22 @@ export interface VisualAssetFallbackTask {
   slotId: string;
   slotLabel: string;
   importedAssetPath?: string;
+  normalizedAssetPath?: string;
+  boundsAnalysisSummary?: {
+    visibleBounds?: VisualAssetVisibleBoundsRect;
+    visibleAreaRatio?: number;
+    centerOffset?: VisualAssetCenterOffset;
+    recommendedAction?: VisualAssetBoundsRecommendedAction;
+    warnings: string[];
+    errors: string[];
+  };
   validation: VisualAssetValidationResult;
   targetConfigPath?: string;
   knownManifestPath?: string;
   ownerFileScope: string[];
   allowedFiles: string[];
   forbiddenAreas: string[];
-  instruction: "wire this approved imported asset into this selected visual asset slot only.";
+  instruction: string;
   manualVisualTestChecklist: string[];
   createdAt: string;
 }

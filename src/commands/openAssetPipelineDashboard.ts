@@ -3,11 +3,18 @@ import * as vscode from "vscode";
 
 import { logCommandEnd, logCommandStart, logError, logInfo } from "../core/output";
 import {
+  analyzeVisualAssetBounds,
+  normalizeVisualAssetBounds,
+  writeVisualAssetBoundsResult,
+  writeVisualAssetNormalizationResult
+} from "../core/visualAssetBoundsNormalization";
+import {
   assignVisualAssetCandidate,
   buildVisualAssetDashboardModel,
   buildVisualAssetFallbackTask,
   checkAssetPipelineScope,
   importVisualAssetCandidate,
+  useNormalizedVisualAssetForAssignment,
   validateImportedVisualAssetCandidate,
   visualAssetContractRelativePath,
   visualAssetDashboardRelativePath,
@@ -17,7 +24,7 @@ import { openTextDocument, pathExists, readTextFileIfExists, requireWorkspaceFol
 import { ImportedVisualAssetCandidate, VisualAssetDashboardModel } from "../types/visualAssetPipeline";
 
 interface AssetPipelineMessage {
-  command: "importAsset" | "validateAsset" | "previewInContext" | "assignReplacement" | "openAssetContract" | "generateFallbackTask" | "runScopeCheck" | "refresh";
+  command: "importAsset" | "validateAsset" | "previewInContext" | "assignReplacement" | "analyzeBounds" | "normalizeBounds" | "openNormalizedAsset" | "useNormalizedAssetForAssignment" | "openAssetContract" | "generateFallbackTask" | "runScopeCheck" | "refresh";
   rowId?: string;
 }
 
@@ -87,9 +94,40 @@ async function handleAssetPipelineMessage(folder: vscode.WorkspaceFolder, model:
     return { ok: result.recommendedAction !== "block", message: result.summaryMessage };
   }
   if (message.command === "generateFallbackTask") {
-    const task = buildVisualAssetFallbackTask({ slot: row.slot, candidate: row.candidate });
+    const task = buildVisualAssetFallbackTask({ slot: row.slot, candidate: row.candidate, boundsAnalysis: row.boundsAnalysis, normalization: row.normalization });
     const taskPath = writeVisualAssetFallbackTask(folder.uri.fsPath, task);
     return { ok: true, message: `Created scoped visual-only fallback task: ${taskPath}.`, refresh: true };
+  }
+  if (message.command === "analyzeBounds") {
+    if (!row.candidate) {
+      return { ok: false, message: "No imported candidate is available for bounds analysis." };
+    }
+    const bounds = analyzeVisualAssetBounds({ workspaceRoot: folder.uri.fsPath, slot: row.slot, candidate: row.candidate });
+    const resultPath = writeVisualAssetBoundsResult(folder.uri.fsPath, bounds);
+    return {
+      ok: bounds.errors.length === 0,
+      message: `Bounds analysis ${bounds.recommendedAction}. Warnings: ${bounds.warnings.length}; errors: ${bounds.errors.length}. Wrote ${resultPath}.`,
+      refresh: true
+    };
+  }
+  if (message.command === "normalizeBounds") {
+    if (!row.candidate) {
+      return { ok: false, message: "No imported candidate is available for normalization." };
+    }
+    const normalization = normalizeVisualAssetBounds({ workspaceRoot: folder.uri.fsPath, slot: row.slot, candidate: row.candidate, boundsAnalysis: row.boundsAnalysis });
+    const resultPath = writeVisualAssetNormalizationResult(folder.uri.fsPath, normalization);
+    return {
+      ok: normalization.status === "created",
+      message: `Normalization ${normalization.status}. Output: ${normalization.outputPath}. Warnings: ${normalization.warnings.length}; errors: ${normalization.errors.length}. Wrote ${resultPath}.`,
+      refresh: true
+    };
+  }
+  if (message.command === "openNormalizedAsset") {
+    if (!row.normalization?.outputPath) {
+      return { ok: false, message: "No normalized asset has been created for this row." };
+    }
+    await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(folder.uri, ...row.normalization.outputPath.split("/")));
+    return { ok: true, message: `Opened ${row.normalization.outputPath}.` };
   }
   if (message.command === "previewInContext") {
     return {
@@ -150,6 +188,25 @@ async function handleAssetPipelineMessage(folder: vscode.WorkspaceFolder, model:
       refresh: result.status !== "blocked"
     };
   }
+  if (message.command === "useNormalizedAssetForAssignment") {
+    const candidate = row.candidate;
+    const normalization = row.normalization;
+    if (!candidate || !normalization) {
+      return { ok: false, message: "No normalized asset is available for assignment." };
+    }
+    const approvedCandidate: ImportedVisualAssetCandidate = { ...candidate, approvalStatus: "approved" };
+    const { result } = useNormalizedVisualAssetForAssignment({
+      workspaceRoot: folder.uri.fsPath,
+      slot: row.slot,
+      candidate: approvedCandidate,
+      normalization
+    });
+    return {
+      ok: result.status !== "blocked",
+      message: `${result.message} Changed: ${result.changedFiles.join(", ") || "none"}. Warnings: ${result.warnings.join(" | ") || "none"}. Errors: ${result.errors.join(" | ") || "none"}.`,
+      refresh: result.status !== "blocked"
+    };
+  }
   return { ok: false, message: "Unsupported asset pipeline action." };
 }
 
@@ -187,14 +244,14 @@ function renderAssetPipelineDashboardHtml(webview: vscode.Webview, folder: vscod
 </head>
 <body>
   <div class="top"><div><h1>Asset Pipeline Dashboard</h1><p class="meta">${escapeHtml(model.activeAdapterLabel)} | ${escapeHtml(model.activeAdapter)} | ${escapeHtml(visualAssetDashboardRelativePath)}</p></div><div class="toolbar"><button id="refresh">Refresh</button></div></div>
-  <section class="summary">${summaryMetric("Slots", String(model.slots.length))}${summaryMetric("Candidates", String(model.candidates.length))}${summaryMetric("Assignments", String(model.assignments.length))}${summaryMetric("Valid", String(model.statusCounts.valid))}${summaryMetric("Warnings", String(model.statusCounts.warning))}${summaryMetric("Invalid", String(model.statusCounts.invalid))}${summaryMetric("Unvalidated", String(model.statusCounts.unvalidated))}</section>
+  <section class="summary">${summaryMetric("Slots", String(model.slots.length))}${summaryMetric("Candidates", String(model.candidates.length))}${summaryMetric("Bounds", String(model.boundsResults.length))}${summaryMetric("Normalized", String(model.normalizationResults.filter((entry) => entry.status === "created").length))}${summaryMetric("Assignments", String(model.assignments.length))}${summaryMetric("Valid", String(model.statusCounts.valid))}${summaryMetric("Warnings", String(model.statusCounts.warning))}${summaryMetric("Invalid", String(model.statusCounts.invalid))}${summaryMetric("Unvalidated", String(model.statusCounts.unvalidated))}</section>
   <div id="surfaces"></div>
   <div id="status" class="status muted"></div>
   <script nonce="${nonce}">
     const vscode=acquireVsCodeApi();const model=${payload};const surfaces=document.getElementById("surfaces"),status=document.getElementById("status");
     const imgSrc=${JSON.stringify(assetPreviewUris(webview, folder, model))};
     function post(command,rowId){vscode.postMessage({command,rowId});}
-    function render(){surfaces.textContent="";for(const surfaceId of model.groupedSurfaceIds){const rows=model.rows.filter(row=>row.slot.surfaceId===surfaceId);const section=document.createElement("section");section.className="surface";const title=document.createElement("h2");title.textContent=rows[0]?.slot.surfaceLabel||surfaceId;section.append(title);for(const row of rows){const card=document.createElement("article");card.className="card";const candidate=row.candidate;const assignment=row.assignment;const src=candidate?imgSrc[candidate.copiedAssetPath]:undefined;card.innerHTML='<div class="row-head"><div><h2>'+row.slot.slotLabel+'</h2><div class="meta">'+row.slot.slotId+' | '+row.slot.expectedAssetType+'</div></div><div class="badges"><span class="badge '+row.validation.status+'">'+row.validation.status+'</span><span class="badge '+row.slot.directApplyCapability+'">'+row.slot.directApplyCapability+'</span><span class="badge">'+row.slot.safetyStatus+'</span><span class="badge">runtime: '+(row.runtimeApplied?'applied':'not applied')+'</span></div></div><div class="grid"><div><b>Current</b><p class="meta">'+(row.slot.currentAssetPath||'unknown')+'</p></div><div><b>Imported</b><p class="meta">'+(candidate?candidate.copiedAssetPath:'none')+'</p></div><div><b>Assignment</b><p class="meta">'+(assignment?assignment.assignmentPath:'none')+'</p></div><div><b>Target</b><p class="meta">'+(row.slot.targetConfigPath||row.slot.knownManifestPath||'fallback only')+'</p></div></div>';if(src){const preview=document.createElement("div");preview.className="preview";preview.innerHTML='<img alt="" src="'+src+'"><p class="meta">'+(row.previewMode==='context'?'Simple supported context preview; not runtime applied.':'Basic asset preview card; context unsupported.')+'</p>';card.append(preview);}const actions=document.createElement("div");actions.className="actions";const defs=[['importAsset','Import Asset'],['validateAsset','Validate Asset'],['previewInContext','Preview in Context'],['assignReplacement','Assign Replacement'],['openAssetContract','Open Asset Contract'],['generateFallbackTask','Generate Fallback Task'],['runScopeCheck','Run Scope Check']];for(const [command,label] of defs){const button=document.createElement("button");button.textContent=label;button.className=command==='importAsset'?'':'secondary';button.disabled=!row.actions[command];button.addEventListener("click",()=>post(command,row.rowId));actions.append(button);}card.append(actions);section.append(card);}surfaces.append(section);}}
+    function render(){surfaces.textContent="";for(const surfaceId of model.groupedSurfaceIds){const rows=model.rows.filter(row=>row.slot.surfaceId===surfaceId);const section=document.createElement("section");section.className="surface";const title=document.createElement("h2");title.textContent=rows[0]?.slot.surfaceLabel||surfaceId;section.append(title);for(const row of rows){const card=document.createElement("article");card.className="card";const candidate=row.candidate;const assignment=row.assignment;const bounds=row.boundsAnalysis;const normalization=row.normalization;const src=candidate?imgSrc[candidate.copiedAssetPath]:undefined;const normalizedSrc=normalization?imgSrc[normalization.outputPath]:undefined;const boundsText=bounds?(bounds.visibleBounds?('x'+bounds.visibleBounds.x+' y'+bounds.visibleBounds.y+' '+bounds.visibleBounds.width+'x'+bounds.visibleBounds.height+' | '+bounds.recommendedAction):bounds.recommendedAction):'not analyzed';card.innerHTML='<div class="row-head"><div><h2>'+row.slot.slotLabel+'</h2><div class="meta">'+row.slot.slotId+' | '+row.slot.expectedAssetType+'</div></div><div class="badges"><span class="badge '+row.validation.status+'">'+row.validation.status+'</span><span class="badge '+row.slot.directApplyCapability+'">'+row.slot.directApplyCapability+'</span><span class="badge">'+row.slot.safetyStatus+'</span><span class="badge">runtime: '+(row.runtimeApplied?'applied':'not applied')+'</span><span class="badge">assignment: '+(assignment?.usesNormalizedAsset?'normalized':'original/imported')+'</span></div></div><div class="grid"><div><b>Current</b><p class="meta">'+(row.slot.currentAssetPath||'unknown')+'</p></div><div><b>Imported</b><p class="meta">'+(candidate?candidate.copiedAssetPath:'none')+'</p></div><div><b>Bounds</b><p class="meta">'+boundsText+'</p><p class="meta">'+(bounds?[...bounds.warnings,...bounds.errors].join(' | '):'')+'</p></div><div><b>Normalized</b><p class="meta">'+(normalization?normalization.outputPath:'none')+'</p></div><div><b>Assignment</b><p class="meta">'+(assignment?assignment.assignmentPath:'none')+'</p><p class="meta">asset: '+(row.assignmentAssetPath||'none')+'</p></div><div><b>Target</b><p class="meta">'+(row.slot.targetConfigPath||row.slot.knownManifestPath||'fallback only')+'</p></div></div>';if(src||normalizedSrc){const preview=document.createElement("div");preview.className="preview";preview.innerHTML=(src?'<img alt="" src="'+src+'">':'')+(normalizedSrc?'<img alt="" src="'+normalizedSrc+'">':'')+'<p class="meta">'+(row.previewMode==='context'?'Simple supported context preview; not runtime applied.':'Basic asset preview card; context unsupported.')+'</p>';card.append(preview);}const actions=document.createElement("div");actions.className="actions";const defs=[['importAsset','Import Asset'],['validateAsset','Validate Asset'],['analyzeBounds','Analyze Bounds'],['normalizeBounds','Normalize Bounds'],['openNormalizedAsset','Open Normalized Asset'],['useNormalizedAssetForAssignment','Use Normalized Asset for Assignment'],['previewInContext','Preview in Context'],['assignReplacement','Assign Replacement'],['openAssetContract','Open Asset Contract'],['generateFallbackTask','Generate Fallback Task'],['runScopeCheck','Run Scope Check']];for(const [command,label] of defs){const button=document.createElement("button");button.textContent=label;button.className=command==='importAsset'?'':'secondary';button.disabled=!row.actions[command];button.addEventListener("click",()=>post(command,row.rowId));actions.append(button);}card.append(actions);section.append(card);}surfaces.append(section);}}
     document.getElementById("refresh").addEventListener("click",()=>post("refresh"));window.addEventListener("message",event=>{const m=event.data;status.textContent=(m.ok?'OK: ':'Blocked: ')+m.message;});render();
   </script>
 </body>
@@ -206,6 +263,10 @@ function assetPreviewUris(webview: vscode.Webview, folder: vscode.WorkspaceFolde
   for (const candidate of model.candidates) {
     const uri = vscode.Uri.joinPath(folder.uri, ...candidate.copiedAssetPath.split("/"));
     result[candidate.copiedAssetPath] = webview.asWebviewUri(uri).toString();
+  }
+  for (const normalized of model.normalizationResults) {
+    const uri = vscode.Uri.joinPath(folder.uri, ...normalized.outputPath.split("/"));
+    result[normalized.outputPath] = webview.asWebviewUri(uri).toString();
   }
   return result;
 }
