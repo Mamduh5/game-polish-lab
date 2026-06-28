@@ -186,7 +186,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "tsc --noEmit -p ./",
-    "test": "npm run compile && node dist/test/monsterFarmDeepAudit.spec.js && node dist/test/visualAssetBoundsNormalization.spec.js && node dist/test/visualAssetStyleGuide.spec.js"
+    "test": "npm run compile && node dist/test/monsterFarmDeepAudit.spec.js && node dist/test/visualAssetBoundsNormalization.spec.js && node dist/test/visualAssetStyleGuide.spec.js && node dist/test/visualAssetManifestDirectApply.spec.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",

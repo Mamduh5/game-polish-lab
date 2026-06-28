@@ -1,8 +1,8 @@
 # Asset Pipeline Dashboard
 
-Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization. v0.82 adds text/metadata Asset Style Guide generation for selected slots.
+Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization. v0.82 adds text/metadata Asset Style Guide generation for selected slots. v0.83 adds manifest/config direct applies only for explicit safe contracts.
 
-This milestone manages metadata, imported candidates, Game Polish Lab-owned normalized copies, and style-guide briefs only. It does not generate artwork, automate manifest direct applies, or compare contact sheets.
+This milestone manages metadata, imported candidates, Game Polish Lab-owned normalized copies, style-guide briefs, and safe manifest/config apply metadata only. It does not generate artwork, patch arbitrary source loaders, or compare contact sheets.
 
 ## Command
 
@@ -17,6 +17,7 @@ The dashboard shows:
 - visible bounds status when analyzed
 - normalized asset path when created
 - style guide path and generated timestamp when created
+- manifest contract safety and last manifest apply status
 - basic validation status
 - direct apply capability
 - runtime-applied status, which remains separate from imported or assigned metadata
@@ -44,6 +45,10 @@ Bounds and normalization result metadata are written to:
 Asset style guides are written to:
 
 - `.game-polish-lab/assets/style-guides/`
+
+Manifest direct-apply operation metadata is written to:
+
+- `.game-polish-lab/assets/manifest-applies/`
 
 Existing asset contracts remain at:
 
@@ -81,6 +86,14 @@ v0.82 can generate a Markdown and JSON style guide for a selected asset slot. Gu
 
 Style guide generated does not mean asset imported, assigned, normalized, or runtime applied. The generator does not create images, analyze image contents with AI, modify pixels, patch source files, patch manifests, or compare contact sheets.
 
+## Manifest Direct Applies
+
+See [`asset-manifest-direct-applies.md`](asset-manifest-direct-applies.md).
+
+v0.83 can apply approved asset assignments to explicit safe manifest/config contracts. It requires approval, validation, assignment metadata, a safe manifest contract, scope guard approval, and rollback snapshots. Unknown loader/source integration remains fallback-only.
+
+Manifest applied does not necessarily mean runtime applied. The dashboard keeps `runtimeApplied` false unless runtime consumption is separately proven and tested.
+
 ## Assignment
 
 Assignment is conservative and metadata-first.
@@ -90,6 +103,7 @@ Allowed:
 - assign an approved imported asset to a Game Polish Lab-owned assignment record
 - update Game Polish Lab-owned asset dashboard metadata
 - point assignment metadata at a Game Polish Lab-owned normalized copy
+- apply assignment references to explicit safe manifest/config contracts
 - create rollback snapshots before overwriting assignment metadata
 
 Not allowed:
@@ -97,6 +111,7 @@ Not allowed:
 - overwriting original runtime assets
 - patching unknown loader code
 - patching arbitrary scene/source files
+- patching source loader files as manifest direct applies
 - mutating gameplay, save, economy, progression, ads, rules, solver, enemy/player, projectile, shooter, or upgrade logic
 - claiming runtime applied when only metadata was written
 
@@ -112,9 +127,8 @@ Fallback tasks include adapter, surface, slot, imported asset path, normalized a
 
 ## Out Of Scope
 
-v0.82 does not include:
+v0.83 does not include:
 
-- v0.83 manifest direct applies
 - v0.84 contact-sheet comparison
 - v0.85 stabilization
 - visual asset generation

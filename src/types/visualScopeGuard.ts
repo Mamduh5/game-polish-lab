@@ -6,6 +6,7 @@ export type VisualScopeOperationType =
   | "asset_contract_write"
   | "asset_pipeline_assignment"
   | "asset_style_guide_generation"
+  | "asset_manifest_direct_apply"
   | "asset_contact_sheet_read"
   | "direct_apply"
   | "dev_overlay_install"
@@ -23,6 +24,7 @@ export interface VisualScopeGuardPolicy {
 
 export interface VisualScopeGuardRequest extends VisualScopeGuardPolicy {
   candidatePaths: string[];
+  explicitSafePaths?: string[];
 }
 
 export interface VisualScopeGuardRule {

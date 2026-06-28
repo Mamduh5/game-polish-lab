@@ -1,4 +1,5 @@
 import type { VisualAssetStyleGuideSummary } from "./visualAssetStyleGuide";
+import type { VisualAssetManifestApplySummary, VisualAssetManifestContract } from "./visualAssetManifestDirectApply";
 
 export type VisualAssetExpectedType = "image" | "spritesheet" | "icon" | "background" | "effect" | "ui-frame" | "unknown";
 export type VisualAssetSafetyStatus = "safe" | "suspicious" | "unsupported" | "unknown";
@@ -161,6 +162,8 @@ export interface VisualAssetDashboardRow {
   boundsAnalysis?: VisualAssetBoundsAnalysisResult;
   normalization?: VisualAssetNormalizationResult;
   styleGuide?: VisualAssetStyleGuideSummary;
+  manifestContract?: VisualAssetManifestContract;
+  manifestApplyResult?: VisualAssetManifestApplySummary;
   assignmentAssetPath?: string;
   validation: VisualAssetValidationResult;
   previewMode: "context" | "asset_card";
@@ -178,6 +181,10 @@ export interface VisualAssetDashboardRow {
     openStyleGuide: boolean;
     copyContactSheetRequest: boolean;
     regenerateStyleGuide: boolean;
+    applyManifestAssignment: boolean;
+    openManifestContract: boolean;
+    openManifestApplyResult: boolean;
+    generateLoaderFallbackTask: boolean;
     openAssetContract: boolean;
     generateFallbackTask: boolean;
     runScopeCheck: boolean;
@@ -194,6 +201,8 @@ export interface VisualAssetDashboardModel {
   boundsResults: VisualAssetBoundsAnalysisResult[];
   normalizationResults: VisualAssetNormalizationResult[];
   styleGuides: VisualAssetStyleGuideSummary[];
+  manifestContracts: VisualAssetManifestContract[];
+  manifestApplyResults: VisualAssetManifestApplySummary[];
   rows: VisualAssetDashboardRow[];
   groupedSurfaceIds: string[];
   statusCounts: Record<VisualAssetPipelineValidationStatus, number>;

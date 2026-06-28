@@ -32,6 +32,14 @@ export interface VisualAssetSlotContract {
   transparencyRequirement: VisualAssetTransparencyRequirement;
   visibleBoundsRequired?: boolean;
   loaderHint: VisualAssetLoaderHint;
+  manifestContractId?: string;
+  manifestPath?: string;
+  manifestType?: "json_manifest" | "generated_style_config" | "adapter_asset_config" | "static_asset_map" | "unknown";
+  manifestPathSafety?: "safe" | "suspicious" | "blocked" | "unsupported";
+  manifestOperation?: "set_asset_path" | "replace_manifest_entry" | "add_manifest_entry" | "update_generated_config_reference" | "unsupported";
+  manifestKey?: string;
+  manifestCurrentValue?: string;
+  expectedRelativePathMode?: "workspace_relative" | "public_relative" | "asset_relative" | "absolute_disallowed";
   validation: VisualAssetValidationSummary;
   [futureField: string]: unknown;
 }
