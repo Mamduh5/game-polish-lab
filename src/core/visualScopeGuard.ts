@@ -37,7 +37,8 @@ const safeRules: PathRule[] = [
   safe("asset_contract_file", "Asset contract files are safe visual metadata.", (path) => path === ".game-polish-lab/assets/asset-contracts.json"),
   safe("asset_file", "Asset files in known asset folders are safe visual targets.", (path) => /^(src\/assets|public\/assets|assets)\//.test(path)),
   safe("adapter_style_config", "Adapter-approved style/config paths are safe visual targets.", (path) => isKnownStyleConfigPath(path)),
-  safe("generated_visual_bridge", "Generated visual bridge/style modules are safe visual targets.", (path) => path.startsWith("src/config/gamepolishlab/"))
+  safe("generated_visual_bridge", "Generated visual bridge/style modules are safe visual targets.", (path) => path.startsWith("src/config/gamepolishlab/")),
+  safe("docs_and_test_fixtures", "Docs and minimal regression fixtures are safe for test/documentation updates.", (path) => path.startsWith("docs/") || path.startsWith("src/test/fixtures/"))
 ];
 
 const suspiciousRules: PathRule[] = [
@@ -177,6 +178,7 @@ function suspicious(reasonCode: string, message: string, test: PathRule["test"])
 export function visualScopeGuardRulesSummary(): string[] {
   return [
     "safe: .game-polish-lab/**, visual recipes, asset contracts, known asset folders, adapter style/config paths, generated Game Polish Lab style modules",
+    "safe: docs/** and src/test/fixtures/** for regression documentation and fixture updates",
     "suspicious: scenes, UI/view/rendering files, loader/preload files, manifests, broad source files",
     "forbidden: save, economy/balance/reward tables, progression/unlock/upgrade, merge, hatch, quest, ad/monetization/analytics/SDK, level data/gameplay rules, Sort Puzzle rules/solver/undo/hint, Cursor Arena balance/player/projectile/shooter/auto-shooter paths, package manager files during visual writes"
   ];

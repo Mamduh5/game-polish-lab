@@ -61,6 +61,7 @@ import {
   calculateAppliedStatus,
   configPathForDashboard,
   dashboardAdapterFilterOptions,
+  DashboardSurfaceInput,
   dashboardManualChecklist,
   recipeFileStatus
 } from "../core/visualTuningDashboardModel";
@@ -2638,6 +2639,10 @@ const screenshotAnnotationDoc = fs.readFileSync(path.join(process.cwd(), "docs",
 assert.ok(screenshotAnnotationDoc.includes(".game-polish-lab/annotations"));
 assert.ok(screenshotAnnotationDoc.includes("does not run OCR"));
 assert.ok(screenshotAnnotationDoc.includes("do not apply runtime changes"));
+const regressionFixturesDoc = fs.readFileSync(path.join(process.cwd(), "docs", "regression-fixtures.md"), "utf8");
+assert.ok(regressionFixturesDoc.includes("src/test/fixtures"));
+assert.ok(regressionFixturesDoc.includes("not full games"));
+assert.ok(regressionFixturesDoc.includes("large assets"));
 const migrationDoc = fs.readFileSync(path.join(process.cwd(), "docs", "v0.7-migration-notes.md"), "utf8");
 assert.ok(migrationDoc.includes("v0.7"));
 assert.ok(migrationDoc.includes("normal polish loop does not require Codex"));
@@ -3371,6 +3376,305 @@ const sortPuzzleFixtureDetection = detectSortPuzzleProject(sortPuzzleFixture);
 assert.strictEqual(sortPuzzleFixtureDetection.detected, true);
 assert.ok(sortPuzzleFixtureDetection.confidence === "high" || sortPuzzleFixtureDetection.confidence === "medium");
 
+const v078FixtureRoot = path.join(process.cwd(), "src", "test", "fixtures");
+const v078IdleFixture = readFixtureFiles(path.join(v078FixtureRoot, "idle-monster-farm"));
+const v078SortFixture = readFixtureFiles(path.join(v078FixtureRoot, "sort-puzzle"));
+const v078CursorFixture = readFixtureFiles(path.join(v078FixtureRoot, "cursor-arena"));
+const v078GenericFixture = readFixtureFiles(path.join(v078FixtureRoot, "generic-phaser"));
+const v078NonPhaserFixture = readFixtureFiles(path.join(v078FixtureRoot, "non-phaser"));
+const v078MixedFixture = readFixtureFiles(path.join(v078FixtureRoot, "mixed-signals"));
+
+const v078IdleDetection = getVisualGameAdapter("idle_monster_farm")!.detectProject(v078IdleFixture);
+const v078SortDetection = detectSortPuzzleProject(v078SortFixture);
+const v078CursorDetection = detectCursorArenaProject(v078CursorFixture);
+const v078GenericDetection = detectGenericPhaserProject(v078GenericFixture);
+const v078NonPhaserGenericDetection = detectGenericPhaserProject(v078NonPhaserFixture);
+const v078MixedIdleDetection = getVisualGameAdapter("idle_monster_farm")!.detectProject(v078MixedFixture);
+const v078MixedSortDetection = detectSortPuzzleProject(v078MixedFixture);
+const v078MixedCursorDetection = detectCursorArenaProject(v078MixedFixture);
+const v078MixedGenericDetection = detectGenericPhaserProject(v078MixedFixture);
+
+assert.strictEqual(v078IdleDetection.detected, true);
+assert.ok(v078IdleDetection.confidence === "medium" || v078IdleDetection.confidence === "high");
+assert.strictEqual(detectSortPuzzleProject(v078IdleFixture).detected, false);
+assert.strictEqual(detectCursorArenaProject(v078IdleFixture).detected, false);
+assert.strictEqual(regressionDetectedAdapter(v078IdleFixture), "idle_monster_farm");
+assert.strictEqual(v078SortDetection.detected, true);
+assert.strictEqual(v078SortDetection.confidence, "high");
+assert.strictEqual(getVisualGameAdapter("idle_monster_farm")!.detectProject(v078SortFixture).detected, false);
+assert.strictEqual(detectCursorArenaProject(v078SortFixture).detected, false);
+assert.strictEqual(regressionDetectedAdapter(v078SortFixture), "sort_puzzle");
+assert.strictEqual(v078CursorDetection.detected, true);
+assert.strictEqual(v078CursorDetection.confidence, "high");
+assert.strictEqual(detectSortPuzzleProject(v078CursorFixture).detected, false);
+assert.strictEqual(getVisualGameAdapter("idle_monster_farm")!.detectProject(v078CursorFixture).detected, false);
+assert.strictEqual(regressionDetectedAdapter(v078CursorFixture), "cursor_arena");
+assert.strictEqual(v078GenericDetection.detected, true);
+assert.ok(v078GenericDetection.ownerFileSuggestions.some((suggestion) => suggestion.path === "src/scenes/HudScene.js" && suggestion.recommendedSurfaceTypes.includes("hud")));
+assert.ok(v078GenericDetection.ownerFileSuggestions.some((suggestion) => suggestion.path === "src/effects/HitImpact.js" && suggestion.recommendedSurfaceTypes.includes("impact_feedback")));
+assert.strictEqual(regressionDetectedAdapter(v078GenericFixture), "generic_phaser");
+assert.strictEqual(v078NonPhaserGenericDetection.detected, false);
+assert.strictEqual(v078NonPhaserGenericDetection.confidence, "low");
+assert.strictEqual(regressionDetectedAdapter(v078NonPhaserFixture), "unknown");
+assert.strictEqual(v078MixedIdleDetection.detected, true);
+assert.strictEqual(v078MixedSortDetection.detected, false);
+assert.strictEqual(v078MixedCursorDetection.detected, false);
+assert.strictEqual(v078MixedGenericDetection.detected, true);
+assert.strictEqual(regressionDetectedAdapter(v078MixedFixture), "idle_monster_farm");
+assert.strictEqual(shouldOfferGenericPhaserAdapter({ knownAdapterDetected: true, knownAdapterConfidence: "high" }), false);
+assert.strictEqual(shouldOfferGenericPhaserAdapter({ knownAdapterDetected: true, knownAdapterConfidence: "low" }), true);
+
+const v078IdleDashboard = buildVisualTuningDashboardModel({
+  workspaceFolder: path.join(v078FixtureRoot, "idle-monster-farm"),
+  generatedAt: new Date("2026-06-28T01:00:00.000Z"),
+  phaserDetected: true,
+  detectedAdapter: "idle_monster_farm",
+  adapterConfidence: v078IdleDetection.confidence,
+  surfaces: buildFixtureDashboardSurfaces("idle_monster_farm", v078IdleDetection, path.join(v078FixtureRoot, "idle-monster-farm"), v078IdleFixture),
+  attemptIndex
+});
+assert.ok(v078IdleDashboard.rows.some((row) => row.adapterId === "idle_monster_farm" && row.targetId === "farm_slots"));
+assert.ok(v078IdleDashboard.rows.some((row) => row.actions.directApply.enabled));
+assert.ok(v078IdleDashboard.rows.every((row) => row.actions.runScopeCheck.enabled && row.actions.annotateScreenshot.enabled));
+assert.strictEqual(v078IdleDashboard.rows.find((row) => row.targetId === "farm_slots")?.configPath, farmSlotStyleConfigRelativePath);
+
+const v078SortDashboard = buildVisualTuningDashboardModel({
+  workspaceFolder: path.join(v078FixtureRoot, "sort-puzzle"),
+  generatedAt: new Date("2026-06-28T01:05:00.000Z"),
+  phaserDetected: true,
+  detectedAdapter: "sort_puzzle",
+  adapterConfidence: v078SortDetection.confidence,
+  surfaces: buildSortPuzzleDashboardSurfaceInputs({
+    detection: v078SortDetection,
+    configs: fixtureConfigInfoForTargets("sort_puzzle", path.join(v078FixtureRoot, "sort-puzzle")),
+    recipeFiles: fixtureRecipeInfos(),
+    fallbackCounts: {},
+    ownerFiles: v078SortFixture.map((file) => file.relativePath).filter((file) => file.includes("SpiritSortScene"))
+  }),
+  attemptIndex
+});
+assert.ok(v078SortDashboard.rows.some((row) => row.targetId === "shelf_card" && row.appliedStatus === "config_only"));
+assert.ok(v078SortDashboard.rows.some((row) => row.targetId === "spirit_asset_presentation" && row.appliedStatus === "unsupported"));
+assert.ok(v078SortDashboard.rows.every((row) => row.appliedStatus !== "applied"));
+
+const v078CursorDashboard = buildVisualTuningDashboardModel({
+  workspaceFolder: path.join(v078FixtureRoot, "cursor-arena"),
+  generatedAt: new Date("2026-06-28T01:10:00.000Z"),
+  phaserDetected: true,
+  detectedAdapter: "cursor_arena",
+  adapterConfidence: v078CursorDetection.confidence,
+  surfaces: buildCursorArenaDashboardSurfaceInputs({
+    detection: v078CursorDetection,
+    configs: fixtureConfigInfoForTargets("cursor_arena", path.join(v078FixtureRoot, "cursor-arena")),
+    recipeFiles: fixtureRecipeInfos(),
+    fallbackCounts: {},
+    ownerFiles: v078CursorFixture.map((file) => file.relativePath).filter((file) => file.startsWith("src/arena/") || file === "arena.html")
+  }),
+  attemptIndex
+});
+assert.deepStrictEqual(v078CursorDashboard.rows.map((row) => row.targetId), ["arena_hud_panel", "upgrade_card", "cursor_hit_feedback", "cursor_miss_feedback", "enemy_kill_feedback", "combo_feedback", "arena_background_readability"]);
+assert.ok(v078CursorDashboard.rows.some((row) => row.targetId === "arena_hud_panel" && row.appliedStatus === "config_only"));
+assert.ok(v078CursorDashboard.rows.every((row) => row.appliedStatus !== "applied"));
+assert.ok(v078CursorDashboard.rows.some((row) => row.configPath === cursorArenaHudStyleConfigRelativePath));
+assert.ok(v078CursorDashboard.rows.some((row) => row.configPath === cursorArenaUpgradeCardStyleConfigRelativePath));
+assert.ok(v078CursorDashboard.rows.some((row) => row.configPath === cursorArenaFeedbackStyleConfigRelativePath));
+assert.ok(v078CursorDashboard.rows.some((row) => row.configPath === cursorArenaBackgroundReadabilityConfigRelativePath));
+
+const v078GenericDashboard = buildVisualTuningDashboardModel({
+  workspaceFolder: path.join(v078FixtureRoot, "generic-phaser"),
+  generatedAt: new Date("2026-06-28T01:15:00.000Z"),
+  phaserDetected: true,
+  detectedAdapter: "generic_phaser",
+  adapterConfidence: v078GenericDetection.confidence,
+  surfaces: buildGenericPhaserDashboardSurfaceInputs({
+    detection: v078GenericDetection,
+    configs: fixtureConfigInfoForTargets("generic_phaser", path.join(v078FixtureRoot, "generic-phaser")),
+    recipeFiles: fixtureRecipeInfos(),
+    fallbackCounts: {}
+  }),
+  attemptIndex
+});
+assert.ok(v078GenericDashboard.rows.some((row) => row.adapterId === "generic_phaser" && row.targetLabel.includes("HudScene.js")));
+assert.ok(v078GenericDashboard.rows.some((row) => row.adapterId === "generic_phaser" && row.targetLabel.includes("HitImpact.js")));
+assert.ok(v078GenericDashboard.rows.every((row) => row.appliedStatus !== "applied"));
+
+const v078NonPhaserDashboard = buildVisualTuningDashboardModel({
+  workspaceFolder: path.join(v078FixtureRoot, "non-phaser"),
+  generatedAt: new Date("2026-06-28T01:20:00.000Z"),
+  phaserDetected: false,
+  detectedAdapter: "unknown",
+  adapterConfidence: "unknown",
+  surfaces: [],
+  attemptIndex
+});
+assert.strictEqual(v078NonPhaserDashboard.rows.length, 0);
+assert.strictEqual(v078NonPhaserDashboard.summary.phaserDetected, false);
+
+assert.strictEqual(farmSlotStyleConfigRelativePath, ".game-polish-lab/styles/farm-slot-style.json");
+assert.strictEqual(sortPuzzleShelfStyleConfigRelativePath, ".game-polish-lab/styles/sort-puzzle-shelf-style.json");
+assert.strictEqual(sortPuzzleSpiritPresentationConfigRelativePath, ".game-polish-lab/styles/sort-puzzle-spirit-presentation.json");
+assert.strictEqual(sortPuzzleFeedbackStyleConfigRelativePath, ".game-polish-lab/styles/sort-puzzle-feedback-style.json");
+assert.strictEqual(cursorArenaHudStyleConfigRelativePath, ".game-polish-lab/styles/cursor-arena-hud-style.json");
+assert.strictEqual(cursorArenaUpgradeCardStyleConfigRelativePath, ".game-polish-lab/styles/cursor-arena-upgrade-card-style.json");
+assert.strictEqual(cursorArenaFeedbackStyleConfigRelativePath, ".game-polish-lab/styles/cursor-arena-feedback-style.json");
+assert.strictEqual(cursorArenaBackgroundReadabilityConfigRelativePath, ".game-polish-lab/styles/cursor-arena-background-style.json");
+assert.strictEqual(genericStyleConfigRelativePath("button"), ".game-polish-lab/styles/generic-button-style.json");
+assert.strictEqual(genericManualStyleConfigRelativePath("hud"), ".game-polish-lab/styles/generic-hud-style.json");
+assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "cursor_arena", surfaceType: "hud" }).styleConfigPath, cursorArenaHudStyleConfigRelativePath);
+assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "sort_puzzle", surfaceType: "slot_card" }).ambiguous, true);
+
+for (const planInput of [
+  { adapterId: "sort_puzzle" as const, surfaceType: "slot_card" as const, targetId: "shelf_card", path: sortPuzzleShelfStyleConfigRelativePath },
+  { adapterId: "cursor_arena" as const, surfaceType: "panel" as const, targetId: "arena_hud_panel", path: cursorArenaHudStyleConfigRelativePath },
+  { adapterId: "generic_phaser" as const, surfaceType: "button" as const, targetId: "manual_button", path: genericStyleConfigRelativePath("button") }
+]) {
+  const plan = buildVisualDirectApplyPlan({
+    adapterId: planInput.adapterId,
+    surfaceType: planInput.surfaceType,
+    targetId: planInput.targetId,
+    styleConfigPath: planInput.path,
+    candidatePaths: [planInput.path],
+    intent: "dashboard_direct_apply"
+  });
+  assert.strictEqual(plan.executable, true);
+  assert.deepStrictEqual(plan.writePaths, [planInput.path]);
+  assert.ok(plan.writePaths.every((writePath) => writePath.startsWith(".game-polish-lab/styles/")));
+}
+
+const v078RollbackWorkspace = makeTempWorkspace("v078-regression-rollback");
+try {
+  const plan = buildVisualDirectApplyPlan({
+    adapterId: "generic_phaser",
+    surfaceType: "button",
+    targetId: "manual_button",
+    styleConfigPath: genericStyleConfigRelativePath("button"),
+    candidatePaths: [genericStyleConfigRelativePath("button")],
+    intent: "dashboard_direct_apply"
+  });
+  writeWorkspaceFile(v078RollbackWorkspace, genericStyleConfigRelativePath("button"), "{\"preset\":\"before\"}");
+  const result = executeVisualDirectApplyPlan(v078RollbackWorkspace, plan, [{
+    relativePath: genericStyleConfigRelativePath("button"),
+    text: "{\"preset\":\"after\"}\n"
+  }], new Date("2026-06-28T01:25:00.000Z"));
+  assert.strictEqual(result.ok, true);
+  assert.ok(result.rollbackPaths.some((rollbackPath) => rollbackPath.includes("generic-button-style.json")));
+  assert.strictEqual(fs.existsSync(path.join(v078RollbackWorkspace, "src", "scenes", "Scene.ts")), false);
+} finally {
+  cleanupTempWorkspace(v078RollbackWorkspace);
+}
+
+const v078ScopeCases = [
+  { path: ".game-polish-lab/styles/generic-button-style.json", expected: "safe" },
+  { path: ".game-polish-lab/themes/theme.json", expected: "safe" },
+  { path: ".game-polish-lab/annotations/annotation.json", expected: "safe" },
+  { path: ".game-polish-lab/screenshots/capture.png", expected: "safe" },
+  { path: ".game-polish-lab/tasks/annotation.md", expected: "safe" },
+  { path: ".game-polish-lab/fallback-tasks/annotation.json", expected: "safe" },
+  { path: "docs/regression-fixtures.md", expected: "safe" },
+  { path: "src/test/fixtures/generic-phaser/src/scenes/HudScene.js", expected: "safe" },
+  { path: "src/scenes/FarmScene.ts", expected: "suspicious" },
+  { path: "src/ui/HudView.ts", expected: "suspicious" },
+  { path: "src/systems/SpiritAssetLoader.js", expected: "suspicious" },
+  { path: "src/systems/saveSystem.ts", expected: "forbidden" },
+  { path: "src/data/economy.ts", expected: "forbidden" },
+  { path: "src/data/spiritSortLevels.js", expected: "forbidden" },
+  { path: "src/systems/SortRules.js", expected: "forbidden" },
+  { path: "src/services/rewardedAdService.ts", expected: "forbidden" },
+  { path: "src/arena/systems/ProjectileSystem.js", expected: "forbidden" },
+  { path: "src/arena/data/arenaBalanceConfig.js", expected: "forbidden" },
+  { path: "package.json", expected: "forbidden" }
+];
+for (const scopeCase of v078ScopeCases) {
+  const result = checkVisualScopeGuard({ operationType: "direct_apply", candidatePaths: [scopeCase.path] });
+  assert.strictEqual(result.classifiedFiles[0].classification, scopeCase.expected, scopeCase.path);
+}
+assert.ok(visualScopeGuardRulesSummary().some((line) => line.includes("src/test/fixtures")));
+
+assert.ok(spiritFallback.instructions.some((instruction) => instruction.includes("Do not change SortRules")));
+assert.ok(spiritFallback.forbiddenFiles.some((file) => file.includes("undo/hint")));
+assert.ok(cursorFallback.instructions.some((instruction) => instruction.includes("Do not add player systems")));
+assert.ok(cursorFallback.forbiddenFiles.some((file) => file.includes("projectile")));
+assert.ok(genericFallback.task?.allowedFiles.includes("src/ui/ButtonView.ts"));
+assert.ok(genericFallback.task?.codexMustNotDo.some((line) => line.includes("package")));
+const v078ScreenshotFallback = buildScreenshotAnnotationFallbackTask({
+  ...buildScreenshotAnnotationNote({
+    screenshotPath: "captures/problem.png",
+    markedRect: { x: 2, y: 4, width: 40, height: 20 },
+    surfaceType: "impact_feedback",
+    adapterId: "generic_phaser",
+    targetSurfaceId: "manual_impact_feedback",
+    note: "hit effect hides enemy",
+    createdAt: new Date("2026-06-28T01:30:00.000Z")
+  }).note!,
+  generatedConfigPath: genericManualStyleConfigRelativePath("impact_feedback")
+});
+assert.ok(JSON.stringify(v078ScreenshotFallback).includes("captures/problem.png"));
+assert.ok(JSON.stringify(v078ScreenshotFallback).includes("hit effect hides enemy"));
+assert.ok(JSON.stringify(v078ScreenshotFallback).includes("Preserve gameplay behavior"));
+
+const v078ThemeWorkspace = makeTempWorkspace("v078-theme-fixture");
+try {
+  writeWorkspaceFile(v078ThemeWorkspace, sortPuzzleShelfStyleConfigRelativePath, readFixtureText(path.join(v078FixtureRoot, "sort-puzzle"), sortPuzzleShelfStyleConfigRelativePath));
+  const exported = exportVisualThemeFromStyleConfigs(v078ThemeWorkspace, {
+    themeName: "v078 Shelf",
+    sourceAdapterId: "sort_puzzle",
+    selections: [{ surfaceType: "slot_card", targetId: "shelf_card", targetLabel: "Sort Puzzle Shelf", styleConfigPath: sortPuzzleShelfStyleConfigRelativePath }],
+    createdAt: new Date("2026-06-28T01:35:00.000Z")
+  });
+  assert.strictEqual(exported.relativePath, `${visualThemeFolderRelativePath}/v078-shelf.json`);
+  assert.strictEqual(fs.existsSync(path.join(v078ThemeWorkspace, ...visualThemeIndexRelativePath.split("/"))), true);
+  const importResult = importVisualThemeToAdapter(v078ThemeWorkspace, exported.theme, {
+    targetAdapterId: "generic_phaser",
+    targetSurfaceType: "slot_card",
+    targetId: "manual_slot_card",
+    now: new Date("2026-06-28T01:36:00.000Z")
+  });
+  assert.strictEqual(importResult.ok, true);
+  assert.deepStrictEqual(importResult.changedFiles, [genericStyleConfigRelativePath("slot_card")]);
+  const importedConfig = JSON.parse(readWorkspaceFile(v078ThemeWorkspace, genericStyleConfigRelativePath("slot_card"))) as { runtimeApplied: boolean; values: Record<string, unknown> };
+  assert.strictEqual(importedConfig.runtimeApplied, false);
+  assert.strictEqual(importedConfig.values.fillColor, "#203040");
+  const unsafeTheme = buildVisualThemeFile({
+    themeName: "v078 Unsafe",
+    sourceAdapterId: "sort_puzzle",
+    surfaces: [{ surfaceType: "slot_card", styleTokens: { fillColor: "#112233", saveStateVersion: 1, economyBalance: 99 } }]
+  });
+  assert.ok(!JSON.stringify(unsafeTheme.surfaces[0].normalizedStyleTokens).includes("saveStateVersion"));
+  assert.ok(validateVisualThemeFile(unsafeTheme).warnings.some((warning) => warning.includes("economyBalance")));
+} finally {
+  cleanupTempWorkspace(v078ThemeWorkspace);
+}
+
+const v078AnnotationWorkspace = makeTempWorkspace("v078-annotation-fixture");
+try {
+  writeWorkspaceBinaryFile(v078AnnotationWorkspace, "captures/problem.png", makePngHeader(100, 50));
+  const annotation = buildScreenshotAnnotationNote({
+    screenshotPath: "captures/problem.png",
+    markedRect: { x: 10, y: 5, width: 40, height: 20 },
+    surfaceType: "impact_feedback",
+    adapterId: "generic_phaser",
+    targetSurfaceId: "manual_impact_feedback",
+    note: "hit effect hides enemy",
+    createdAt: new Date("2026-06-28T01:40:00.000Z"),
+    imageMetadata: readScreenshotImageMetadata(v078AnnotationWorkspace, "captures/problem.png")
+  });
+  assert.strictEqual(annotation.ok, true);
+  assert.strictEqual(annotation.note?.targetMapping?.styleConfigPath, genericManualStyleConfigRelativePath("impact_feedback"));
+  assert.strictEqual(annotation.note?.normalizedRect?.widthPct, 0.4);
+  const saved = saveScreenshotAnnotationBundle(v078AnnotationWorkspace, { annotation: annotation.note!, createConfigStub: true, createFallbackTask: true });
+  assert.strictEqual(saved.ok, true);
+  assert.ok(saved.annotationPath?.startsWith(`${screenshotAnnotationsFolderRelativePath}/`));
+  assert.strictEqual(fs.existsSync(path.join(v078AnnotationWorkspace, ...screenshotAnnotationIndexRelativePath.split("/"))), true);
+  assert.ok(readWorkspaceFile(v078AnnotationWorkspace, saved.taskPath!).includes("hit effect hides enemy"));
+  assert.ok(readWorkspaceFile(v078AnnotationWorkspace, saved.fallbackTaskPath!).includes("visual context only"));
+  const savedConfig = JSON.parse(readWorkspaceFile(v078AnnotationWorkspace, genericManualStyleConfigRelativePath("impact_feedback")!)) as { runtimeApplied: boolean; configOnly: boolean };
+  assert.strictEqual(savedConfig.runtimeApplied, false);
+  assert.strictEqual(savedConfig.configOnly, true);
+  assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "cursor_arena", surfaceType: "impact_feedback" }).ambiguous, true);
+} finally {
+  cleanupTempWorkspace(v078AnnotationWorkspace);
+}
+
 function makeTestRgbaPng(width: number, height: number, alphaForPixel: (x: number, y: number) => number): Uint8Array {
   const rowLength = 1 + width * 4;
   const idat = new Uint8Array(rowLength * height);
@@ -3475,6 +3779,99 @@ function makePngHeader(width: number, height: number): Buffer {
   buffer.writeUInt32BE(width, 16);
   buffer.writeUInt32BE(height, 20);
   return buffer;
+}
+
+function regressionDetectedAdapter(files: InspectedFile[]): "idle_monster_farm" | "sort_puzzle" | "cursor_arena" | "generic_phaser" | "unknown" {
+  const idle = getVisualGameAdapter("idle_monster_farm")!.detectProject(files);
+  const sort = detectSortPuzzleProject(files);
+  const cursor = detectCursorArenaProject(files);
+  const generic = detectGenericPhaserProject(files);
+  const idleScore = idle.detected ? regressionConfidenceScore(idle.confidence) : 0;
+  const sortScore = sort.detected ? regressionConfidenceScore(sort.confidence) : 0;
+  const cursorScore = cursor.detected ? regressionConfidenceScore(cursor.confidence) : 0;
+  if (idleScore > 0 && idleScore >= sortScore && idleScore >= cursorScore) {
+    return "idle_monster_farm";
+  }
+  if (sortScore >= regressionConfidenceScore("medium") && sortScore >= cursorScore && sortScore > idleScore) {
+    return "sort_puzzle";
+  }
+  if (cursorScore >= regressionConfidenceScore("medium") && cursorScore > idleScore && cursorScore > sortScore) {
+    return "cursor_arena";
+  }
+  return generic.detected ? "generic_phaser" : "unknown";
+}
+
+function regressionConfidenceScore(confidence: "high" | "medium" | "low" | "unknown"): number {
+  if (confidence === "high") {
+    return 3;
+  }
+  if (confidence === "medium") {
+    return 2;
+  }
+  if (confidence === "low") {
+    return 1;
+  }
+  return 0;
+}
+
+function fixtureConfigInfoForTargets(adapterId: "idle_monster_farm" | "generic_phaser" | "sort_puzzle" | "cursor_arena", fixtureRoot: string): Record<string, { status: "valid" | "missing"; path: string; exists: boolean }> {
+  const configs: Record<string, { status: "valid" | "missing"; path: string; exists: boolean }> = {};
+  for (const target of getVisualGameAdapterSurfaceTargets(adapterId)) {
+    if (!target.styleConfigPath) {
+      continue;
+    }
+    const exists = fs.existsSync(path.join(fixtureRoot, ...target.styleConfigPath.split("/")));
+    configs[`${adapterId}_${target.targetId}`] = {
+      status: exists ? "valid" : "missing",
+      path: target.styleConfigPath,
+      exists
+    };
+  }
+  return configs;
+}
+
+function fixtureRecipeInfos(): Record<string, ReturnType<typeof recipeFileStatus>> {
+  const infos: Record<string, ReturnType<typeof recipeFileStatus>> = {};
+  for (const recipe of getVisualSurfaceRecipes()) {
+    infos[recipe.recipeId] = recipeFileStatus(recipe, true);
+  }
+  return infos;
+}
+
+function buildFixtureDashboardSurfaces(adapterId: "idle_monster_farm" | "generic_phaser" | "sort_puzzle" | "cursor_arena", detection: { detected: boolean; confidence: "high" | "medium" | "low" | "unknown"; warnings: string[] }, fixtureRoot: string, files: InspectedFile[]): DashboardSurfaceInput[] {
+  return getVisualGameAdapterSurfaceTargets(adapterId).map((target) => {
+    const recipe = target.surfaceType === "asset_replacement" ? undefined : getVisualSurfaceRecipe(target.surfaceType);
+    const configPath = target.styleConfigPath;
+    const configExists = configPath ? fs.existsSync(path.join(fixtureRoot, ...configPath.split("/"))) : false;
+    const config = configPath
+      ? { status: configExists ? "valid" as const : "missing" as const, path: configPath, exists: configExists }
+      : { status: "not_applicable" as const, exists: false };
+    return {
+      surfaceType: target.surfaceType,
+      displayName: target.displayName,
+      adapter: {
+        adapterId,
+        targetId: target.targetId,
+        targetLabel: target.displayName,
+        connectedState: target.surfaceType === "asset_replacement" ? "not_applicable" as const : "connected" as const,
+        detected: detection.detected,
+        confidence: detection.confidence,
+        directApplySupported: target.directApply.support === "executable",
+        generatedStyleModulePath: target.generatedStyleModulePath,
+        ownerFiles: Array.from(new Set([...target.likelyOwnerFiles, ...files.map((file) => file.relativePath).filter((file) => file.includes("Scene") || file.includes("ui/"))])).sort(),
+        warnings: [...detection.warnings, ...target.limitations]
+      },
+      recipe,
+      config,
+      recipeFile: recipe ? recipeFileStatus(recipe, true) : { status: "not_applicable" as const, exists: false },
+      fallbackTaskCount: 0,
+      scopeFiles: [config.path, target.generatedStyleModulePath, ...target.likelyOwnerFiles].filter((value): value is string => Boolean(value))
+    };
+  });
+}
+
+function readFixtureText(root: string, relativePath: string): string {
+  return fs.readFileSync(path.join(root, ...relativePath.split("/")), "utf8");
 }
 
 function readFixtureFiles(root: string): InspectedFile[] {
