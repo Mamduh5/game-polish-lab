@@ -20,6 +20,7 @@
     "onCommand:gamePolishLab.createPixelPolishKit",
     "onCommand:gamePolishLab.listPixelPolishKits",
     "onCommand:gamePolishLab.generateKitImplementationPrompt",
+    "onCommand:gamePolishLab.generateAssetStyleGuide",
     "onCommand:gamePolishLab.createStyleGuide",
     "onCommand:gamePolishLab.generateCodexPrompt",
     "onCommand:gamePolishLab.createTrialReport",
@@ -82,6 +83,10 @@
       {
         "command": "gamePolishLab.generateKitImplementationPrompt",
         "title": "Game Polish Lab: Generate Kit Implementation Prompt"
+      },
+      {
+        "command": "gamePolishLab.generateAssetStyleGuide",
+        "title": "Game Polish Lab: Generate Asset Style Guide"
       },
       {
         "command": "gamePolishLab.createStyleGuide",
@@ -181,7 +186,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "tsc --noEmit -p ./",
-    "test": "npm run compile && node dist/test/monsterFarmDeepAudit.spec.js && node dist/test/visualAssetBoundsNormalization.spec.js"
+    "test": "npm run compile && node dist/test/monsterFarmDeepAudit.spec.js && node dist/test/visualAssetBoundsNormalization.spec.js && node dist/test/visualAssetStyleGuide.spec.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",

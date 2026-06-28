@@ -9,6 +9,11 @@ import {
   visualAssetNormalizationResultsRelativePath,
   visualAssetNormalizedRelativeDir
 } from "./visualAssetBoundsNormalization";
+import {
+  readLatestVisualAssetStyleGuideSummaries,
+  visualAssetStyleGuideIndexRelativePath,
+  visualAssetStyleGuideRelativeDir
+} from "./visualAssetStyleGuide";
 import { detectGenericPhaserProject } from "./genericPhaserAdapterModel";
 import { monsterFarmAssetTargets } from "./monsterFarmAssetTargets";
 import { detectCursorArenaProject, detectSortPuzzleProject } from "./visualGameAdapters";
@@ -42,6 +47,7 @@ export const visualAssetAssignmentsRelativeDir = ".game-polish-lab/assets/assign
 export const visualAssetValidationRelativePath = ".game-polish-lab/assets/validation-results.json";
 export const visualAssetContractRelativePath = ".game-polish-lab/assets/asset-contracts.json";
 export { visualAssetBoundsResultsRelativePath, visualAssetNormalizationResultsRelativePath, visualAssetNormalizedRelativeDir };
+export { visualAssetStyleGuideIndexRelativePath, visualAssetStyleGuideRelativeDir };
 
 const supportedExtensions = [".png", ".webp"];
 const reasonableAssetBytes = 5 * 1024 * 1024;
@@ -77,7 +83,8 @@ export function buildVisualAssetDashboardModel(input: {
   const assignments = input.assignments ?? readVisualAssetAssignments(input.workspaceRoot);
   const boundsResults = readVisualAssetBoundsResults(input.workspaceRoot);
   const normalizationResults = readVisualAssetNormalizationResults(input.workspaceRoot);
-  const rows = buildVisualAssetDashboardRows(slots, candidates, assignments, input.updatedAt, boundsResults, normalizationResults);
+  const styleGuides = readLatestVisualAssetStyleGuideSummaries(input.workspaceRoot);
+  const rows = buildVisualAssetDashboardRows(slots, candidates, assignments, input.updatedAt, boundsResults, normalizationResults, styleGuides);
   return {
     schemaVersion: "visual-asset-pipeline-dashboard/v1",
     activeAdapter,
@@ -87,6 +94,7 @@ export function buildVisualAssetDashboardModel(input: {
     assignments,
     boundsResults,
     normalizationResults,
+    styleGuides,
     rows,
     groupedSurfaceIds: Array.from(new Set(slots.map((slot) => slot.surfaceId))).sort(),
     statusCounts: countValidationStatuses(rows),
@@ -95,7 +103,7 @@ export function buildVisualAssetDashboardModel(input: {
   };
 }
 
-export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidates: ImportedVisualAssetCandidate[], assignments: AssignedVisualAsset[], checkedAt?: string, boundsResults: VisualAssetBoundsAnalysisResult[] = [], normalizationResults: VisualAssetNormalizationResult[] = []): VisualAssetDashboardRow[] {
+export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidates: ImportedVisualAssetCandidate[], assignments: AssignedVisualAsset[], checkedAt?: string, boundsResults: VisualAssetBoundsAnalysisResult[] = [], normalizationResults: VisualAssetNormalizationResult[] = [], styleGuides: VisualAssetDashboardRow["styleGuide"][] = []): VisualAssetDashboardRow[] {
   return slots.map((slot) => {
     const assignment = assignments.find((candidate) => candidate.slotId === slot.slotId);
     const candidate = assignment
@@ -104,6 +112,7 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
     const validation = validationFromSlotCandidate(slot, candidate, assignment, checkedAt);
     const boundsAnalysis = candidate ? boundsResults.find((entry) => entry.candidateId === candidate.candidateId) : undefined;
     const normalization = candidate ? normalizationResults.find((entry) => entry.sourceCandidateId === candidate.candidateId && entry.status === "created") : undefined;
+    const styleGuide = styleGuides.find((entry) => entry?.assetSlotId === slot.slotId);
     const assignmentAssetPath = assignment?.normalizedAssetPath ?? assignment?.copiedAssetPath;
     return {
       rowId: slot.slotId,
@@ -116,6 +125,7 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
       assignment,
       boundsAnalysis,
       normalization,
+      styleGuide,
       assignmentAssetPath,
       validation,
       previewMode: slot.directApplyCapability === "config_only" || slot.directApplyCapability === "asset_copy_only" ? "context" : "asset_card",
@@ -129,6 +139,10 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
         normalizeBounds: Boolean(candidate && boundsAnalysis && boundsAnalysis.errors.length === 0 && boundsAnalysis.recommendedAction !== "manual_review" && slot.normalizationAllowed !== false),
         openNormalizedAsset: Boolean(normalization?.outputPath),
         useNormalizedAssetForAssignment: Boolean(candidate && normalization?.status === "created" && candidate.approvalStatus === "approved" && slot.directApplyCapability !== "unsupported"),
+        generateStyleGuide: slot.safetyStatus !== "unsupported",
+        openStyleGuide: Boolean(styleGuide?.markdownPath),
+        copyContactSheetRequest: Boolean(styleGuide?.markdownPath),
+        regenerateStyleGuide: slot.safetyStatus !== "unsupported",
         openAssetContract: true,
         generateFallbackTask: slot.directApplyCapability === "fallback_required" || slot.safetyStatus !== "safe",
         runScopeCheck: true
@@ -466,6 +480,9 @@ export function assetPipelineScopePaths(slot: VisualAssetSlot): string[] {
     visualAssetContractRelativePath,
     visualAssetBoundsResultsRelativePath,
     visualAssetNormalizationResultsRelativePath,
+    visualAssetStyleGuideIndexRelativePath,
+    `${visualAssetStyleGuideRelativeDir}/example.md`,
+    `${visualAssetStyleGuideRelativeDir}/example.json`,
     `${visualAssetNormalizedRelativeDir}/example.png`,
     `${visualAssetImportedRelativeDir}/example.png`,
     `${visualAssetAssignmentsRelativeDir}/example.json`,
@@ -734,6 +751,7 @@ function writeVisualAssetDashboardFile(workspaceRoot: string, patch: { candidate
     assignments,
     boundsResults: existing.boundsResults ?? [],
     normalizationResults: existing.normalizationResults ?? [],
+    styleGuides: existing.styleGuides ?? [],
     rows: existing.rows ?? [],
     groupedSurfaceIds: existing.groupedSurfaceIds ?? [],
     statusCounts: existing.statusCounts ?? { missing: 0, valid: 0, warning: 0, invalid: 0, unvalidated: 0 },

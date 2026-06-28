@@ -1,8 +1,8 @@
 # Asset Pipeline Dashboard
 
-Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization.
+Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization. v0.82 adds text/metadata Asset Style Guide generation for selected slots.
 
-This milestone manages metadata, imported candidates, and Game Polish Lab-owned normalized copies only. It does not generate artwork, create asset style guides, automate manifest direct applies, or compare contact sheets.
+This milestone manages metadata, imported candidates, Game Polish Lab-owned normalized copies, and style-guide briefs only. It does not generate artwork, automate manifest direct applies, or compare contact sheets.
 
 ## Command
 
@@ -16,6 +16,7 @@ The dashboard shows:
 - imported candidate path when assigned
 - visible bounds status when analyzed
 - normalized asset path when created
+- style guide path and generated timestamp when created
 - basic validation status
 - direct apply capability
 - runtime-applied status, which remains separate from imported or assigned metadata
@@ -39,6 +40,10 @@ Bounds and normalization result metadata are written to:
 
 - `.game-polish-lab/assets/bounds-results.json`
 - `.game-polish-lab/assets/normalization-results.json`
+
+Asset style guides are written to:
+
+- `.game-polish-lab/assets/style-guides/`
 
 Existing asset contracts remain at:
 
@@ -67,6 +72,14 @@ See [`asset-bounds-normalization.md`](asset-bounds-normalization.md).
 v0.81 can analyze visible alpha bounds for decoded PNG candidates and create an opt-in normalized copy that centers visible content in a transparent target canvas. Original imported candidates and original game/runtime assets are preserved.
 
 Normalized does not mean runtime applied. Normalized does not mean assigned unless Game Polish Lab-owned assignment metadata is explicitly updated to reference the normalized copy.
+
+## Asset Style Guides
+
+See [`asset-style-guide-generator.md`](asset-style-guide-generator.md).
+
+v0.82 can generate a Markdown and JSON style guide for a selected asset slot. Guides describe canvas size, file format, transparency, visible bounds, padding, readability requirements, style direction, forbidden changes, a contact-sheet request template, and validation checklist.
+
+Style guide generated does not mean asset imported, assigned, normalized, or runtime applied. The generator does not create images, analyze image contents with AI, modify pixels, patch source files, patch manifests, or compare contact sheets.
 
 ## Assignment
 
@@ -99,9 +112,8 @@ Fallback tasks include adapter, surface, slot, imported asset path, normalized a
 
 ## Out Of Scope
 
-v0.81 does not include:
+v0.82 does not include:
 
-- v0.82 style guide generator v2
 - v0.83 manifest direct applies
 - v0.84 contact-sheet comparison
 - v0.85 stabilization

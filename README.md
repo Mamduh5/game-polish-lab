@@ -19,9 +19,10 @@ For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-cont
 - [`docs/v0.7-adapter-stabilization.md`](docs/v0.7-adapter-stabilization.md)
 - [`docs/asset-pipeline-dashboard.md`](docs/asset-pipeline-dashboard.md)
 - [`docs/asset-bounds-normalization.md`](docs/asset-bounds-normalization.md)
+- [`docs/asset-style-guide-generator.md`](docs/asset-style-guide-generator.md)
 - [`docs/v0.7-migration-notes.md`](docs/v0.7-migration-notes.md)
 
-v0.81 extends `Game Polish Lab: Open Asset Pipeline Dashboard` with opt-in PNG alpha-bounds analysis and managed normalized copies under `.game-polish-lab/assets/normalized/`. It preserves original imported and game assets, keeps assignment metadata separate from runtime application, and does not generate artwork, automate manifest direct applies, or patch source loaders/manifests.
+v0.82 extends `Game Polish Lab: Open Asset Pipeline Dashboard` with text/metadata asset style guides under `.game-polish-lab/assets/style-guides/`. It uses slot, contract, validation, and bounds metadata to write practical briefs and contact-sheet request text; it does not generate images, compare contact sheets, automate manifest direct applies, patch source loaders/manifests, or claim runtime application.
 
 ## What v0.4.2 Does
 
@@ -257,6 +258,7 @@ Each kit creates:
 - `Game Polish Lab: Create Pixel Polish Kit` creates kit files and optionally a source config template.
 - `Game Polish Lab: List Pixel Polish Kits` opens an existing kit README or JSON file.
 - `Game Polish Lab: Generate Kit Implementation Prompt` regenerates the strict prompt for an existing kit and copies it to the clipboard.
+- `Game Polish Lab: Generate Asset Style Guide` writes a text/metadata guide for a selected visual asset slot.
 - `Game Polish Lab: Create Pixel Art Style Guide` creates `.game-polish-lab/style-guide.md`.
 - `Game Polish Lab: Generate Codex Prompt` turns an existing task JSON into `.game-polish-lab/prompts/latest-codex-prompt.md`.
 - `Game Polish Lab: Create Real Project Trial Report` creates a dogfooding report under `.game-polish-lab/trials/`.

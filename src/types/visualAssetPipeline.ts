@@ -1,3 +1,5 @@
+import type { VisualAssetStyleGuideSummary } from "./visualAssetStyleGuide";
+
 export type VisualAssetExpectedType = "image" | "spritesheet" | "icon" | "background" | "effect" | "ui-frame" | "unknown";
 export type VisualAssetSafetyStatus = "safe" | "suspicious" | "unsupported" | "unknown";
 export type VisualAssetPipelineValidationStatus = "missing" | "valid" | "warning" | "invalid" | "unvalidated";
@@ -158,6 +160,7 @@ export interface VisualAssetDashboardRow {
   assignment?: AssignedVisualAsset;
   boundsAnalysis?: VisualAssetBoundsAnalysisResult;
   normalization?: VisualAssetNormalizationResult;
+  styleGuide?: VisualAssetStyleGuideSummary;
   assignmentAssetPath?: string;
   validation: VisualAssetValidationResult;
   previewMode: "context" | "asset_card";
@@ -171,6 +174,10 @@ export interface VisualAssetDashboardRow {
     normalizeBounds: boolean;
     openNormalizedAsset: boolean;
     useNormalizedAssetForAssignment: boolean;
+    generateStyleGuide: boolean;
+    openStyleGuide: boolean;
+    copyContactSheetRequest: boolean;
+    regenerateStyleGuide: boolean;
     openAssetContract: boolean;
     generateFallbackTask: boolean;
     runScopeCheck: boolean;
@@ -186,6 +193,7 @@ export interface VisualAssetDashboardModel {
   assignments: AssignedVisualAsset[];
   boundsResults: VisualAssetBoundsAnalysisResult[];
   normalizationResults: VisualAssetNormalizationResult[];
+  styleGuides: VisualAssetStyleGuideSummary[];
   rows: VisualAssetDashboardRow[];
   groupedSurfaceIds: string[];
   statusCounts: Record<VisualAssetPipelineValidationStatus, number>;

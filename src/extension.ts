@@ -16,6 +16,7 @@ import { createTrialReport } from "./commands/createTrialReport";
 import { createVisualDiagnosisTask } from "./commands/createVisualDiagnosisTask";
 import { exportVisualTheme } from "./commands/exportVisualTheme";
 import { generateKitImplementationPrompt } from "./commands/generateKitImplementationPrompt";
+import { generateAssetStyleGuide } from "./commands/generateAssetStyleGuide";
 import { generateCodexPrompt } from "./commands/generateCodexPrompt";
 import { importVisualTheme } from "./commands/importVisualTheme";
 import { initializeProfile } from "./commands/initializeProfile";
@@ -47,6 +48,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.createPixelPolishKit", createPixelPolishKit),
     vscode.commands.registerCommand("gamePolishLab.listPixelPolishKits", listPixelPolishKits),
     vscode.commands.registerCommand("gamePolishLab.generateKitImplementationPrompt", generateKitImplementationPrompt),
+    vscode.commands.registerCommand("gamePolishLab.generateAssetStyleGuide", generateAssetStyleGuide),
     vscode.commands.registerCommand("gamePolishLab.createStyleGuide", createStyleGuide),
     vscode.commands.registerCommand("gamePolishLab.generateCodexPrompt", generateCodexPrompt),
     vscode.commands.registerCommand("gamePolishLab.createTrialReport", createTrialReport),

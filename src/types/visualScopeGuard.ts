@@ -5,6 +5,7 @@ export type VisualScopeOperationType =
   | "visual_config_write"
   | "asset_contract_write"
   | "asset_pipeline_assignment"
+  | "asset_style_guide_generation"
   | "asset_contact_sheet_read"
   | "direct_apply"
   | "dev_overlay_install"
