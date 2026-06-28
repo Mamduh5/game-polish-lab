@@ -34,6 +34,7 @@
     "onCommand:gamePolishLab.createRollbackPrompt",
     "onCommand:gamePolishLab.openRollbackHistory",
     "onCommand:gamePolishLab.openAssetContactSheet",
+    "onCommand:gamePolishLab.openAssetPipelineDashboard",
     "onCommand:gamePolishLab.openVisualTuningDashboard",
     "onCommand:gamePolishLab.tuneVisualSurface",
     "onCommand:gamePolishLab.exportVisualTheme",
@@ -137,6 +138,10 @@
       {
         "command": "gamePolishLab.openAssetContactSheet",
         "title": "Game Polish Lab: Open Asset Contact Sheet"
+      },
+      {
+        "command": "gamePolishLab.openAssetPipelineDashboard",
+        "title": "Game Polish Lab: Open Asset Pipeline Dashboard"
       },
       {
         "command": "gamePolishLab.openVisualTuningDashboard",

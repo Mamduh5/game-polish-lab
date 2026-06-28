@@ -4,6 +4,7 @@ export type VisualScopeClassification = "safe" | "suspicious" | "forbidden" | "u
 export type VisualScopeOperationType =
   | "visual_config_write"
   | "asset_contract_write"
+  | "asset_pipeline_assignment"
   | "asset_contact_sheet_read"
   | "direct_apply"
   | "dev_overlay_install"

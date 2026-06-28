@@ -22,6 +22,7 @@ import { initializeProfile } from "./commands/initializeProfile";
 import { listPixelPolishKits } from "./commands/listPixelPolishKits";
 import { markLatestTuningResult } from "./commands/markLatestTuningResult";
 import { openAssetContactSheet } from "./commands/openAssetContactSheet";
+import { openAssetPipelineDashboard } from "./commands/openAssetPipelineDashboard";
 import { openRollbackHistory } from "./commands/openRollbackHistory";
 import { openTrialReports } from "./commands/openTrialReports";
 import { openVisualTuningDashboard } from "./commands/openVisualTuningDashboard";
@@ -59,6 +60,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gamePolishLab.createTuningExperiment", createTuningExperiment),
     vscode.commands.registerCommand("gamePolishLab.createRollbackPrompt", createRollbackPrompt),
     vscode.commands.registerCommand("gamePolishLab.openAssetContactSheet", () => openAssetContactSheet(context)),
+    vscode.commands.registerCommand("gamePolishLab.openAssetPipelineDashboard", () => openAssetPipelineDashboard(context)),
     vscode.commands.registerCommand("gamePolishLab.openRollbackHistory", () => openRollbackHistory(context)),
     vscode.commands.registerCommand("gamePolishLab.openVisualTuningDashboard", () => openVisualTuningDashboard(context)),
     vscode.commands.registerCommand("gamePolishLab.tuneVisualSurface", (initialState) => tuneVisualSurface(context, initialState)),

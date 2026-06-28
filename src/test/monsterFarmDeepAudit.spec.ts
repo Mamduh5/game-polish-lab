@@ -164,6 +164,18 @@ import {
   writeScreenshotAnnotationNote
 } from "../core/screenshotAnnotation";
 import {
+  assignVisualAssetCandidate,
+  buildVisualAssetDashboardModel,
+  buildVisualAssetFallbackTask,
+  checkAssetPipelineScope,
+  discoverVisualAssetSlots,
+  importVisualAssetCandidate,
+  validateImportedVisualAssetCandidate,
+  visualAssetDashboardRelativePath,
+  visualAssetImportedRelativeDir,
+  visualAssetAssignmentsRelativeDir
+} from "../core/visualAssetPipeline";
+import {
   buildVisualRollbackFallbackTask,
   discoverVisualRollbackSnapshots,
   restoreVisualRollbackSnapshot,
@@ -3709,6 +3721,156 @@ try {
 } finally {
   cleanupTempWorkspace(v078AnnotationWorkspace);
 }
+
+const v080PackageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
+  activationEvents: string[];
+  contributes: { commands: Array<{ command: string; title: string }> };
+};
+assert.ok(v080PackageJson.activationEvents.includes("onCommand:gamePolishLab.openAssetPipelineDashboard"));
+assert.ok(v080PackageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openAssetPipelineDashboard" && command.title === "Game Polish Lab: Open Asset Pipeline Dashboard"));
+
+const v080IdleSlots = discoverVisualAssetSlots(v078IdleFixture);
+assert.ok(v080IdleSlots.some((slot) => slot.slotId === "idle_monster_farm.monster_art" && slot.expectedAssetType === "image"));
+assert.ok(v080IdleSlots.some((slot) => slot.slotId === "idle_monster_farm.slot_frame" && slot.expectedAssetType === "ui-frame"));
+assert.ok(v080IdleSlots.some((slot) => slot.slotId === "idle_monster_farm.reward_icon" && slot.directApplyCapability === "fallback_required"));
+assert.ok(v080IdleSlots.every((slot) => slot.expectedFileExtensions.includes(".png") && slot.expectedFileExtensions.includes(".webp")));
+
+const v080SortSlots = discoverVisualAssetSlots(v078SortFixture);
+assert.ok(v080SortSlots.some((slot) => slot.slotId === "sort_puzzle.spirit_art" && slot.safetyStatus === "unsupported" && slot.directApplyCapability === "fallback_required"));
+assert.ok(v080SortSlots.some((slot) => slot.slotLabel.includes("Shelf")));
+assert.ok(v080SortSlots.some((slot) => slot.slotLabel.includes("reward")));
+
+const v080CursorSlots = discoverVisualAssetSlots(v078CursorFixture);
+assert.ok(v080CursorSlots.some((slot) => slot.slotId === "cursor_arena.enemy_icon"));
+assert.ok(v080CursorSlots.some((slot) => slot.slotId === "cursor_arena.cursor_effect_sprite"));
+assert.ok(v080CursorSlots.some((slot) => slot.slotId === "cursor_arena.hit_kill_combo_sprite"));
+assert.ok(v080CursorSlots.some((slot) => slot.slotId === "cursor_arena.hud_upgrade_icon"));
+assert.ok(v080CursorSlots.every((slot) => slot.directApplyCapability === "fallback_required"));
+
+const v080GenericSlots = discoverVisualAssetSlots(v078GenericFixture);
+assert.ok(v080GenericSlots.some((slot) => slot.currentAssetPath?.includes("assets/ui/hud-frame.png") || slot.ownerSourceFileHints.some((hint) => hint.includes("HudScene"))));
+assert.ok(v080GenericSlots.some((slot) => slot.currentAssetPath?.includes("assets/effects/hit-spark.png") || slot.ownerSourceFileHints.some((hint) => hint.includes("HitImpact"))));
+assert.ok(v080GenericSlots.every((slot) => slot.adapterId === "generic_phaser"));
+assert.deepStrictEqual(discoverVisualAssetSlots(v078NonPhaserFixture), []);
+
+const v080DashboardWorkspace = makeTempWorkspace("v080-asset-dashboard");
+try {
+  const dashboard = buildVisualAssetDashboardModel({
+    workspaceRoot: v080DashboardWorkspace,
+    files: v078CursorFixture,
+    updatedAt: "2026-06-28T02:00:00.000Z"
+  });
+  assert.strictEqual(dashboard.schemaVersion, "visual-asset-pipeline-dashboard/v1");
+  assert.strictEqual(dashboard.activeAdapter, "cursor_arena");
+  assert.ok(dashboard.groupedSurfaceIds.includes("reward_toast"));
+  assert.ok(dashboard.rows.some((row) => row.actions.importAsset && row.actions.generateFallbackTask && row.actions.runScopeCheck));
+  assert.ok(dashboard.rows.every((row) => row.runtimeApplied === false));
+  assert.ok(dashboard.rows.every((row) => row.slot.directApplyCapability !== "manifest_supported"));
+  assert.ok(dashboard.warnings.some((warning) => warning.includes("fallback-required")));
+} finally {
+  cleanupTempWorkspace(v080DashboardWorkspace);
+}
+
+const v080AssetWorkspace = makeTempWorkspace("v080-asset-import");
+try {
+  writeWorkspaceBinaryFile(v080AssetWorkspace, "incoming/monster.png", Buffer.from(makeTestRgbaPng(128, 128, () => 255)));
+  const slot = v080IdleSlots.find((candidate) => candidate.slotId === "idle_monster_farm.monster_art")!;
+  const pendingCandidate = importVisualAssetCandidate({
+    workspaceRoot: v080AssetWorkspace,
+    sourcePath: path.join(v080AssetWorkspace, "incoming", "monster.png"),
+    slot,
+    now: new Date("2026-06-28T02:10:00.000Z")
+  });
+  assert.ok(pendingCandidate.copiedAssetPath.startsWith(`${visualAssetImportedRelativeDir}/`));
+  assert.strictEqual(fs.existsSync(path.join(v080AssetWorkspace, ...pendingCandidate.copiedAssetPath.split("/"))), true);
+  assert.strictEqual(fs.existsSync(path.join(v080AssetWorkspace, "src", "assets", "monsters", "monster.png")), false);
+  assert.strictEqual(pendingCandidate.approvalStatus, "pending");
+  assert.strictEqual(pendingCandidate.fileType, "image/png");
+  assert.deepStrictEqual(pendingCandidate.dimensions, { width: 128, height: 128 });
+  const validAsset = validateImportedVisualAssetCandidate(v080AssetWorkspace, slot, pendingCandidate, "2026-06-28T02:11:00.000Z");
+  assert.strictEqual(validAsset.status, "valid");
+
+  const missingAsset = validateImportedVisualAssetCandidate(v080AssetWorkspace, slot, {
+    ...pendingCandidate,
+    copiedAssetPath: `${visualAssetImportedRelativeDir}/missing.png`
+  }, "2026-06-28T02:12:00.000Z");
+  assert.strictEqual(missingAsset.status, "missing");
+
+  const unapproved = assignVisualAssetCandidate({
+    workspaceRoot: v080AssetWorkspace,
+    slot,
+    candidate: pendingCandidate,
+    now: new Date("2026-06-28T02:13:00.000Z")
+  });
+  assert.strictEqual(unapproved.result.status, "blocked");
+  assert.ok(unapproved.result.errors.some((error) => error.includes("approved")));
+
+  const approvedCandidate = { ...pendingCandidate, approvalStatus: "approved" as const };
+  const assigned = assignVisualAssetCandidate({
+    workspaceRoot: v080AssetWorkspace,
+    slot,
+    candidate: approvedCandidate,
+    now: new Date("2026-06-28T02:14:00.000Z")
+  });
+  assert.notStrictEqual(assigned.result.status, "blocked");
+  assert.strictEqual(assigned.assignment.runtimeApplied, false);
+  assert.strictEqual(assigned.assignment.fallbackRequired, false);
+  assert.ok(assigned.result.changedFiles.includes(`${visualAssetAssignmentsRelativeDir}/idle-monster-farm-monster_art.json`));
+  assert.strictEqual(fs.existsSync(path.join(v080AssetWorkspace, ...visualAssetDashboardRelativePath.split("/"))), true);
+
+  const reassigned = assignVisualAssetCandidate({
+    workspaceRoot: v080AssetWorkspace,
+    slot,
+    candidate: approvedCandidate,
+    now: new Date("2026-06-28T02:15:00.000Z")
+  });
+  assert.ok(reassigned.result.rollbackPaths.some((rollbackPath) => rollbackPath.startsWith(".game-polish-lab/rollback/")));
+
+  const fallbackSlot = v080IdleSlots.find((candidate) => candidate.slotId === "idle_monster_farm.reward_icon")!;
+  const fallbackTask = buildVisualAssetFallbackTask({
+    slot: fallbackSlot,
+    candidate: approvedCandidate,
+    validation: validAsset,
+    now: new Date("2026-06-28T02:16:00.000Z")
+  });
+  assert.strictEqual(fallbackTask.instruction, "wire this approved imported asset into this selected visual asset slot only.");
+  assert.ok(fallbackTask.allowedFiles.includes(approvedCandidate.copiedAssetPath));
+  assert.ok(fallbackTask.forbiddenAreas.some((area) => area.includes("save schema")));
+  assert.ok(fallbackTask.forbiddenAreas.some((area) => area.includes("economy")));
+  assert.ok(fallbackTask.forbiddenAreas.some((area) => area.includes("ad/monetization")));
+  assert.ok(fallbackTask.forbiddenAreas.some((area) => area.includes("projectile/shooter/auto-shooter")));
+  assert.ok(!JSON.stringify(fallbackTask).includes("make the assets better"));
+} finally {
+  cleanupTempWorkspace(v080AssetWorkspace);
+}
+
+const v080AssetScope = checkVisualScopeGuard({
+  operationType: "asset_pipeline_assignment",
+  adapterId: "generic_phaser",
+  surfaceType: "asset_replacement",
+  candidatePaths: [
+    ".game-polish-lab/assets/imported/button.png",
+    ".game-polish-lab/assets/assignments/button.json",
+    ".game-polish-lab/fallback-tasks/asset.json",
+    "src/scenes/PreloadScene.ts",
+    "src/assets/manifest.json",
+    "src/systems/saveSystem.ts",
+    "src/data/economy.ts",
+    "src/arena/data/arenaBalanceConfig.js",
+    "package.json"
+  ]
+});
+assert.strictEqual(v080AssetScope.recommendedAction, "block");
+assert.ok(v080AssetScope.classifiedFiles.some((file) => file.path === ".game-polish-lab/assets/imported/button.png" && file.classification === "safe"));
+assert.ok(v080AssetScope.classifiedFiles.some((file) => file.path === "src/scenes/PreloadScene.ts" && file.classification === "suspicious"));
+assert.ok(v080AssetScope.classifiedFiles.some((file) => file.path === "src/assets/manifest.json" && file.classification === "suspicious"));
+assert.ok(v080AssetScope.classifiedFiles.some((file) => file.path === "src/systems/saveSystem.ts" && file.classification === "forbidden"));
+assert.ok(v080AssetScope.classifiedFiles.some((file) => file.path === "src/data/economy.ts" && file.classification === "forbidden"));
+assert.ok(v080AssetScope.classifiedFiles.some((file) => file.path === "src/arena/data/arenaBalanceConfig.js" && file.classification === "forbidden"));
+assert.ok(v080AssetScope.classifiedFiles.some((file) => file.path === "package.json" && file.classification === "forbidden"));
+assert.ok(checkAssetPipelineScope(v080GenericSlots[0]).recommendedAction !== "allow");
+assert.ok(visualScopeGuardRulesSummary().some((line) => line.includes(".game-polish-lab/assets/**")));
+assert.ok(visualScopeGuardRulesSummary().some((line) => line.includes("selected asset manifests")));
 
 function makeTestRgbaPng(width: number, height: number, alphaForPixel: (x: number, y: number) => number): Uint8Array {
   const rowLength = 1 + width * 4;

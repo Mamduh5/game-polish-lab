@@ -17,7 +17,10 @@ For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-cont
 - [`docs/screenshot-annotation.md`](docs/screenshot-annotation.md)
 - [`docs/regression-fixtures.md`](docs/regression-fixtures.md)
 - [`docs/v0.7-adapter-stabilization.md`](docs/v0.7-adapter-stabilization.md)
+- [`docs/asset-pipeline-dashboard.md`](docs/asset-pipeline-dashboard.md)
 - [`docs/v0.7-migration-notes.md`](docs/v0.7-migration-notes.md)
+
+v0.80 adds `Game Polish Lab: Open Asset Pipeline Dashboard` for visual asset slots, imported PNG/WebP candidates, basic validation, metadata-first assignment, and scoped fallback tasks. It does not normalize assets, generate artwork, automate manifest direct applies, or claim runtime application from metadata-only assignments.
 
 ## What v0.4.2 Does
 
