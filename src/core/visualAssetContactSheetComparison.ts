@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { inspectAssetImage } from "./assetReplacement";
+import { writeGamePolishLabOwnedFileWithRollback } from "./visualAssetPipelineRollback";
 import { visualAssetDashboardRelativePath } from "./visualAssetPipeline";
 import { normalizeVisualScopePath } from "./visualScopeGuard";
 import type {
@@ -42,11 +43,11 @@ export function createVisualAssetContactSheetComparison(input: {
 }): VisualAssetComparisonSet {
   const now = input.now ?? new Date();
   const createdAt = now.toISOString();
-  const comparisonId = `${safeId(input.row.slot.slotId)}-${timestampForPath(now)}`;
+  const comparisonId = safeId(`${input.row.slot.slotId}-${timestampForPath(now)}`);
   const entries = buildComparisonEntries(input.workspaceRoot, input.row);
   const warnings = [
     ...comparisonWarnings(input.row, entries),
-    "Comparison is manual visual review only; Game Polish Lab does not score, recognize, or judge image quality automatically."
+    "Comparison is manual visual review only; Game Polish Lab does not rate, recognize, or judge image quality automatically."
   ];
   const errors = entries.some((entry) => entry.role !== "current") ? [] : ["No imported, normalized, assigned, or manifest-applied candidate exists for comparison."];
   const comparison: VisualAssetComparisonSet = {
@@ -109,18 +110,30 @@ export function createVisualAssetContactSheetComparison(input: {
 
 export function writeVisualAssetContactSheetComparison(workspaceRoot: string, comparison: VisualAssetComparisonSet): VisualAssetComparisonResult {
   const paths = comparisonPaths(comparison.comparisonId);
-  const result = resultForComparison(comparison, [paths.jsonPath, paths.htmlPath, visualAssetContactSheetComparisonIndexRelativePath]);
+  const rollbackSnapshotPaths: string[] = [];
+  const result = resultForComparison(comparison, [paths.jsonPath, paths.htmlPath, visualAssetContactSheetComparisonIndexRelativePath], rollbackSnapshotPaths);
   const withResult: VisualAssetComparisonSet = {
     ...comparison,
     result
   };
-  const jsonPath = path.join(workspaceRoot, ...paths.jsonPath.split("/"));
-  const htmlPath = path.join(workspaceRoot, ...paths.htmlPath.split("/"));
-  fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
-  fs.writeFileSync(jsonPath, `${JSON.stringify(withResult, null, 2)}\n`, "utf8");
-  fs.writeFileSync(htmlPath, renderVisualAssetContactSheetComparisonHtml(withResult), "utf8");
-  writeVisualAssetContactSheetComparisonIndex(workspaceRoot, summaryForComparison(withResult, paths), withResult.updatedAt);
-  return result;
+  rollbackSnapshotPaths.push(...[
+    writeGamePolishLabOwnedFileWithRollback({
+      workspaceRoot,
+      relativePath: paths.jsonPath,
+      data: `${JSON.stringify(withResult, null, 2)}\n`,
+      now: new Date(withResult.updatedAt),
+      label: "asset-contact-sheet-json"
+    }),
+    writeGamePolishLabOwnedFileWithRollback({
+      workspaceRoot,
+      relativePath: paths.htmlPath,
+      data: renderVisualAssetContactSheetComparisonHtml(withResult),
+      now: new Date(withResult.updatedAt),
+      label: "asset-contact-sheet-html"
+    }),
+    writeVisualAssetContactSheetComparisonIndex(workspaceRoot, summaryForComparison(withResult, paths), withResult.updatedAt).rollbackSnapshotPath
+  ].filter((value): value is string => Boolean(value)));
+  return { ...result, rollbackSnapshotPaths };
 }
 
 export function createAndWriteVisualAssetContactSheetComparison(input: {
@@ -153,12 +166,30 @@ export function markVisualAssetContactSheetComparisonEntry(input: {
         nextRecommendedSafeAction: "no_action",
         runtimeApplied: false,
         filesWritten: [],
+        rollbackSnapshotPaths: [],
         warnings: [],
         errors: [`Contact sheet comparison was not found: ${input.comparisonId}`]
       }
     };
   }
   const entryId = input.entryId ?? chooseDefaultMarkEntry(comparison);
+  if (!entryId) {
+    return {
+      comparison,
+      result: {
+        comparisonId: comparison.comparisonId,
+        rejectedEntryIds: [],
+        mixedEntryIds: [],
+        userNotes: [],
+        nextRecommendedSafeAction: "no_action",
+        runtimeApplied: false,
+        filesWritten: [],
+        rollbackSnapshotPaths: [],
+        warnings: comparison.warnings,
+        errors: ["Contact sheet comparison has no entries to mark."]
+      }
+    };
+  }
   const entries = comparison.comparisonEntries.map((entry) => {
     if (entry.entryId !== entryId) {
       return entry;
@@ -229,7 +260,7 @@ export function readLatestVisualAssetContactSheetComparisonSummaries(workspaceRo
   return Array.from(latestBySlot.values()).sort((a, b) => a.assetSlotId.localeCompare(b.assetSlotId));
 }
 
-export function writeVisualAssetContactSheetComparisonIndex(workspaceRoot: string, summary: VisualAssetComparisonSummary, updatedAt: string): string {
+export function writeVisualAssetContactSheetComparisonIndex(workspaceRoot: string, summary: VisualAssetComparisonSummary, updatedAt: string): { indexPath: string; rollbackSnapshotPath?: string } {
   const current = readVisualAssetContactSheetComparisonIndex(workspaceRoot);
   const comparisons = mergeById(current.comparisons, [summary], (comparison) => comparison.comparisonId);
   const index: VisualAssetComparisonIndex = {
@@ -237,10 +268,14 @@ export function writeVisualAssetContactSheetComparisonIndex(workspaceRoot: strin
     updatedAt,
     comparisons
   };
-  const absolutePath = path.join(workspaceRoot, ...visualAssetContactSheetComparisonIndexRelativePath.split("/"));
-  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-  fs.writeFileSync(absolutePath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
-  return visualAssetContactSheetComparisonIndexRelativePath;
+  const rollbackSnapshotPath = writeGamePolishLabOwnedFileWithRollback({
+    workspaceRoot,
+    relativePath: visualAssetContactSheetComparisonIndexRelativePath,
+    data: `${JSON.stringify(index, null, 2)}\n`,
+    now: new Date(updatedAt),
+    label: "asset-contact-sheet-index"
+  });
+  return { indexPath: visualAssetContactSheetComparisonIndexRelativePath, rollbackSnapshotPath };
 }
 
 export function buildContactSheetComparisonFallbackTask(input: {
@@ -475,7 +510,7 @@ function nextActionForDecision(status: VisualAssetComparisonUserMark, chosen: Vi
   return "no_action";
 }
 
-function resultForComparison(comparison: VisualAssetComparisonSet, filesWritten: string[]): VisualAssetComparisonResult {
+function resultForComparison(comparison: VisualAssetComparisonSet, filesWritten: string[], rollbackSnapshotPaths: string[] = []): VisualAssetComparisonResult {
   return {
     comparisonId: comparison.comparisonId,
     chosenEntryId: comparison.userDecisionSummary.chosenEntryId,
@@ -485,6 +520,7 @@ function resultForComparison(comparison: VisualAssetComparisonSet, filesWritten:
     nextRecommendedSafeAction: comparison.userDecisionSummary.nextRecommendedSafeAction,
     runtimeApplied: false,
     filesWritten,
+    rollbackSnapshotPaths,
     warnings: comparison.warnings,
     errors: comparison.errors
   };
@@ -519,9 +555,13 @@ function maybeUpdateCandidateApproval(workspaceRoot: string, comparison: VisualA
     candidates,
     updatedAt: now.toISOString()
   };
-  const dashboardPath = path.join(workspaceRoot, ...visualAssetDashboardRelativePath.split("/"));
-  fs.mkdirSync(path.dirname(dashboardPath), { recursive: true });
-  fs.writeFileSync(dashboardPath, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+  writeGamePolishLabOwnedFileWithRollback({
+    workspaceRoot,
+    relativePath: visualAssetDashboardRelativePath,
+    data: `${JSON.stringify(updated, null, 2)}\n`,
+    now,
+    label: "asset-dashboard-contact-sheet-mark"
+  });
 }
 
 function readDashboard(workspaceRoot: string): Partial<VisualAssetDashboardModel> {

@@ -94,6 +94,7 @@ export interface VisualAssetStyleGuideWriteResult {
   jsonPath: string;
   indexPath: string;
   contactSheetRequestText: string;
+  rollbackSnapshotPaths: string[];
 }
 
 export interface VisualAssetStyleGuideFallbackTask {

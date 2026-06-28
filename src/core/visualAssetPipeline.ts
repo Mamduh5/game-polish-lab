@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { inspectAssetImage, normalizeAssetFileName } from "./assetReplacement";
+import { writeGamePolishLabOwnedFileWithRollback } from "./visualAssetPipelineRollback";
 import {
   readVisualAssetBoundsResults,
   readVisualAssetNormalizationResults,
@@ -176,7 +177,7 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
         openStyleGuide: Boolean(styleGuide?.markdownPath),
         copyContactSheetRequest: Boolean(styleGuide?.markdownPath),
         regenerateStyleGuide: slot.safetyStatus !== "unsupported",
-        applyManifestAssignment: Boolean((candidate || assignment) && manifestContract?.writablePathSafety === "safe" && manifestContract.supportedOperation !== "unsupported"),
+        applyManifestAssignment: Boolean((candidate || assignment) && assignment && validation.status !== "invalid" && validation.status !== "missing" && (!candidate || candidate.approvalStatus === "approved") && manifestContract?.writablePathSafety === "safe" && manifestContract.supportedOperation !== "unsupported"),
         openManifestContract: Boolean(manifestContract),
         openManifestApplyResult: Boolean(manifestApplyResult),
         createContactSheet: Boolean(slot.currentAssetPath || candidate || normalization || assignment),
@@ -495,7 +496,8 @@ export function buildVisualAssetFallbackTask(input: {
       "ad/monetization changes",
       "package/dependency churn unless explicitly required and explained",
       "unrelated adapter changes",
-      "broad rewrites outside chosen file scope"
+      "broad rewrites outside chosen file scope",
+      "visual redesign or asset generation"
     ],
     instruction: input.normalization
       ? "wire this approved normalized asset into this selected visual asset slot only."
@@ -808,9 +810,13 @@ function writeVisualAssetDashboardFile(workspaceRoot: string, patch: { candidate
     warnings: existing.warnings ?? [],
     updatedAt: now.toISOString()
   } satisfies VisualAssetDashboardModel;
-  const filePath = path.join(workspaceRoot, ...visualAssetDashboardRelativePath.split("/"));
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(model, null, 2)}\n`, "utf8");
+  writeGamePolishLabOwnedFileWithRollback({
+    workspaceRoot,
+    relativePath: visualAssetDashboardRelativePath,
+    data: `${JSON.stringify(model, null, 2)}\n`,
+    now,
+    label: "asset-dashboard"
+  });
 }
 
 function buildAssignment(slot: VisualAssetSlot, candidate: ImportedVisualAssetCandidate, validation: VisualAssetValidationResult, now: Date, normalizedAssetPath?: string): AssignedVisualAsset {

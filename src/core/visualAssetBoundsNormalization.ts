@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { inspectAssetImage, readRgbaPngPixels, writeRgbaPngPixels } from "./assetReplacement";
+import { writeGamePolishLabOwnedFileWithRollback } from "./visualAssetPipelineRollback";
 import { normalizeVisualScopePath } from "./visualScopeGuard";
 import {
   ImportedVisualAssetCandidate,
@@ -295,9 +296,13 @@ export function readVisualAssetBoundsResults(workspaceRoot: string): VisualAsset
 
 export function writeVisualAssetBoundsResult(workspaceRoot: string, result: VisualAssetBoundsAnalysisResult, updatedAt = result.checkedAt): string {
   const results = mergeById(readVisualAssetBoundsResults(workspaceRoot), [result], (entry) => entry.candidateId);
-  const filePath = path.join(workspaceRoot, ...visualAssetBoundsResultsRelativePath.split("/"));
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify({ schemaVersion: "visual-asset-bounds-results/v1", updatedAt, results } satisfies BoundsResultsFile, null, 2)}\n`, "utf8");
+  writeGamePolishLabOwnedFileWithRollback({
+    workspaceRoot,
+    relativePath: visualAssetBoundsResultsRelativePath,
+    data: `${JSON.stringify({ schemaVersion: "visual-asset-bounds-results/v1", updatedAt, results } satisfies BoundsResultsFile, null, 2)}\n`,
+    now: dateFromIso(updatedAt),
+    label: "asset-bounds-results"
+  });
   return visualAssetBoundsResultsRelativePath;
 }
 
@@ -316,9 +321,13 @@ export function readVisualAssetNormalizationResults(workspaceRoot: string): Visu
 
 export function writeVisualAssetNormalizationResult(workspaceRoot: string, result: VisualAssetNormalizationResult, updatedAt = result.createdAt): string {
   const results = mergeById(readVisualAssetNormalizationResults(workspaceRoot), [result], (entry) => entry.normalizedAssetId);
-  const filePath = path.join(workspaceRoot, ...visualAssetNormalizationResultsRelativePath.split("/"));
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify({ schemaVersion: "visual-asset-normalization-results/v1", updatedAt, results } satisfies NormalizationResultsFile, null, 2)}\n`, "utf8");
+  writeGamePolishLabOwnedFileWithRollback({
+    workspaceRoot,
+    relativePath: visualAssetNormalizationResultsRelativePath,
+    data: `${JSON.stringify({ schemaVersion: "visual-asset-normalization-results/v1", updatedAt, results } satisfies NormalizationResultsFile, null, 2)}\n`,
+    now: dateFromIso(updatedAt),
+    label: "asset-normalization-results"
+  });
   return visualAssetNormalizationResultsRelativePath;
 }
 
@@ -467,6 +476,11 @@ function safeId(value: string): string {
 
 function timestampForPath(date: Date): string {
   return date.toISOString().replace(/[:.]/g, "-");
+}
+
+function dateFromIso(value: string): Date {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
 function mergeById<T>(existing: T[], patch: T[], id: (value: T) => string): T[] {

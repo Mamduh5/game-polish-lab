@@ -17,7 +17,7 @@ Game Polish Lab v0.81 adds opt-in asset bounds normalization to the v0.80 Asset 
 
 v0.81 does not generate art, judge art quality, run AI or computer-vision classification, perform OCR, patch source loaders, patch manifests, overwrite original game assets, or claim runtime application.
 
-These later milestones are not included:
+These later asset-pipeline flows are handled separately:
 
 - v0.82 Asset Style Guide Generator v2
 - v0.83 Asset Manifest Direct Applies

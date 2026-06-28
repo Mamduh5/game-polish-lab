@@ -1,6 +1,6 @@
 # Asset Pipeline Dashboard
 
-Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization. v0.82 adds text/metadata Asset Style Guide generation for selected slots. v0.83 adds manifest/config direct applies only for explicit safe contracts. v0.84 adds manual Asset Contact Sheet Comparison.
+Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization. v0.82 adds text/metadata Asset Style Guide generation for selected slots. v0.83 adds manifest/config direct applies only for explicit safe contracts. v0.84 adds manual Asset Contact Sheet Comparison. v0.85 stabilizes rollback, validation, scope, fallback, and state-honesty behavior.
 
 This milestone manages metadata, imported candidates, Game Polish Lab-owned normalized copies, style-guide briefs, contact-sheet comparison records, and safe manifest/config apply metadata only. It does not generate artwork, patch arbitrary source loaders, or judge visual quality automatically.
 
@@ -89,7 +89,7 @@ See [`asset-style-guide-generator.md`](asset-style-guide-generator.md).
 
 v0.82 can generate a Markdown and JSON style guide for a selected asset slot. Guides describe canvas size, file format, transparency, visible bounds, padding, readability requirements, style direction, forbidden changes, a contact-sheet request template, and validation checklist.
 
-Style guide generated does not mean asset imported, assigned, normalized, or runtime applied. The generator does not create images, analyze image contents with AI, modify pixels, patch source files, patch manifests, or compare contact sheets.
+Style guide generated does not mean asset imported, assigned, normalized, compared, or runtime applied. The generator does not create images, analyze image contents with AI, modify pixels, patch source files, or patch manifests.
 
 ## Manifest Direct Applies
 
@@ -105,7 +105,13 @@ See [`asset-contact-sheet-comparison.md`](asset-contact-sheet-comparison.md).
 
 v0.84 can create a static JSON/HTML contact-sheet comparison for a selected asset slot. It shows current/original paths, imported candidates, normalized candidates, assignment choices, manifest-applied choices, validation/bounds/manifest summaries, simple adapter/surface-aware mockups, and manual mark controls.
 
-Contact sheet created does not mean approved. Approved does not mean assigned. Assigned does not mean manifest applied. Manifest applied does not necessarily mean runtime applied. The comparison layer records user decisions only and does not score art, infer image content, generate assets, mutate pixels, run Phaser, or patch source loaders.
+Contact sheet created does not mean approved. Approved does not mean assigned. Assigned does not mean manifest applied. Manifest applied does not necessarily mean runtime applied. The comparison layer records user decisions only and does not rate art, infer image content, generate assets, mutate pixels, run Phaser, or patch source loaders.
+
+## Stabilization
+
+See [`asset-pipeline-stabilization.md`](asset-pipeline-stabilization.md).
+
+v0.85 adds focused stabilization coverage for rollback snapshots, validation edge cases, dashboard action honesty, scope guard classifications, fallback wording, and stale overclaim cleanup.
 
 ## Assignment
 

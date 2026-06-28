@@ -2,7 +2,7 @@
 
 Game Polish Lab v0.84 adds manual asset contact-sheet comparison to the Asset Pipeline Dashboard.
 
-The comparison layer gathers existing current, imported, normalized, assigned, and manifest-applied asset paths into simple static contact-sheet cards. It records the user's manual decision; it does not score art, recognize image content, run OCR, generate assets, mutate pixels, run Phaser, or patch source loaders.
+The comparison layer gathers existing current, imported, normalized, assigned, and manifest-applied asset paths into simple static contact-sheet cards. It records the user's manual decision; it does not rate art, recognize image content, run OCR, generate assets, mutate pixels, run Phaser, or patch source loaders.
 
 ## Files
 
@@ -13,6 +13,8 @@ Contact-sheet comparisons are written under:
 - `.game-polish-lab/assets/contact-sheets/index.json`
 
 These are Game Polish Lab-owned metadata/mockup files. Original game assets are never overwritten by comparison generation or marking.
+
+Repeat writes snapshot previous contact-sheet JSON/HTML/index files under `.game-polish-lab/rollback/`.
 
 ## Decisions
 

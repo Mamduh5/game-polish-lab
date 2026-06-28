@@ -125,6 +125,7 @@ export interface VisualAssetComparisonResult {
   nextRecommendedSafeAction: VisualAssetComparisonNextAction;
   runtimeApplied: boolean;
   filesWritten: string[];
+  rollbackSnapshotPaths: string[];
   warnings: string[];
   errors: string[];
 }

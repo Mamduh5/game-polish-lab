@@ -3,6 +3,7 @@ import * as path from "path";
 
 import { loadVisualAssetContractFileFromText } from "./visualAssetContracts";
 import { visualAssetBoundsResultsRelativePath, visualAssetNormalizationResultsRelativePath } from "./visualAssetBoundsNormalization";
+import { writeGamePolishLabOwnedFileWithRollback } from "./visualAssetPipelineRollback";
 import { normalizeVisualScopePath } from "./visualScopeGuard";
 import type {
   ImportedVisualAssetCandidate,
@@ -133,18 +134,30 @@ export function writeVisualAssetStyleGuide(input: {
   const paths = styleGuidePaths(input.guide.guideId);
   const markdown = renderVisualAssetStyleGuideMarkdown(input.guide);
   const contactSheetRequestText = renderContactSheetRequest(input.guide);
-  const jsonPath = path.join(input.workspaceRoot, ...paths.jsonPath.split("/"));
-  const markdownPath = path.join(input.workspaceRoot, ...paths.markdownPath.split("/"));
-  fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
-  fs.writeFileSync(jsonPath, `${JSON.stringify(input.guide, null, 2)}\n`, "utf8");
-  fs.writeFileSync(markdownPath, markdown, "utf8");
-  writeVisualAssetStyleGuideIndex(input.workspaceRoot, guideSummary(input.guide, paths.markdownPath, paths.jsonPath), input.guide.createdAt);
+  const rollbackSnapshotPaths = [
+    writeGamePolishLabOwnedFileWithRollback({
+      workspaceRoot: input.workspaceRoot,
+      relativePath: paths.jsonPath,
+      data: `${JSON.stringify(input.guide, null, 2)}\n`,
+      now: new Date(input.guide.createdAt),
+      label: "asset-style-guide-json"
+    }),
+    writeGamePolishLabOwnedFileWithRollback({
+      workspaceRoot: input.workspaceRoot,
+      relativePath: paths.markdownPath,
+      data: markdown,
+      now: new Date(input.guide.createdAt),
+      label: "asset-style-guide-markdown"
+    }),
+    writeVisualAssetStyleGuideIndex(input.workspaceRoot, guideSummary(input.guide, paths.markdownPath, paths.jsonPath), input.guide.createdAt).rollbackSnapshotPath
+  ].filter((value): value is string => Boolean(value));
   return {
     guide: input.guide,
     markdownPath: paths.markdownPath,
     jsonPath: paths.jsonPath,
     indexPath: visualAssetStyleGuideIndexRelativePath,
-    contactSheetRequestText
+    contactSheetRequestText,
+    rollbackSnapshotPaths
   };
 }
 
@@ -277,7 +290,7 @@ export function readLatestVisualAssetStyleGuideSummaries(workspaceRoot: string):
   return Array.from(latestBySlot.values()).sort((a, b) => a.assetSlotId.localeCompare(b.assetSlotId));
 }
 
-export function writeVisualAssetStyleGuideIndex(workspaceRoot: string, summary: VisualAssetStyleGuideSummary, updatedAt: string): string {
+export function writeVisualAssetStyleGuideIndex(workspaceRoot: string, summary: VisualAssetStyleGuideSummary, updatedAt: string): { indexPath: string; rollbackSnapshotPath?: string } {
   const current = readVisualAssetStyleGuideIndex(workspaceRoot);
   const guides = mergeById(current.guides, [summary], (guide) => guide.guideId);
   const index: VisualAssetStyleGuideIndex = {
@@ -285,10 +298,14 @@ export function writeVisualAssetStyleGuideIndex(workspaceRoot: string, summary: 
     updatedAt,
     guides
   };
-  const filePath = path.join(workspaceRoot, ...visualAssetStyleGuideIndexRelativePath.split("/"));
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
-  return visualAssetStyleGuideIndexRelativePath;
+  const rollbackSnapshotPath = writeGamePolishLabOwnedFileWithRollback({
+    workspaceRoot,
+    relativePath: visualAssetStyleGuideIndexRelativePath,
+    data: `${JSON.stringify(index, null, 2)}\n`,
+    now: new Date(updatedAt),
+    label: "asset-style-guide-index"
+  });
+  return { indexPath: visualAssetStyleGuideIndexRelativePath, rollbackSnapshotPath };
 }
 
 export function readVisualAssetContractFileSync(workspaceRoot: string): VisualAssetContractFile | undefined {

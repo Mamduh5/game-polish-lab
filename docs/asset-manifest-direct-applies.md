@@ -46,14 +46,13 @@ When the manifest/loader path is unknown, embedded in source code, or not explic
 
 ## Out Of Scope
 
-v0.83 does not:
+v0.83 manifest direct apply does not:
 
 - patch scene/source loader files
 - edit arbitrary TypeScript/JavaScript asset loaders
 - overwrite original game assets
 - modify image pixels
 - generate visual assets
-- compare contact sheets
-- implement v0.84 contact-sheet comparison
+- create, mark, or compare contact sheets; v0.84 handles manual contact-sheet comparison separately
 - implement v0.85 pipeline stabilization
 - change gameplay, save, economy, balance, progression, rules, levels, solvers, upgrades, enemy/player systems, projectile/shooter systems, ads, or monetization

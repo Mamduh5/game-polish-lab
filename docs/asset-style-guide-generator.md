@@ -50,7 +50,7 @@ When contract or bounds data is missing, the guide still generates but warns tha
 
 v0.82 includes a reusable contact-sheet request format for asking an artist or image tool for variants. It specifies variant count, canvas size, transparent background, viewpoint/scale consistency, padding, readability, surface context, labels, text policy, export format, naming convention, and validation checklist.
 
-This is only request text. v0.82 does not generate contact sheets and does not compare contact sheets. Contact-sheet comparison remains out of scope for v0.82.
+This is only request text. The style-guide generator does not generate contact sheets and does not record comparison marks. Manual contact-sheet comparison is handled separately by the v0.84 dashboard flow.
 
 ## Boundaries
 
@@ -61,7 +61,7 @@ v0.82 does not:
 - normalize assets; that is v0.81
 - patch manifests, loaders, scenes, or runtime source files
 - perform manifest direct applies
-- compare contact sheets
+- mark or compare contact sheets directly
 - change gameplay, save, economy, balance, progression, level/rule/solver, upgrade, enemy/player, projectile/shooter, ad, or monetization behavior
 
 Style guide generated does not mean asset imported, assigned, normalized, or runtime applied.
