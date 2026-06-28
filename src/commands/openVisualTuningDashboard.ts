@@ -65,9 +65,10 @@ import { tuneVisualSurface } from "./tuneVisualSurface";
 import { markLatestTuningResult } from "./markLatestTuningResult";
 import { exportVisualTheme } from "./exportVisualTheme";
 import { importVisualTheme } from "./importVisualTheme";
+import { annotateScreenshotVisualIssue } from "./annotateScreenshotVisualIssue";
 
 interface DashboardMessage {
-  command: "tune" | "openConfig" | "directApply" | "exportTheme" | "importTheme" | "generateFallbackTask" | "runScopeCheck" | "markLatestResult" | "openFieldNotes" | "refresh" | "refreshAssetContracts" | "openAssetContactSheet" | "openRollbackHistory";
+  command: "tune" | "openConfig" | "directApply" | "exportTheme" | "importTheme" | "annotateScreenshot" | "generateFallbackTask" | "runScopeCheck" | "markLatestResult" | "openFieldNotes" | "refresh" | "refreshAssetContracts" | "openAssetContactSheet" | "openRollbackHistory";
   rowId?: string;
 }
 
@@ -387,6 +388,13 @@ async function handleDashboardMessage(context: vscode.ExtensionContext, folder: 
     }
     await importVisualTheme({ adapterId: row.adapterId, surfaceType: row.surfaceType, targetId: row.targetId, targetLabel: row.targetLabel });
     return { ok: true, message: `Theme import flow opened for ${row.displayName}.`, refresh: true };
+  }
+  if (message.command === "annotateScreenshot") {
+    if (!row.actions.annotateScreenshot.enabled) {
+      return { ok: false, message: row.actions.annotateScreenshot.reason ?? "Screenshot annotation is not available for this row." };
+    }
+    await annotateScreenshotVisualIssue(context, { adapterId: row.adapterId, surfaceType: row.surfaceType, targetId: row.targetId, targetLabel: row.targetLabel });
+    return { ok: true, message: `Screenshot annotation flow opened for ${row.displayName}.`, refresh: false };
   }
   if (message.command === "generateFallbackTask") {
     return generateFallbackTaskFromDashboard(folder, row);

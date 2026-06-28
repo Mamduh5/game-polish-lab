@@ -72,6 +72,7 @@ export interface VisualTuningDashboardRow {
     directApply: DashboardActionState;
     exportTheme: DashboardActionState;
     importTheme: DashboardActionState;
+    annotateScreenshot: DashboardActionState;
     generateFallbackTask: DashboardActionState;
     runScopeCheck: DashboardActionState;
     markLatestResult: DashboardActionState;

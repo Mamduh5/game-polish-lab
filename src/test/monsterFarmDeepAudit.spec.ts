@@ -146,8 +146,17 @@ import {
   visualThemeFolderRelativePath
 } from "../core/visualThemeTransfer";
 import {
+  buildScreenshotAnnotationFallbackTask,
   buildScreenshotAnnotationNote,
+  buildScreenshotAnnotationTaskMarkdown,
+  mapScreenshotAnnotationSurfaceToTarget,
+  normalizeScreenshotAnnotationRect,
+  readScreenshotImageMetadata,
+  saveScreenshotAnnotationBundle,
+  screenshotAnnotationIndexRelativePath,
   screenshotAnnotationRelativePath,
+  screenshotAnnotationTasksFolderRelativePath,
+  screenshotAnnotationsFolderRelativePath,
   screenshotNotesFolderRelativePath,
   validateScreenshotAnnotationRect,
   validateScreenshotImagePath,
@@ -1170,26 +1179,91 @@ try {
 
 assert.deepStrictEqual(validateScreenshotAnnotationRect({ x: 0, y: 1, width: 120, height: 80 }), []);
 assert.ok(validateScreenshotAnnotationRect({ x: -1, y: 0, width: 0, height: 10 }).length >= 2);
+assert.ok(validateScreenshotAnnotationRect({ x: 90, y: 0, width: 20, height: 10 }, { width: 100, height: 100 }).some((error) => error.includes("width")));
+assert.deepStrictEqual(normalizeScreenshotAnnotationRect({ x: 10, y: 20, width: 50, height: 40 }, { width: 200, height: 100 }), {
+  xPct: 0.05,
+  yPct: 0.2,
+  widthPct: 0.25,
+  heightPct: 0.4
+});
+assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "idle_monster_farm", surfaceType: "slot_card" }).targetId, "farm_slots");
+assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "sort_puzzle", surfaceType: "slot_card" }).ambiguous, true);
+assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "sort_puzzle", surfaceType: "slot_card", targetSurfaceId: "shelf_card" }).styleConfigPath, sortPuzzleShelfStyleConfigRelativePath);
+assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "cursor_arena", surfaceType: "hud" }).targetId, "arena_hud_panel");
+assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "cursor_arena", surfaceType: "impact_feedback" }).ambiguous, true);
+assert.strictEqual(mapScreenshotAnnotationSurfaceToTarget({ adapterId: "generic_phaser", surfaceType: "impact_feedback", targetSurfaceId: "manual_impact_feedback" }).styleConfigPath, genericManualStyleConfigRelativePath("impact_feedback"));
 const screenshotWorkspace = makeTempWorkspace("screenshot-note");
 try {
-  writeWorkspaceFile(screenshotWorkspace, "captures/problem.png", "not-a-real-image-but-valid-path-for-model-test");
+  writeWorkspaceBinaryFile(screenshotWorkspace, "captures/problem.png", makePngHeader(200, 100));
   assert.deepStrictEqual(validateScreenshotImagePath(screenshotWorkspace, "captures/problem.png"), []);
   assert.ok(validateScreenshotImagePath(screenshotWorkspace, "captures/missing.gif").some((error) => error.includes("does not exist")));
+  assert.strictEqual(readScreenshotImageMetadata(screenshotWorkspace, "captures/problem.png")?.width, 200);
   const noteResult = buildScreenshotAnnotationNote({
     screenshotPath: "captures/problem.png",
     markedRect: { x: 4, y: 8, width: 120, height: 90 },
-    surfaceType: "background_readability",
+    surfaceType: "hud",
     adapterId: "cursor_arena",
-    note: "enemy blends into the background",
-    createdAt: new Date("2026-06-26T09:00:00.000Z")
+    targetSurfaceId: "arena_hud_panel",
+    note: "HUD too crowded over the boss timer",
+    severity: "high",
+    createdAt: new Date("2026-06-26T09:00:00.000Z"),
+    workspaceLabel: "arena-sample",
+    imageMetadata: readScreenshotImageMetadata(screenshotWorkspace, "captures/problem.png")
   });
   assert.strictEqual(noteResult.ok, true);
   assert.ok(noteResult.note);
+  assert.strictEqual(noteResult.note?.annotationId, "2026-06-26t09-00-00-000z-hud-cursor_arena");
+  assert.strictEqual(noteResult.note?.status, "draft");
+  assert.strictEqual(noteResult.note?.severity, "high");
+  assert.strictEqual(noteResult.note?.targetMapping?.targetId, "arena_hud_panel");
+  assert.strictEqual(noteResult.note?.generatedConfigPath, cursorArenaHudStyleConfigRelativePath);
+  assert.strictEqual(noteResult.note?.normalizedRect?.xPct, 0.02);
   assert.strictEqual(noteResult.note?.suggestedNextAction.visualOnly, true);
-  assert.strictEqual(screenshotAnnotationRelativePath(noteResult.note!), `${screenshotNotesFolderRelativePath}/2026-06-26t09-00-00-000z-background_readability.json`);
+  assert.strictEqual(screenshotAnnotationRelativePath(noteResult.note!), `${screenshotAnnotationsFolderRelativePath}/2026-06-26t09-00-00-000z-hud-cursor_arena.json`);
+  assert.strictEqual(screenshotNotesFolderRelativePath, screenshotAnnotationsFolderRelativePath);
   const notePath = writeScreenshotAnnotationNote(screenshotWorkspace, noteResult.note!);
-  assert.strictEqual(notePath, `${screenshotNotesFolderRelativePath}/2026-06-26t09-00-00-000z-background_readability.json`);
-  assert.strictEqual(fs.existsSync(path.join(screenshotWorkspace, "src", "scenes", "ArenaScene.ts")), false);
+  assert.strictEqual(notePath, `${screenshotAnnotationsFolderRelativePath}/2026-06-26t09-00-00-000z-hud-cursor_arena.json`);
+  assert.strictEqual(fs.existsSync(path.join(screenshotWorkspace, ...screenshotAnnotationIndexRelativePath.split("/"))), true);
+  const taskText = buildScreenshotAnnotationTaskMarkdown(noteResult.note!);
+  assert.ok(taskText.includes("HUD too crowded over the boss timer"));
+  assert.ok(taskText.includes("Marked rectangle: x 4, y 8, width 120, height 90"));
+  assert.ok(taskText.includes("Do not change save schema"));
+  const fallbackTask = buildScreenshotAnnotationFallbackTask(noteResult.note!);
+  assert.ok(JSON.stringify(fallbackTask).includes("Use the screenshot annotation as visual context only"));
+  assert.ok(JSON.stringify(fallbackTask).includes("projectile/shooter/auto-shooter"));
+  const bundleResult = saveScreenshotAnnotationBundle(screenshotWorkspace, {
+    annotation: noteResult.note!,
+    createConfigStub: true,
+    createFallbackTask: true,
+    now: new Date("2026-06-26T09:05:00.000Z")
+  });
+  assert.strictEqual(bundleResult.ok, true);
+  assert.strictEqual(bundleResult.annotationPath, `${screenshotAnnotationsFolderRelativePath}/2026-06-26t09-00-00-000z-hud-cursor_arena.json`);
+  assert.strictEqual(bundleResult.configPath, cursorArenaHudStyleConfigRelativePath);
+  assert.ok(bundleResult.taskPath?.startsWith(`${screenshotAnnotationTasksFolderRelativePath}/2026-06-26t09-05-00-000z-2026-06-26t09-00-00-000z-hud-cursor_arena`));
+  assert.ok(bundleResult.fallbackTaskPath?.startsWith(".game-polish-lab/fallback-tasks/2026-06-26t09-05-00-000z-2026-06-26t09-00-00-000z-hud-cursor_arena-fallback"));
+  assert.strictEqual(fs.existsSync(path.join(screenshotWorkspace, "src", "arena", "ui", "ArenaHud.ts")), false);
+  const annotationIndex = JSON.parse(readWorkspaceFile(screenshotWorkspace, screenshotAnnotationIndexRelativePath)) as { annotations: Array<{ annotationId: string; status: string; generatedConfigPath?: string; generatedTaskPath?: string }> };
+  assert.strictEqual(annotationIndex.annotations[0].annotationId, "2026-06-26t09-00-00-000z-hud-cursor_arena");
+  assert.strictEqual(annotationIndex.annotations[0].status, "converted_to_tuning_task");
+  assert.strictEqual(annotationIndex.annotations[0].generatedConfigPath, cursorArenaHudStyleConfigRelativePath);
+  assert.ok(annotationIndex.annotations[0].generatedTaskPath?.includes("hud-cursor_arena"));
+  const configStub = JSON.parse(readWorkspaceFile(screenshotWorkspace, cursorArenaHudStyleConfigRelativePath)) as { runtimeApplied: boolean; configOnly: boolean; annotationSource: { note: string } };
+  assert.strictEqual(configStub.runtimeApplied, false);
+  assert.strictEqual(configStub.configOnly, true);
+  assert.strictEqual(configStub.annotationSource.note, "HUD too crowded over the boss timer");
+  const annotationScope = checkVisualScopeGuard({
+    operationType: "visual_config_write",
+    candidatePaths: [
+      `${screenshotAnnotationsFolderRelativePath}/sample.json`,
+      screenshotAnnotationIndexRelativePath,
+      ".game-polish-lab/screenshots/problem.png",
+      cursorArenaHudStyleConfigRelativePath,
+      ".game-polish-lab/tasks/annotation.md",
+      ".game-polish-lab/fallback-tasks/annotation.json"
+    ]
+  });
+  assert.strictEqual(annotationScope.recommendedAction, "allow");
 } finally {
   cleanupTempWorkspace(screenshotWorkspace);
 }
@@ -2494,7 +2568,7 @@ assert.ok(packageJson.contributes.commands.some((command) => command.command ===
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.exportVisualTheme" && command.title === "Game Polish Lab: Export Visual Theme"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.importVisualTheme" && command.title === "Game Polish Lab: Import Visual Theme"));
-assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.annotateScreenshotVisualIssue" && command.title === "Game Polish Lab: Annotate Screenshot Visual Issue"));
+assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.annotateScreenshotVisualIssue" && command.title === "Game Polish Lab: Annotate Screenshot"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.refreshAssetContracts" && command.title === "Game Polish Lab: Refresh Asset Contracts"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.createOptionalDevOverlaySpike" && command.title === "Game Polish Lab: Create Optional In-game Dev Overlay Spike"));
 const stabilizationGuide = fs.readFileSync(path.join(process.cwd(), "docs", "v0.6-stabilization.md"), "utf8");
@@ -2561,9 +2635,9 @@ assert.ok(themeTransferDoc.includes(".game-polish-lab/themes"));
 assert.ok(themeTransferDoc.includes("compatibility"));
 assert.ok(themeTransferDoc.includes("rollback"));
 const screenshotAnnotationDoc = fs.readFileSync(path.join(process.cwd(), "docs", "screenshot-annotation.md"), "utf8");
-assert.ok(screenshotAnnotationDoc.includes(".game-polish-lab/screenshot-notes"));
-assert.ok(screenshotAnnotationDoc.includes("no OCR"));
-assert.ok(screenshotAnnotationDoc.includes("does not edit game files"));
+assert.ok(screenshotAnnotationDoc.includes(".game-polish-lab/annotations"));
+assert.ok(screenshotAnnotationDoc.includes("does not run OCR"));
+assert.ok(screenshotAnnotationDoc.includes("do not apply runtime changes"));
 const migrationDoc = fs.readFileSync(path.join(process.cwd(), "docs", "v0.7-migration-notes.md"), "utf8");
 assert.ok(migrationDoc.includes("v0.7"));
 assert.ok(migrationDoc.includes("normal polish loop does not require Codex"));
@@ -2660,6 +2734,7 @@ assert.strictEqual(connectedIdleSlotRow.actions.openConfig.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.directApply.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.exportTheme.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.importTheme.enabled, true);
+assert.strictEqual(connectedIdleSlotRow.actions.annotateScreenshot.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.runScopeCheck.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.fallbackTaskCount, 1);
 assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.available, true);
@@ -2698,6 +2773,7 @@ assert.strictEqual(genericButtonRow.actions.directApply.enabled, true);
 assert.strictEqual(genericButtonRow.actions.directApply.reason, undefined);
 assert.strictEqual(genericButtonRow.actions.exportTheme.enabled, true);
 assert.strictEqual(genericButtonRow.actions.importTheme.enabled, true);
+assert.strictEqual(genericButtonRow.actions.annotateScreenshot.enabled, true);
 assert.strictEqual(genericButtonRow.actions.generateFallbackTask.enabled, true);
 assert.strictEqual(genericButtonRow.actions.markLatestResult.enabled, true);
 assert.strictEqual(genericButtonRow.directApplyTemplate.available, true);
@@ -2819,6 +2895,7 @@ assert.strictEqual(unsupportedAssetRow.directApplyTemplate.available, false);
 assert.strictEqual(unsupportedAssetRow.actions.directApply.enabled, false);
 assert.strictEqual(unsupportedAssetRow.actions.exportTheme.enabled, false);
 assert.strictEqual(unsupportedAssetRow.actions.importTheme.enabled, false);
+assert.strictEqual(unsupportedAssetRow.actions.annotateScreenshot.enabled, true);
 assert.strictEqual(unsupportedAssetRow.actions.generateFallbackTask.enabled, true);
 assert.notStrictEqual(unsupportedAssetRow.appliedStatus, "fallback_ready");
 
@@ -3374,6 +3451,12 @@ function writeWorkspaceFile(root: string, relativePath: string, text: string): v
   fs.writeFileSync(absolutePath, text, "utf8");
 }
 
+function writeWorkspaceBinaryFile(root: string, relativePath: string, bytes: Buffer): void {
+  const absolutePath = path.join(root, ...relativePath.split("/"));
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, bytes);
+}
+
 function readWorkspaceFile(root: string, relativePath: string): string {
   return fs.readFileSync(path.join(root, ...relativePath.split("/")), "utf8");
 }
@@ -3382,6 +3465,16 @@ function cleanupTempWorkspace(root: string): void {
   if (root.startsWith(process.cwd())) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+}
+
+function makePngHeader(width: number, height: number): Buffer {
+  const buffer = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buffer, 0);
+  buffer.writeUInt32BE(13, 8);
+  buffer.write("IHDR", 12, "ascii");
+  buffer.writeUInt32BE(width, 16);
+  buffer.writeUInt32BE(height, 20);
+  return buffer;
 }
 
 function readFixtureFiles(root: string): InspectedFile[] {

@@ -325,6 +325,7 @@ export function buildDashboardRow(surface: DashboardSurfaceInput, attemptIndex: 
       directApply: directApplyAction(surface, appliedStatus, directApplyTemplate),
       exportTheme: exportThemeAction(surface),
       importTheme: importThemeAction(surface),
+      annotateScreenshot: { enabled: true, label: "Annotate Screenshot" },
       generateFallbackTask: fallbackAction(surface, appliedStatus),
       runScopeCheck: { enabled: true, label: "Run Scope Check" },
       markLatestResult: latest ? { enabled: true, label: "Mark Latest Result" } : { enabled: false, label: "Mark Latest Result", reason: "No tuning attempt exists for this row yet." }
@@ -401,6 +402,7 @@ export function dashboardManualChecklist(): string[] {
     "Direct Apply rows show template availability and warning/block counts",
     "Export Theme reads existing generated config and writes .game-polish-lab/themes files",
     "Import Theme writes generated config-only style files and keeps runtime status honest",
+    "Annotate Screenshot opens the manual annotation flow without changing runtime apply status",
     "Fallback Task generates scoped fallback only when appropriate",
     "Scope Check shows allowed/suspicious/forbidden status without edits",
     "asset contract summary shows missing/valid/malformed status without building contact sheets",
