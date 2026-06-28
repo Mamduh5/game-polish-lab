@@ -63,9 +63,11 @@ import { openAssetContactSheet } from "./openAssetContactSheet";
 import { openRollbackHistory } from "./openRollbackHistory";
 import { tuneVisualSurface } from "./tuneVisualSurface";
 import { markLatestTuningResult } from "./markLatestTuningResult";
+import { exportVisualTheme } from "./exportVisualTheme";
+import { importVisualTheme } from "./importVisualTheme";
 
 interface DashboardMessage {
-  command: "tune" | "openConfig" | "directApply" | "generateFallbackTask" | "runScopeCheck" | "markLatestResult" | "openFieldNotes" | "refresh" | "refreshAssetContracts" | "openAssetContactSheet" | "openRollbackHistory";
+  command: "tune" | "openConfig" | "directApply" | "exportTheme" | "importTheme" | "generateFallbackTask" | "runScopeCheck" | "markLatestResult" | "openFieldNotes" | "refresh" | "refreshAssetContracts" | "openAssetContactSheet" | "openRollbackHistory";
   rowId?: string;
 }
 
@@ -371,6 +373,20 @@ async function handleDashboardMessage(context: vscode.ExtensionContext, folder: 
   }
   if (message.command === "directApply") {
     return directApplyFromDashboard(folder, row);
+  }
+  if (message.command === "exportTheme") {
+    if (!row.actions.exportTheme.enabled) {
+      return { ok: false, message: row.actions.exportTheme.reason ?? "Theme export is not available for this row." };
+    }
+    await exportVisualTheme({ adapterId: row.adapterId, surfaceType: row.surfaceType, targetId: row.targetId, targetLabel: row.targetLabel, configPath: row.configPath });
+    return { ok: true, message: `Theme export flow opened for ${row.displayName}.`, refresh: true };
+  }
+  if (message.command === "importTheme") {
+    if (!row.actions.importTheme.enabled) {
+      return { ok: false, message: row.actions.importTheme.reason ?? "Theme import is not available for this row." };
+    }
+    await importVisualTheme({ adapterId: row.adapterId, surfaceType: row.surfaceType, targetId: row.targetId, targetLabel: row.targetLabel });
+    return { ok: true, message: `Theme import flow opened for ${row.displayName}.`, refresh: true };
   }
   if (message.command === "generateFallbackTask") {
     return generateFallbackTaskFromDashboard(folder, row);

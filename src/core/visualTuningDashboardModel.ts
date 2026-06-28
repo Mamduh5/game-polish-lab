@@ -323,6 +323,8 @@ export function buildDashboardRow(surface: DashboardSurfaceInput, attemptIndex: 
         ? { enabled: true, label: "Open Config" }
         : { enabled: false, label: "Create Config / Open Tuner", reason: "Config is missing; open the tuner to create it safely." },
       directApply: directApplyAction(surface, appliedStatus, directApplyTemplate),
+      exportTheme: exportThemeAction(surface),
+      importTheme: importThemeAction(surface),
       generateFallbackTask: fallbackAction(surface, appliedStatus),
       runScopeCheck: { enabled: true, label: "Run Scope Check" },
       markLatestResult: latest ? { enabled: true, label: "Mark Latest Result" } : { enabled: false, label: "Mark Latest Result", reason: "No tuning attempt exists for this row yet." }
@@ -397,6 +399,8 @@ export function dashboardManualChecklist(): string[] {
     "Open Config opens existing config or offers safe create/init",
     "Direct Apply refuses when not connected",
     "Direct Apply rows show template availability and warning/block counts",
+    "Export Theme reads existing generated config and writes .game-polish-lab/themes files",
+    "Import Theme writes generated config-only style files and keeps runtime status honest",
     "Fallback Task generates scoped fallback only when appropriate",
     "Scope Check shows allowed/suspicious/forbidden status without edits",
     "asset contract summary shows missing/valid/malformed status without building contact sheets",
@@ -469,6 +473,26 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
     return { enabled: false, label: "Direct Apply", reason: "A valid config is required before direct apply." };
   }
   return { enabled: appliedStatus !== "invalid", label: "Direct Apply" };
+}
+
+function exportThemeAction(surface: DashboardSurfaceInput) {
+  if (surface.surfaceType === "asset_replacement") {
+    return { enabled: false, label: "Export Theme", reason: "Asset replacement rows are not portable executable style themes." };
+  }
+  if (!surface.config.exists || !surface.config.path) {
+    return { enabled: false, label: "Export Theme", reason: "A generated style config must exist before exporting a theme." };
+  }
+  return { enabled: true, label: "Export Theme" };
+}
+
+function importThemeAction(surface: DashboardSurfaceInput) {
+  if (surface.surfaceType === "asset_replacement") {
+    return { enabled: false, label: "Import Theme", reason: "Asset replacement theme import is validation-only." };
+  }
+  if (!surface.config.path) {
+    return { enabled: false, label: "Import Theme", reason: "This row has no generated style config target." };
+  }
+  return { enabled: true, label: "Import Theme" };
 }
 
 function buildDashboardDirectApplyTemplateSummary(surface: DashboardSurfaceInput) {

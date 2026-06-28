@@ -1,20 +1,16 @@
 # Theme Export and Import
 
-Game Polish Lab can export portable visual themes under `.game-polish-lab/themes/**`.
+Game Polish Lab themes are visual config portability only. They let a user export reusable styling from generated Game Polish Lab style configs and import compatible styling into another adapter target.
 
-A theme includes:
+Themes are written to:
 
-- schema version
-- source adapter id
-- source surface ids
-- compatible surface ids
-- style token payloads
-- limitations
-- created timestamp
-- optional notes
+- `.game-polish-lab/themes/<theme-id>.json`
+- `.game-polish-lab/themes/index.json`
 
-Import is compatibility checked. A `slot_card` theme can map to card/slot targets, `panel` to panel targets, `button` to button targets, `reward_toast` to feedback/toast targets, and `background_readability` to background-readability targets.
+Export reads existing generated configs under `.game-polish-lab/styles/**`. It records source adapter metadata, source config paths, generic visual surface types, normalized visual tokens, adapter-specific source config metadata, validation warnings, and compatibility metadata.
 
-Theme import writes only safe generated `.game-polish-lab/styles/**` paths and creates a rollback snapshot before overwriting an existing config. It does not edit source game files unless a separate existing direct-apply template already supports that exact path.
+Import validates the theme, compares generic surface types with registered adapter targets, writes compatible generated style configs under `.game-polish-lab/styles/**`, and creates rollback snapshots before overwriting existing configs. Partial compatibility is allowed: compatible surfaces import, incompatible surfaces are skipped and reported.
 
-Asset replacement theme payloads are validation-only and non-executable.
+Import is config-only. It does not patch scenes, rewrite owner source files, alter adapter detection, or mark dashboard rows as runtime applied. Runtime/source wiring still belongs to existing safe direct-apply paths or a separate scoped visual-only fallback task.
+
+Out of scope for themes: gameplay values, save schema/state, economy/balance, progression, level/rule/solver data, upgrade costs/effects, enemy/player/projectile behavior, ads, monetization, package churn, and broad source rewrites.

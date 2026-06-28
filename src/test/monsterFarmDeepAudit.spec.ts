@@ -135,10 +135,14 @@ import {
 import {
   buildVisualThemeFile,
   exportVisualThemeFile,
+  exportVisualThemeFromStyleConfigs,
+  importVisualThemeToAdapter,
+  planVisualThemeImportForAdapter,
   importVisualThemeFile,
   planVisualThemeImport,
   safeVisualThemeRelativePath,
   validateVisualThemeFile,
+  visualThemeIndexRelativePath,
   visualThemeFolderRelativePath
 } from "../core/visualThemeTransfer";
 import {
@@ -1006,6 +1010,11 @@ assert.deepStrictEqual(theme.compatibleSurfaceIds, ["slot_card"]);
 assert.strictEqual(safeVisualThemeRelativePath("Readable Cards"), `${visualThemeFolderRelativePath}/readable-cards.json`);
 assert.strictEqual(validateVisualThemeFile(theme).ok, true);
 assert.strictEqual(validateVisualThemeFile({ ...theme, schemaVersion: "visual-theme/v999" }).ok, false);
+const themeScope = checkVisualScopeGuard({
+  operationType: "direct_apply",
+  candidatePaths: [`${visualThemeFolderRelativePath}/readable-cards.json`, visualThemeIndexRelativePath, ".game-polish-lab/styles/imported-card.json"]
+});
+assert.strictEqual(themeScope.recommendedAction, "allow");
 const incompatibleThemePlan = planVisualThemeImport(theme, { targetAdapterId: "cursor_arena", targetSurfaceType: "panel", targetId: "arena_hud_panel" });
 assert.strictEqual(incompatibleThemePlan.ok, false);
 assert.ok(incompatibleThemePlan.reasons.some((reason) => reason.includes("no compatible panel")));
@@ -1022,6 +1031,10 @@ const themeWorkspace = makeTempWorkspace("theme-transfer");
 try {
   const exportedPath = exportVisualThemeFile(themeWorkspace, theme);
   assert.strictEqual(exportedPath, `${visualThemeFolderRelativePath}/readable-cards.json`);
+  assert.ok(fs.existsSync(path.join(themeWorkspace, ...visualThemeIndexRelativePath.split("/"))));
+  const themeIndex = JSON.parse(readWorkspaceFile(themeWorkspace, visualThemeIndexRelativePath)) as { themes: Array<{ themeId: string; path: string }> };
+  assert.deepStrictEqual(themeIndex.themes.map((entry) => entry.themeId), ["readable-cards"]);
+  assert.strictEqual(themeIndex.themes[0].path, `${visualThemeFolderRelativePath}/readable-cards.json`);
   assert.strictEqual(fs.existsSync(path.join(themeWorkspace, "src", "scenes", "FarmScene.ts")), false);
   writeWorkspaceFile(themeWorkspace, cursorArenaUpgradeCardStyleConfigRelativePath, "{\"preset\":\"before\"}");
   const imported = importVisualThemeFile(themeWorkspace, theme, cursorThemePlan, new Date("2026-06-26T08:30:00.000Z"));
@@ -1029,9 +1042,130 @@ try {
   assert.deepStrictEqual(imported.changedFiles, [cursorArenaUpgradeCardStyleConfigRelativePath]);
   assert.ok(imported.rollbackPaths[0].startsWith(`${visualRollbackRelativeDir}/2026-06-26T08-30-00-000Z-cursor-arena-upgrade-card-style.json`));
   assert.strictEqual(fs.existsSync(path.join(themeWorkspace, "src", "arena", "scenes", "ArenaScene.ts")), false);
-  assert.ok(readWorkspaceFile(themeWorkspace, cursorArenaUpgradeCardStyleConfigRelativePath).includes("Readable Cards"));
+  const importedConfig = JSON.parse(readWorkspaceFile(themeWorkspace, cursorArenaUpgradeCardStyleConfigRelativePath)) as { presetName: string; importStatus: string; runtimeApplied: boolean; values: Record<string, unknown> };
+  assert.strictEqual(importedConfig.presetName, "Readable Cards");
+  assert.strictEqual(importedConfig.importStatus, "config_only");
+  assert.strictEqual(importedConfig.runtimeApplied, false);
+  assert.deepStrictEqual(Object.keys(importedConfig.values).sort(), ["borderColor", "cornerRadius", "fillColor"]);
 } finally {
   cleanupTempWorkspace(themeWorkspace);
+}
+
+const forbiddenTheme = buildVisualThemeFile({
+  themeName: "Unsafe Values",
+  sourceAdapterId: "sort_puzzle",
+  surfaces: [{
+    surfaceType: "slot_card",
+    sourceTargetId: "shelf_card",
+    styleTokens: { fillColor: "#112233", economyBalance: 9, saveStateVersion: 2, levelRules: ["bad"] }
+  }]
+});
+const forbiddenThemeValidation = validateVisualThemeFile(forbiddenTheme);
+assert.strictEqual(forbiddenThemeValidation.ok, true);
+assert.ok(forbiddenThemeValidation.warnings.some((warning) => warning.includes("economyBalance")));
+assert.ok(!Object.keys(forbiddenTheme.surfaces[0].normalizedStyleTokens).includes("economyBalance"));
+assert.ok(!JSON.stringify(forbiddenTheme.surfaces[0].normalizedStyleTokens).includes("saveStateVersion"));
+
+const generatedThemeWorkspace = makeTempWorkspace("theme-generated-configs");
+try {
+  writeWorkspaceFile(generatedThemeWorkspace, sortPuzzleShelfStyleConfigRelativePath, JSON.stringify({
+    schemaVersion: 1,
+    surfaceType: "slot_card",
+    adapterTarget: "sort_puzzle.shelf_card",
+    presetName: "Shelf Candy",
+    updatedAt: "2026-06-26T08:40:00.000Z",
+    values: {
+      shelfWidth: 88,
+      shelfHeight: 128,
+      fillColor: "#203040",
+      borderColor: "#ffd166",
+      cornerRadius: 10,
+      invalidMoveRule: "must-not-export"
+    }
+  }));
+  writeWorkspaceFile(generatedThemeWorkspace, cursorArenaHudStyleConfigRelativePath, JSON.stringify({
+    schemaVersion: 1,
+    surfaceType: "panel",
+    adapterTarget: "cursor_arena.arena_hud_panel",
+    presetName: "Readable HUD",
+    updatedAt: "2026-06-26T08:41:00.000Z",
+    values: {
+      fillColor: "#0f172a",
+      borderColor: "#67e8f9",
+      cornerRadius: 6,
+      titleTextSize: 16
+    }
+  }));
+  writeWorkspaceFile(generatedThemeWorkspace, cursorArenaBackgroundReadabilityConfigRelativePath, JSON.stringify({
+    schemaVersion: 1,
+    surfaceType: "background_readability",
+    adapterTarget: "cursor_arena.arena_background_readability",
+    presetName: "Readable Arena",
+    updatedAt: "2026-06-26T08:42:00.000Z",
+    values: {
+      contrastOverlayColor: "#000000",
+      contrastOverlayOpacity: 0.35,
+      brightness: 0.9,
+      contrast: 1.1
+    }
+  }));
+  const exportedFromConfigs = exportVisualThemeFromStyleConfigs(generatedThemeWorkspace, {
+    themeName: "Cross Game Pack",
+    sourceAdapterId: "sort_puzzle",
+    sourceWorkspaceLabel: "phaser-sort-puzzle-sample",
+    selections: [{
+      surfaceType: "slot_card",
+      targetId: "shelf_card",
+      targetLabel: "Sort Puzzle Shelf Card",
+      styleConfigPath: sortPuzzleShelfStyleConfigRelativePath
+    }, {
+      surfaceType: "panel",
+      targetId: "arena_hud_panel",
+      targetLabel: "Cursor Arena HUD",
+      styleConfigPath: cursorArenaHudStyleConfigRelativePath
+    }, {
+      surfaceType: "background_readability",
+      targetId: "arena_background_readability",
+      targetLabel: "Cursor Arena Background",
+      styleConfigPath: cursorArenaBackgroundReadabilityConfigRelativePath
+    }],
+    createdAt: new Date("2026-06-26T08:45:00.000Z"),
+    exportSource: "style_config"
+  });
+  assert.strictEqual(exportedFromConfigs.relativePath, `${visualThemeFolderRelativePath}/cross-game-pack.json`);
+  assert.ok(fs.existsSync(path.join(generatedThemeWorkspace, ...visualThemeIndexRelativePath.split("/"))));
+  assert.deepStrictEqual(exportedFromConfigs.theme.genericSurfaceTypes.sort(), ["background_readability", "hud", "slot_card"]);
+  assert.ok(exportedFromConfigs.theme.surfaces.some((surface) => surface.surfaceType === "slot_card" && surface.sourceTargetId === "shelf_card"));
+  assert.ok(exportedFromConfigs.theme.surfaces.some((surface) => surface.surfaceType === "hud" && surface.compatibleSurfaceTypes.includes("panel")));
+  const shelfThemeSurface = exportedFromConfigs.theme.surfaces.find((surface) => surface.sourceTargetId === "shelf_card")!;
+  assert.ok(!JSON.stringify(shelfThemeSurface.normalizedStyleTokens).includes("invalidMoveRule"));
+  assert.ok(!JSON.stringify(shelfThemeSurface.styleConfigEntries).includes("invalidMoveRule"));
+  assert.ok(!JSON.stringify(shelfThemeSurface.adapterSpecificConfig).includes("invalidMoveRule"));
+  const adapterPlans = planVisualThemeImportForAdapter(exportedFromConfigs.theme, { targetAdapterId: "generic_phaser" });
+  assert.ok(adapterPlans.plans.some((plan) => plan.targetStyleConfigPath === genericStyleConfigRelativePath("slot_card")));
+  assert.ok(adapterPlans.plans.some((plan) => plan.targetStyleConfigPath === genericManualStyleConfigRelativePath("hud")));
+  assert.ok(adapterPlans.plans.some((plan) => plan.targetStyleConfigPath === genericStyleConfigRelativePath("background_readability")));
+  const partialSortPuzzlePlans = planVisualThemeImportForAdapter(exportedFromConfigs.theme, { targetAdapterId: "sort_puzzle" });
+  assert.ok(partialSortPuzzlePlans.plans.some((plan) => plan.targetStyleConfigPath === sortPuzzleShelfStyleConfigRelativePath));
+  assert.ok(partialSortPuzzlePlans.skipped.some((skipped) => skipped.surfaceType === "hud"));
+  assert.ok(partialSortPuzzlePlans.skipped.some((skipped) => skipped.surfaceType === "background_readability"));
+  writeWorkspaceFile(generatedThemeWorkspace, genericStyleConfigRelativePath("slot_card"), "{\"preset\":\"before generic\"}");
+  const genericImportResult = importVisualThemeToAdapter(generatedThemeWorkspace, exportedFromConfigs.theme, {
+    targetAdapterId: "generic_phaser",
+    now: new Date("2026-06-26T08:50:00.000Z")
+  });
+  assert.strictEqual(genericImportResult.ok, true);
+  assert.ok(genericImportResult.changedFiles.includes(genericStyleConfigRelativePath("slot_card")));
+  assert.ok(genericImportResult.changedFiles.includes(genericManualStyleConfigRelativePath("hud")!));
+  assert.ok(genericImportResult.changedFiles.includes(genericStyleConfigRelativePath("background_readability")));
+  assert.ok(genericImportResult.rollbackPaths.some((rollbackPath) => rollbackPath.includes("generic-slot-card-style.json")));
+  const genericSlotImport = JSON.parse(readWorkspaceFile(generatedThemeWorkspace, genericStyleConfigRelativePath("slot_card"))) as { importStatus: string; runtimeApplied: boolean; values: Record<string, unknown> };
+  assert.strictEqual(genericSlotImport.importStatus, "config_only");
+  assert.strictEqual(genericSlotImport.runtimeApplied, false);
+  assert.strictEqual(genericSlotImport.values.fillColor, "#203040");
+  assert.strictEqual(fs.existsSync(path.join(generatedThemeWorkspace, "src", "systems", "ProgressSave.js")), false);
+} finally {
+  cleanupTempWorkspace(generatedThemeWorkspace);
 }
 
 assert.deepStrictEqual(validateScreenshotAnnotationRect({ x: 0, y: 1, width: 120, height: 80 }), []);
@@ -2524,6 +2658,8 @@ assert.strictEqual(connectedIdleSlotRow.connectedState, "connected");
 assert.strictEqual(connectedIdleSlotRow.actions.tune.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.openConfig.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.directApply.enabled, true);
+assert.strictEqual(connectedIdleSlotRow.actions.exportTheme.enabled, true);
+assert.strictEqual(connectedIdleSlotRow.actions.importTheme.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.actions.runScopeCheck.enabled, true);
 assert.strictEqual(connectedIdleSlotRow.fallbackTaskCount, 1);
 assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.available, true);
@@ -2560,6 +2696,8 @@ assert.ok(genericButtonRow.knownBad.some((note) => note.includes("no meaningful 
 assert.ok(genericButtonRow.knownMixed.some((note) => note.includes("Dark Arcade")));
 assert.strictEqual(genericButtonRow.actions.directApply.enabled, true);
 assert.strictEqual(genericButtonRow.actions.directApply.reason, undefined);
+assert.strictEqual(genericButtonRow.actions.exportTheme.enabled, true);
+assert.strictEqual(genericButtonRow.actions.importTheme.enabled, true);
 assert.strictEqual(genericButtonRow.actions.generateFallbackTask.enabled, true);
 assert.strictEqual(genericButtonRow.actions.markLatestResult.enabled, true);
 assert.strictEqual(genericButtonRow.directApplyTemplate.available, true);
@@ -2679,6 +2817,8 @@ const unsupportedAssetRow = buildDashboardRow(unsupportedAssetSurface, attemptIn
 assert.strictEqual(unsupportedAssetRow.appliedStatus, "unsupported");
 assert.strictEqual(unsupportedAssetRow.directApplyTemplate.available, false);
 assert.strictEqual(unsupportedAssetRow.actions.directApply.enabled, false);
+assert.strictEqual(unsupportedAssetRow.actions.exportTheme.enabled, false);
+assert.strictEqual(unsupportedAssetRow.actions.importTheme.enabled, false);
 assert.strictEqual(unsupportedAssetRow.actions.generateFallbackTask.enabled, true);
 assert.notStrictEqual(unsupportedAssetRow.appliedStatus, "fallback_ready");
 
