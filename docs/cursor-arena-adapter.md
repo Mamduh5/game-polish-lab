@@ -38,7 +38,7 @@ Hit, miss, kill, and combo feedback metadata includes scale, opacity, duration, 
 - `.game-polish-lab/styles/cursor-arena-feedback-style.json`
 - `.game-polish-lab/styles/cursor-arena-background-style.json`
 
-Direct apply writes only these generated style configs and creates rollback snapshots before overwriting existing files. In v0.73/v0.74, dashboard rows are `config_only` unless a real runtime bridge is implemented and verified.
+Direct apply writes only these generated style configs and creates rollback snapshots before overwriting existing files. Dashboard rows remain `config_only` unless a real runtime bridge is implemented and verified.
 
 ## Fallback
 
@@ -50,3 +50,4 @@ Do not add player or projectile systems.
 
 - Scene/system source integration is fallback-only.
 - The adapter does not tune gameplay cadence, enemy balance, scoring, rewards, or progression.
+- Upgrade values, costs, effects, enemy HP/speed/spawn/damage, save/progression, player/projectile/shooter/auto-shooter systems, ads, and unrelated adapter files are protected.

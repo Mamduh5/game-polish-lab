@@ -45,7 +45,7 @@ Direct apply writes only these Game Polish Lab-owned config files and creates ro
 
 ## Direct Apply
 
-Direct apply is executable only for safe generated style config writes. It does not silently edit `SpiritSortScene` or any gameplay file.
+Direct apply is executable only for safe generated style config writes. Dashboard rows remain `config_only` unless the target project already reads those generated configs through a verified runtime integration. It does not silently edit `SpiritSortScene` or any gameplay file.
 
 If `SpiritSortScene` needs one-time code wiring to read a generated style config/module, use a guarded fallback task.
 
@@ -81,5 +81,5 @@ Fallback tasks must not edit:
 ## Known Limitations
 
 - `asset_replacement` remains non-executable; spirit presentation is limited to scale/offset style metadata.
-- Source scene integration is fallback-only unless the project already reads generated Game Polish Lab style configs.
+- Source scene integration is fallback-only unless the project already reads generated Game Polish Lab style configs through a tested bridge.
 - No SortRules, level, solver, save, progression, undo/hint, scoring, or gameplay behavior files are visual-polish targets.

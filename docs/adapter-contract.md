@@ -2,14 +2,14 @@
 
 `VisualGameAdapter` is the v0.70 contract layer for describing how an existing game family participates in Game Polish Lab without adding adapter-specific conditionals across the dashboard, tuner, direct-apply planner, fallback task flow, and scope guard.
 
-The current registry includes:
+The current registry priority is deterministic:
 
 - Idle Monster Farm
-- Generic Phaser
 - Sort Puzzle
 - Cursor Arena
+- Generic Phaser fallback
 
-Sort Puzzle and Cursor Arena are registered v0.7 adapters. Generic Phaser v2 is an improvement to the existing `generic_phaser` adapter, not a new adapter id. Future game families are intentionally not registered yet.
+Game-specific adapters win over Generic Phaser when their stronger signals are present. Sort Puzzle and Cursor Arena are registered v0.7 adapters. Generic Phaser v2 is an improvement to the existing `generic_phaser` adapter, not a new adapter id. Future game families are intentionally not registered yet.
 
 ## Contract Purpose
 
@@ -56,6 +56,8 @@ The contract may describe scope, but the existing scope guard remains the enforc
 ## Direct Apply vs Fallback
 
 Direct apply is allowed only when a registered direct-apply template exists and the target has a safe style config path. Direct apply remains limited to known safe style config writes and rollback-protected overwrites.
+
+For Sort Puzzle, Cursor Arena, and Generic Phaser, these writes are config-only unless a future runtime bridge is explicitly implemented and tested. Dashboard rows for those adapters must not claim runtime/source integration just because a generated config exists.
 
 Fallback tasks are for unsupported games, one-time adapter setup, unusual integration, or structural work Game Polish Lab cannot safely apply itself. They are not the normal polish loop and must keep exact selected file scope.
 

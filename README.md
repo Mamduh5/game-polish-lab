@@ -6,7 +6,7 @@ It does not beautify a game automatically, call external AI APIs, require networ
 
 ## Current v0.7 Guide
 
-For the stabilized v0.6 workflow, including the Visual Tuning Dashboard, preview renderer, style presets, asset contracts/contact sheets, scope guard, rollback history, direct apply templates, and optional `?polish=1` dev overlay, see [`docs/v0.6-stabilization.md`](docs/v0.6-stabilization.md). v0.7 extends that console with Sort Puzzle, Cursor Arena, Generic Phaser v2 metadata, theme export/import, and screenshot issue notes.
+For the stabilized v0.6 workflow, including the Visual Tuning Dashboard, preview renderer, style presets, asset contracts/contact sheets, scope guard, rollback history, direct apply templates, and optional `?polish=1` dev overlay, see [`docs/v0.6-stabilization.md`](docs/v0.6-stabilization.md). v0.7 extends that console with Sort Puzzle, Cursor Arena, Generic Phaser v2 metadata, theme export/import, screenshot annotation handoffs, and multi-game regression fixtures.
 
 For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-contract.md). Adapter and v0.7 docs:
 
@@ -15,6 +15,8 @@ For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-cont
 - [`docs/generic-phaser-v2.md`](docs/generic-phaser-v2.md)
 - [`docs/theme-export-import.md`](docs/theme-export-import.md)
 - [`docs/screenshot-annotation.md`](docs/screenshot-annotation.md)
+- [`docs/regression-fixtures.md`](docs/regression-fixtures.md)
+- [`docs/v0.7-adapter-stabilization.md`](docs/v0.7-adapter-stabilization.md)
 - [`docs/v0.7-migration-notes.md`](docs/v0.7-migration-notes.md)
 
 ## What v0.4.2 Does
@@ -486,7 +488,9 @@ In restricted Codex shell execution on this Windows machine, standalone `npm run
 - No executable direct apply template exists for `asset_replacement`.
 - The optional dev overlay is experimental, manually integrated, and gated by `?polish=1`.
 - Generic Phaser support is safe-config-first, not full automatic game integration.
+- Sort Puzzle, Cursor Arena, and Generic Phaser generated-config writes are config-only unless runtime integration is later implemented and tested.
 - Direct applies are limited to known safe style config paths.
+- Theme import/export and screenshot annotation do not apply runtime source changes.
 - Structural gameplay/layout changes are intentionally out of scope.
 - Manual VS Code webview/dashboard testing may still be needed after automated validation.
 

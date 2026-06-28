@@ -2604,7 +2604,10 @@ assert.ok(stabilizationGuide.includes("Choose a visual surface"));
 assert.ok(stabilizationGuide.includes("Direct apply templates are intentionally narrow"));
 const readmeText = fs.readFileSync(path.join(process.cwd(), "README.md"), "utf8");
 assert.ok(readmeText.includes("docs/v0.6-stabilization.md"));
+assert.ok(readmeText.includes("docs/v0.7-adapter-stabilization.md"));
+assert.ok(readmeText.includes("screenshot annotation handoffs"));
 assert.ok(readmeText.includes("Current Limitations"));
+assert.ok(readmeText.includes("Theme import/export and screenshot annotation do not apply runtime source changes"));
 assert.ok(!readmeText.includes("or provide a dashboard webview"));
 const adapterContractDoc = fs.readFileSync(path.join(process.cwd(), "docs", "adapter-contract.md"), "utf8");
 assert.ok(adapterContractDoc.includes("# Visual Game Adapter Contract"));
@@ -2615,22 +2618,28 @@ assert.ok(adapterContractDoc.includes("Cursor Arena"));
 assert.ok(adapterContractDoc.includes("Future game families are intentionally not registered yet"));
 assert.ok(adapterContractDoc.includes("safe/suspicious/forbidden"));
 assert.ok(adapterContractDoc.includes("Direct apply is allowed only when a registered direct-apply template exists"));
+assert.ok(adapterContractDoc.includes("Game-specific adapters win over Generic Phaser"));
+assert.ok(adapterContractDoc.includes("Dashboard rows for those adapters must not claim runtime/source integration"));
 const sortPuzzleAdapterDoc = fs.readFileSync(path.join(process.cwd(), "docs", "sort-puzzle-adapter.md"), "utf8");
 assert.ok(sortPuzzleAdapterDoc.includes("Adapter id: `sort_puzzle`"));
 assert.ok(sortPuzzleAdapterDoc.includes(".game-polish-lab/styles/sort-puzzle-shelf-style.json"));
 assert.ok(sortPuzzleAdapterDoc.includes("Fallback tasks for `SpiritSortScene` are visual-only"));
 assert.ok(sortPuzzleAdapterDoc.includes("SortRules"));
 assert.ok(sortPuzzleAdapterDoc.includes("Spirit scale and offsets"));
+assert.ok(sortPuzzleAdapterDoc.includes("Dashboard rows remain `config_only`"));
 const cursorArenaAdapterDoc = fs.readFileSync(path.join(process.cwd(), "docs", "cursor-arena-adapter.md"), "utf8");
 assert.ok(cursorArenaAdapterDoc.includes("Adapter id: `cursor_arena`"));
 assert.ok(cursorArenaAdapterDoc.includes(".game-polish-lab/styles/cursor-arena-hud-style.json"));
 assert.ok(cursorArenaAdapterDoc.includes(".game-polish-lab/styles/cursor-arena-background-style.json"));
 assert.ok(cursorArenaAdapterDoc.includes("CursorAttackSystem"));
 assert.ok(cursorArenaAdapterDoc.includes("Do not add player or projectile systems"));
+assert.ok(cursorArenaAdapterDoc.includes("Dashboard rows remain `config_only`"));
+assert.ok(cursorArenaAdapterDoc.includes("Upgrade values, costs, effects"));
 const genericPhaserV2Doc = fs.readFileSync(path.join(process.cwd(), "docs", "generic-phaser-v2.md"), "utf8");
 assert.ok(genericPhaserV2Doc.includes("Generic Phaser v2"));
 assert.ok(genericPhaserV2Doc.includes("preview-first"));
 assert.ok(genericPhaserV2Doc.includes("Do not auto-edit unknown scene files"));
+assert.ok(genericPhaserV2Doc.includes("Non-Phaser projects should not receive high-confidence Generic Phaser behavior"));
 const themeTransferDoc = fs.readFileSync(path.join(process.cwd(), "docs", "theme-export-import.md"), "utf8");
 assert.ok(themeTransferDoc.includes(".game-polish-lab/themes"));
 assert.ok(themeTransferDoc.includes("compatibility"));
@@ -2643,10 +2652,22 @@ const regressionFixturesDoc = fs.readFileSync(path.join(process.cwd(), "docs", "
 assert.ok(regressionFixturesDoc.includes("src/test/fixtures"));
 assert.ok(regressionFixturesDoc.includes("not full games"));
 assert.ok(regressionFixturesDoc.includes("large assets"));
+assert.ok(regressionFixturesDoc.includes("real model code paths"));
+assert.ok(regressionFixturesDoc.includes("compile-neutral JavaScript"));
 const migrationDoc = fs.readFileSync(path.join(process.cwd(), "docs", "v0.7-migration-notes.md"), "utf8");
 assert.ok(migrationDoc.includes("v0.7"));
 assert.ok(migrationDoc.includes("normal polish loop does not require Codex"));
 assert.ok(migrationDoc.includes("direct apply is limited"));
+assert.ok(migrationDoc.includes(".game-polish-lab/annotations/**"));
+assert.ok(!migrationDoc.includes(".game-polish-lab/screenshot-notes/**"));
+assert.ok(migrationDoc.includes("v0.8 asset pipeline work"));
+const v07StabilizationDoc = fs.readFileSync(path.join(process.cwd(), "docs", "v0.7-adapter-stabilization.md"), "utf8");
+assert.ok(v07StabilizationDoc.includes("Game-specific adapters win over Generic Phaser"));
+assert.ok(v07StabilizationDoc.includes("Generic Phaser remains fallback-only"));
+assert.ok(v07StabilizationDoc.includes("Sort Puzzle, Cursor Arena, and Generic Phaser write generated configs only"));
+assert.ok(v07StabilizationDoc.includes("does not run OCR"));
+assert.ok(v07StabilizationDoc.includes("v0.8 asset pipeline work has not started"));
+assert.ok(v07StabilizationDoc.includes("Manual Smoke Checklist"));
 const tuneVisualSurfaceSource = fs.readFileSync(path.join(process.cwd(), "src", "commands", "tuneVisualSurface.ts"), "utf8");
 assert.ok(tuneVisualSurfaceSource.includes("stylePresetLibrary: visualPresetLibrary"));
 assert.ok(tuneVisualSurfaceSource.includes("presetDescription"));
@@ -2745,6 +2766,17 @@ assert.strictEqual(connectedIdleSlotRow.fallbackTaskCount, 1);
 assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.available, true);
 assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.templateId, "idle-monster-farm.slot_card.style-config.v1");
 assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.executable, true);
+assert.deepStrictEqual(Object.values(connectedIdleSlotRow.actions).map((action) => action.label), [
+  "Tune",
+  "Open Config",
+  "Direct Apply",
+  "Export Theme",
+  "Import Theme",
+  "Annotate Screenshot",
+  "Generate Fallback Task",
+  "Run Scope Check",
+  "Mark Latest Result"
+]);
 
 const genericButtonSurface = {
   surfaceType: "button" as const,
@@ -2769,6 +2801,7 @@ const genericButtonSurface = {
 };
 const genericButtonRow = buildDashboardRow(genericButtonSurface, attemptIndex);
 assert.strictEqual(genericButtonRow.appliedStatus, "config_only");
+assert.notStrictEqual(genericButtonRow.appliedStatus, "applied");
 assert.strictEqual(genericButtonRow.lastTunedAt, "2026-06-25T02:08:04.005Z");
 assert.strictEqual(genericButtonRow.lastResult, "mixed");
 assert.ok(genericButtonRow.knownBad.some((note) => note.includes("Magic Glow")));
@@ -2809,6 +2842,7 @@ const sortPuzzleShelfSurface = {
 };
 const sortPuzzleShelfRow = buildDashboardRow(sortPuzzleShelfSurface, attemptIndex);
 assert.strictEqual(sortPuzzleShelfRow.appliedStatus, "config_only");
+assert.notStrictEqual(sortPuzzleShelfRow.appliedStatus, "applied");
 assert.strictEqual(sortPuzzleShelfRow.adapterId, "sort_puzzle");
 assert.strictEqual(sortPuzzleShelfRow.directApplyTemplate.available, true);
 assert.strictEqual(sortPuzzleShelfRow.directApplyTemplate.executable, true);
@@ -2838,6 +2872,7 @@ const cursorArenaHudSurface = {
 };
 const cursorArenaHudRow = buildDashboardRow(cursorArenaHudSurface, attemptIndex);
 assert.strictEqual(cursorArenaHudRow.appliedStatus, "config_only");
+assert.notStrictEqual(cursorArenaHudRow.appliedStatus, "applied");
 assert.strictEqual(cursorArenaHudRow.adapterId, "cursor_arena");
 assert.strictEqual(cursorArenaHudRow.directApplyTemplate.available, true);
 assert.strictEqual(cursorArenaHudRow.directApplyTemplate.executable, true);
