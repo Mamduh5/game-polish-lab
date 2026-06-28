@@ -21,9 +21,10 @@ For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-cont
 - [`docs/asset-bounds-normalization.md`](docs/asset-bounds-normalization.md)
 - [`docs/asset-style-guide-generator.md`](docs/asset-style-guide-generator.md)
 - [`docs/asset-manifest-direct-applies.md`](docs/asset-manifest-direct-applies.md)
+- [`docs/asset-contact-sheet-comparison.md`](docs/asset-contact-sheet-comparison.md)
 - [`docs/v0.7-migration-notes.md`](docs/v0.7-migration-notes.md)
 
-v0.83 extends `Game Polish Lab: Open Asset Pipeline Dashboard` with manifest/config direct applies for approved asset assignments only when an explicit safe manifest contract exists. It records operation metadata under `.game-polish-lab/assets/manifest-applies/`, creates rollback snapshots, keeps unsupported loader/source integration fallback-only, and does not generate images, compare contact sheets, patch arbitrary source loaders, or claim runtime application by default.
+v0.84 extends `Game Polish Lab: Open Asset Pipeline Dashboard` with manual Asset Contact Sheet Comparison. It writes JSON/HTML comparison artifacts under `.game-polish-lab/assets/contact-sheets/`, records the user's approved/rejected/mixed/revision decision, can feed approved choices into existing assignment metadata, keeps unsupported loader/source integration fallback-only, and does not generate images, score art, patch arbitrary source loaders, or claim runtime application by default.
 
 ## What v0.4.2 Does
 

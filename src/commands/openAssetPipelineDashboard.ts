@@ -22,6 +22,13 @@ import {
   visualAssetManifestApplyRelativeDir
 } from "../core/visualAssetManifestDirectApply";
 import {
+  buildContactSheetComparisonFallbackTask,
+  createAndWriteVisualAssetContactSheetComparison,
+  markVisualAssetContactSheetComparisonEntry,
+  readVisualAssetContactSheetComparison,
+  writeContactSheetComparisonFallbackTask
+} from "../core/visualAssetContactSheetComparison";
+import {
   assignVisualAssetCandidate,
   buildVisualAssetDashboardModel,
   buildVisualAssetFallbackTask,
@@ -37,7 +44,7 @@ import { openTextDocument, pathExists, readTextFileIfExists, requireWorkspaceFol
 import { ImportedVisualAssetCandidate, VisualAssetDashboardModel } from "../types/visualAssetPipeline";
 
 interface AssetPipelineMessage {
-  command: "importAsset" | "validateAsset" | "previewInContext" | "assignReplacement" | "analyzeBounds" | "normalizeBounds" | "openNormalizedAsset" | "useNormalizedAssetForAssignment" | "generateStyleGuide" | "openStyleGuide" | "copyContactSheetRequest" | "regenerateStyleGuide" | "applyManifestAssignment" | "openManifestContract" | "openManifestApplyResult" | "generateLoaderFallbackTask" | "openAssetContract" | "generateFallbackTask" | "runScopeCheck" | "refresh";
+  command: "importAsset" | "validateAsset" | "previewInContext" | "assignReplacement" | "analyzeBounds" | "normalizeBounds" | "openNormalizedAsset" | "useNormalizedAssetForAssignment" | "generateStyleGuide" | "openStyleGuide" | "copyContactSheetRequest" | "regenerateStyleGuide" | "applyManifestAssignment" | "openManifestContract" | "openManifestApplyResult" | "createContactSheet" | "openContactSheet" | "markContactSheetApproved" | "markContactSheetRejected" | "markContactSheetMixed" | "markContactSheetNeedsRevision" | "useApprovedContactSheetForAssignment" | "generateRevisionStyleGuide" | "generateLoaderFallbackTask" | "openAssetContract" | "generateFallbackTask" | "runScopeCheck" | "refresh";
   rowId?: string;
 }
 
@@ -146,7 +153,117 @@ async function handleAssetPipelineMessage(folder: vscode.WorkspaceFolder, model:
       refresh: true
     };
   }
+  if (message.command === "createContactSheet") {
+    const { comparison, result } = createAndWriteVisualAssetContactSheetComparison({
+      workspaceRoot: folder.uri.fsPath,
+      row
+    });
+    return {
+      ok: comparison.status === "ready",
+      message: `Created contact-sheet comparison ${comparison.comparisonId}. Status: ${comparison.status}. Files: ${result.filesWritten.join(", ")}. Warnings: ${result.warnings.join(" | ") || "none"}. Errors: ${result.errors.join(" | ") || "none"}.`,
+      refresh: true
+    };
+  }
+  if (message.command === "openContactSheet") {
+    if (!row.contactSheetComparison) {
+      return { ok: false, message: "No contact-sheet comparison exists for this slot yet." };
+    }
+    await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(folder.uri, ...row.contactSheetComparison.htmlPath.split("/")));
+    return { ok: true, message: `Opened ${row.contactSheetComparison.htmlPath}.` };
+  }
+  if (message.command === "markContactSheetApproved" || message.command === "markContactSheetRejected" || message.command === "markContactSheetMixed" || message.command === "markContactSheetNeedsRevision") {
+    if (!row.contactSheetComparison) {
+      return { ok: false, message: "No contact-sheet comparison exists for this slot yet." };
+    }
+    const mark = message.command === "markContactSheetApproved"
+      ? "approved"
+      : message.command === "markContactSheetRejected"
+        ? "rejected"
+        : message.command === "markContactSheetMixed"
+          ? "mixed"
+          : "needs_revision";
+    const result = markVisualAssetContactSheetComparisonEntry({
+      workspaceRoot: folder.uri.fsPath,
+      comparisonId: row.contactSheetComparison.comparisonId,
+      mark
+    }).result;
+    return {
+      ok: result.errors.length === 0,
+      message: `Marked contact-sheet comparison ${mark}. Next safe action: ${result.nextRecommendedSafeAction}. Runtime applied: ${result.runtimeApplied ? "yes" : "no"}. Files: ${result.filesWritten.join(", ") || "none"}. Errors: ${result.errors.join(" | ") || "none"}.`,
+      refresh: true
+    };
+  }
+  if (message.command === "useApprovedContactSheetForAssignment") {
+    if (!row.contactSheetComparison?.chosenAssetPath || row.contactSheetComparison.decisionStatus !== "approved") {
+      return { ok: false, message: "No approved contact-sheet asset choice is available for assignment." };
+    }
+    const candidate = row.candidate;
+    if (!candidate) {
+      return { ok: false, message: "No imported candidate metadata is available for the approved contact-sheet choice." };
+    }
+    const approvedCandidate: ImportedVisualAssetCandidate = { ...candidate, approvalStatus: "approved" };
+    const result = row.normalization?.outputPath === row.contactSheetComparison.chosenAssetPath
+      ? useNormalizedVisualAssetForAssignment({
+        workspaceRoot: folder.uri.fsPath,
+        slot: row.slot,
+        candidate: approvedCandidate,
+        normalization: row.normalization
+      }).result
+      : assignVisualAssetCandidate({
+        workspaceRoot: folder.uri.fsPath,
+        slot: row.slot,
+        candidate: approvedCandidate
+      }).result;
+    return {
+      ok: result.status !== "blocked",
+      message: `Used approved contact-sheet choice for assignment metadata. ${result.message} Changed: ${result.changedFiles.join(", ") || "none"}. Runtime applied remains false unless separately proven.`,
+      refresh: result.status !== "blocked"
+    };
+  }
+  if (message.command === "generateRevisionStyleGuide") {
+    if (!row.contactSheetComparison) {
+      return { ok: false, message: "No contact-sheet comparison exists for revision guidance." };
+    }
+    const comparison = readVisualAssetContactSheetComparison(folder.uri.fsPath, row.contactSheetComparison.comparisonId);
+    const notes = comparison?.comparisonEntries
+      .filter((entry) => entry.userMark === "rejected" || entry.userMark === "mixed" || entry.userMark === "needs_revision")
+      .flatMap((entry) => entry.userNote ? [`${entry.label}: ${entry.userNote}`] : [`${entry.label}: ${entry.userMark}`]) ?? [];
+    const contractFile = readVisualAssetContractFileSync(folder.uri.fsPath);
+    const result = generateVisualAssetStyleGuide({
+      workspaceRoot: folder.uri.fsPath,
+      slot: row.slot,
+      candidate: row.candidate,
+      validation: row.validation,
+      boundsAnalysis: row.boundsAnalysis,
+      normalization: row.normalization,
+      contract: findVisualAssetSlotContract(contractFile, row.slot),
+      userNotes: [
+        `Revision requested from contact-sheet comparison ${row.contactSheetComparison.comparisonId}.`,
+        ...notes
+      ]
+    });
+    await openTextDocument(vscode.Uri.joinPath(folder.uri, ...result.markdownPath.split("/")));
+    return {
+      ok: true,
+      message: `Generated revision style guide: ${result.markdownPath}. No art was generated and no asset pixels were changed.`,
+      refresh: true
+    };
+  }
   if (message.command === "generateLoaderFallbackTask") {
+    if (row.contactSheetComparison?.decisionStatus === "approved") {
+      const comparison = readVisualAssetContactSheetComparison(folder.uri.fsPath, row.contactSheetComparison.comparisonId);
+      if (comparison) {
+        const task = buildContactSheetComparisonFallbackTask({
+          row,
+          comparison,
+          reason: row.manifestContract
+            ? `${row.manifestContract.contractId} is ${row.manifestContract.writablePathSafety}; ${row.manifestContract.errors.concat(row.manifestContract.warnings).join(" ")}`
+            : "No safe manifest/source-loader direct apply is available for the approved contact-sheet choice."
+        });
+        const taskPath = writeContactSheetComparisonFallbackTask(folder.uri.fsPath, task);
+        return { ok: true, message: `Created scoped contact-sheet fallback task: ${taskPath}.`, refresh: true };
+      }
+    }
     const task = buildManifestLoaderFallbackTask({
       slot: row.slot,
       candidate: row.candidate,
@@ -355,14 +472,14 @@ function renderAssetPipelineDashboardHtml(webview: vscode.Webview, folder: vscod
 </head>
 <body>
   <div class="top"><div><h1>Asset Pipeline Dashboard</h1><p class="meta">${escapeHtml(model.activeAdapterLabel)} | ${escapeHtml(model.activeAdapter)} | ${escapeHtml(visualAssetDashboardRelativePath)}</p></div><div class="toolbar"><button id="refresh">Refresh</button></div></div>
-  <section class="summary">${summaryMetric("Slots", String(model.slots.length))}${summaryMetric("Candidates", String(model.candidates.length))}${summaryMetric("Bounds", String(model.boundsResults.length))}${summaryMetric("Normalized", String(model.normalizationResults.filter((entry) => entry.status === "created").length))}${summaryMetric("Style Guides", String(model.styleGuides.length))}${summaryMetric("Manifest Applies", String(model.manifestApplyResults.filter((entry) => entry.status === "applied").length))}${summaryMetric("Assignments", String(model.assignments.length))}${summaryMetric("Valid", String(model.statusCounts.valid))}${summaryMetric("Warnings", String(model.statusCounts.warning))}${summaryMetric("Invalid", String(model.statusCounts.invalid))}${summaryMetric("Unvalidated", String(model.statusCounts.unvalidated))}</section>
+  <section class="summary">${summaryMetric("Slots", String(model.slots.length))}${summaryMetric("Candidates", String(model.candidates.length))}${summaryMetric("Bounds", String(model.boundsResults.length))}${summaryMetric("Normalized", String(model.normalizationResults.filter((entry) => entry.status === "created").length))}${summaryMetric("Style Guides", String(model.styleGuides.length))}${summaryMetric("Contact Sheets", String(model.contactSheetComparisons.length))}${summaryMetric("Manifest Applies", String(model.manifestApplyResults.filter((entry) => entry.status === "applied").length))}${summaryMetric("Assignments", String(model.assignments.length))}${summaryMetric("Valid", String(model.statusCounts.valid))}${summaryMetric("Warnings", String(model.statusCounts.warning))}${summaryMetric("Invalid", String(model.statusCounts.invalid))}${summaryMetric("Unvalidated", String(model.statusCounts.unvalidated))}</section>
   <div id="surfaces"></div>
   <div id="status" class="status muted"></div>
   <script nonce="${nonce}">
     const vscode=acquireVsCodeApi();const model=${payload};const surfaces=document.getElementById("surfaces"),status=document.getElementById("status");
     const imgSrc=${JSON.stringify(assetPreviewUris(webview, folder, model))};
     function post(command,rowId){vscode.postMessage({command,rowId});}
-    function render(){surfaces.textContent="";for(const surfaceId of model.groupedSurfaceIds){const rows=model.rows.filter(row=>row.slot.surfaceId===surfaceId);const section=document.createElement("section");section.className="surface";const title=document.createElement("h2");title.textContent=rows[0]?.slot.surfaceLabel||surfaceId;section.append(title);for(const row of rows){const card=document.createElement("article");card.className="card";const candidate=row.candidate;const assignment=row.assignment;const bounds=row.boundsAnalysis;const normalization=row.normalization;const guide=row.styleGuide;const manifest=row.manifestContract;const apply=row.manifestApplyResult;const src=candidate?imgSrc[candidate.copiedAssetPath]:undefined;const normalizedSrc=normalization?imgSrc[normalization.outputPath]:undefined;const boundsText=bounds?(bounds.visibleBounds?('x'+bounds.visibleBounds.x+' y'+bounds.visibleBounds.y+' '+bounds.visibleBounds.width+'x'+bounds.visibleBounds.height+' | '+bounds.recommendedAction):bounds.recommendedAction):'not analyzed';card.innerHTML='<div class="row-head"><div><h2>'+row.slot.slotLabel+'</h2><div class="meta">'+row.slot.slotId+' | '+row.slot.expectedAssetType+'</div></div><div class="badges"><span class="badge '+row.validation.status+'">'+row.validation.status+'</span><span class="badge '+row.slot.directApplyCapability+'">'+row.slot.directApplyCapability+'</span><span class="badge">'+row.slot.safetyStatus+'</span><span class="badge">runtime: '+(row.runtimeApplied?'applied':'not applied')+'</span><span class="badge">assignment: '+(assignment?.usesNormalizedAsset?'normalized':'original/imported')+'</span><span class="badge">guide: '+(guide?'generated':'none')+'</span><span class="badge">manifest: '+(manifest?manifest.writablePathSafety:'none')+'</span><span class="badge">apply: '+(apply?apply.status:'none')+'</span></div></div><div class="grid"><div><b>Current</b><p class="meta">'+(row.slot.currentAssetPath||'unknown')+'</p></div><div><b>Imported</b><p class="meta">'+(candidate?candidate.copiedAssetPath:'none')+'</p></div><div><b>Bounds</b><p class="meta">'+boundsText+'</p><p class="meta">'+(bounds?[...bounds.warnings,...bounds.errors].join(' | '):'')+'</p></div><div><b>Normalized</b><p class="meta">'+(normalization?normalization.outputPath:'none')+'</p></div><div><b>Style Guide</b><p class="meta">'+(guide?guide.markdownPath:'none')+'</p><p class="meta">'+(guide?guide.createdAt:'')+'</p><p class="meta">'+(guide?guide.warnings.join(' | '):'')+'</p></div><div><b>Manifest Contract</b><p class="meta">'+(manifest?manifest.contractId:'none')+'</p><p class="meta">'+(manifest?((manifest.manifestPath||'no path')+' | '+manifest.supportedOperation):'fallback only')+'</p><p class="meta">'+(manifest?[...manifest.warnings,...manifest.errors].join(' | '):'')+'</p></div><div><b>Manifest Apply</b><p class="meta">'+(apply?(apply.status+' | runtime: '+(apply.runtimeApplied?'applied':'not applied')):'none')+'</p><p class="meta">'+(apply?apply.rollbackSnapshotPaths.join(', '):'')+'</p></div><div><b>Assignment</b><p class="meta">'+(assignment?assignment.assignmentPath:'none')+'</p><p class="meta">asset: '+(row.assignmentAssetPath||'none')+'</p></div><div><b>Target</b><p class="meta">'+(row.slot.targetConfigPath||row.slot.knownManifestPath||'fallback only')+'</p></div></div>';if(src||normalizedSrc){const preview=document.createElement("div");preview.className="preview";preview.innerHTML=(src?'<img alt="" src="'+src+'">':'')+(normalizedSrc?'<img alt="" src="'+normalizedSrc+'">':'')+'<p class="meta">'+(row.previewMode==='context'?'Simple supported context preview; not runtime applied.':'Basic asset preview card; context unsupported.')+'</p>';card.append(preview);}const actions=document.createElement("div");actions.className="actions";const defs=[['importAsset','Import Asset'],['validateAsset','Validate Asset'],['analyzeBounds','Analyze Bounds'],['normalizeBounds','Normalize Bounds'],['openNormalizedAsset','Open Normalized Asset'],['useNormalizedAssetForAssignment','Use Normalized Asset for Assignment'],['applyManifestAssignment','Apply Manifest Assignment'],['openManifestContract','Open Manifest Contract'],['openManifestApplyResult','Open Manifest Apply Result'],['generateLoaderFallbackTask','Generate Loader Fallback Task'],['generateStyleGuide','Generate Style Guide'],['openStyleGuide','Open Style Guide'],['copyContactSheetRequest','Copy Contact-Sheet Request'],['regenerateStyleGuide','Regenerate Style Guide'],['previewInContext','Preview in Context'],['assignReplacement','Assign Replacement'],['openAssetContract','Open Asset Contract'],['generateFallbackTask','Generate Fallback Task'],['runScopeCheck','Run Scope Check']];for(const [command,label] of defs){const button=document.createElement("button");button.textContent=label;button.className=command==='importAsset'||command==='generateStyleGuide'||command==='applyManifestAssignment'?'':'secondary';button.disabled=!row.actions[command];button.addEventListener("click",()=>post(command,row.rowId));actions.append(button);}card.append(actions);section.append(card);}surfaces.append(section);}}
+    function render(){surfaces.textContent="";for(const surfaceId of model.groupedSurfaceIds){const rows=model.rows.filter(row=>row.slot.surfaceId===surfaceId);const section=document.createElement("section");section.className="surface";const title=document.createElement("h2");title.textContent=rows[0]?.slot.surfaceLabel||surfaceId;section.append(title);for(const row of rows){const card=document.createElement("article");card.className="card";const candidate=row.candidate;const assignment=row.assignment;const bounds=row.boundsAnalysis;const normalization=row.normalization;const guide=row.styleGuide;const manifest=row.manifestContract;const apply=row.manifestApplyResult;const sheet=row.contactSheetComparison;const src=candidate?imgSrc[candidate.copiedAssetPath]:undefined;const normalizedSrc=normalization?imgSrc[normalization.outputPath]:undefined;const boundsText=bounds?(bounds.visibleBounds?('x'+bounds.visibleBounds.x+' y'+bounds.visibleBounds.y+' '+bounds.visibleBounds.width+'x'+bounds.visibleBounds.height+' | '+bounds.recommendedAction):bounds.recommendedAction):'not analyzed';card.innerHTML='<div class="row-head"><div><h2>'+row.slot.slotLabel+'</h2><div class="meta">'+row.slot.slotId+' | '+row.slot.expectedAssetType+'</div></div><div class="badges"><span class="badge '+row.validation.status+'">'+row.validation.status+'</span><span class="badge '+row.slot.directApplyCapability+'">'+row.slot.directApplyCapability+'</span><span class="badge">'+row.slot.safetyStatus+'</span><span class="badge">runtime: '+(row.runtimeApplied?'applied':'not applied')+'</span><span class="badge">assignment: '+(assignment?.usesNormalizedAsset?'normalized':'original/imported')+'</span><span class="badge">guide: '+(guide?'generated':'none')+'</span><span class="badge">contact: '+(sheet?sheet.decisionStatus:'none')+'</span><span class="badge">manifest: '+(manifest?manifest.writablePathSafety:'none')+'</span><span class="badge">apply: '+(apply?apply.status:'none')+'</span></div></div><div class="grid"><div><b>Current</b><p class="meta">'+(row.slot.currentAssetPath||'unknown')+'</p></div><div><b>Imported</b><p class="meta">'+(candidate?candidate.copiedAssetPath:'none')+'</p></div><div><b>Bounds</b><p class="meta">'+boundsText+'</p><p class="meta">'+(bounds?[...bounds.warnings,...bounds.errors].join(' | '):'')+'</p></div><div><b>Normalized</b><p class="meta">'+(normalization?normalization.outputPath:'none')+'</p></div><div><b>Contact Sheet</b><p class="meta">'+(sheet?(sheet.decisionStatus+' | approved '+sheet.approvedCount+' rejected '+sheet.rejectedCount+' mixed '+sheet.mixedCount):'none')+'</p><p class="meta">'+(sheet?('chosen: '+(sheet.chosenAssetPath||'none')):'')+'</p><p class="meta">'+(sheet?('assigned: '+(sheet.assigned?'yes':'no')+' | manifest: '+(sheet.manifestApplied?'yes':'no')+' | runtime: '+(sheet.runtimeApplied?'applied':'not applied')):'')+'</p></div><div><b>Style Guide</b><p class="meta">'+(guide?guide.markdownPath:'none')+'</p><p class="meta">'+(guide?guide.createdAt:'')+'</p><p class="meta">'+(guide?guide.warnings.join(' | '):'')+'</p></div><div><b>Manifest Contract</b><p class="meta">'+(manifest?manifest.contractId:'none')+'</p><p class="meta">'+(manifest?((manifest.manifestPath||'no path')+' | '+manifest.supportedOperation):'fallback only')+'</p><p class="meta">'+(manifest?[...manifest.warnings,...manifest.errors].join(' | '):'')+'</p></div><div><b>Manifest Apply</b><p class="meta">'+(apply?(apply.status+' | runtime: '+(apply.runtimeApplied?'applied':'not applied')):'none')+'</p><p class="meta">'+(apply?apply.rollbackSnapshotPaths.join(', '):'')+'</p></div><div><b>Assignment</b><p class="meta">'+(assignment?assignment.assignmentPath:'none')+'</p><p class="meta">asset: '+(row.assignmentAssetPath||'none')+'</p></div><div><b>Target</b><p class="meta">'+(row.slot.targetConfigPath||row.slot.knownManifestPath||'fallback only')+'</p></div></div>';if(src||normalizedSrc){const preview=document.createElement("div");preview.className="preview";preview.innerHTML=(src?'<img alt="" src="'+src+'">':'')+(normalizedSrc?'<img alt="" src="'+normalizedSrc+'">':'')+'<p class="meta">'+(row.previewMode==='context'?'Simple supported context preview; not runtime applied.':'Basic asset preview card; context unsupported.')+'</p>';card.append(preview);}const actions=document.createElement("div");actions.className="actions";const defs=[['importAsset','Import Asset'],['validateAsset','Validate Asset'],['analyzeBounds','Analyze Bounds'],['normalizeBounds','Normalize Bounds'],['openNormalizedAsset','Open Normalized Asset'],['createContactSheet','Create Contact Sheet'],['openContactSheet','Open Contact Sheet'],['markContactSheetApproved','Mark Approved'],['markContactSheetRejected','Mark Rejected'],['markContactSheetMixed','Mark Mixed'],['markContactSheetNeedsRevision','Mark Needs Revision'],['useApprovedContactSheetForAssignment','Use Approved for Assignment'],['generateRevisionStyleGuide','Generate Revision Style Guide'],['useNormalizedAssetForAssignment','Use Normalized Asset for Assignment'],['applyManifestAssignment','Apply Manifest Assignment'],['openManifestContract','Open Manifest Contract'],['openManifestApplyResult','Open Manifest Apply Result'],['generateLoaderFallbackTask','Generate Fallback Task'],['generateStyleGuide','Generate Style Guide'],['openStyleGuide','Open Style Guide'],['copyContactSheetRequest','Copy Contact-Sheet Request'],['regenerateStyleGuide','Regenerate Style Guide'],['previewInContext','Preview in Context'],['assignReplacement','Assign Replacement'],['openAssetContract','Open Asset Contract'],['generateFallbackTask','Generate Asset Fallback Task'],['runScopeCheck','Run Scope Check']];for(const [command,label] of defs){const button=document.createElement("button");button.textContent=label;button.className=command==='importAsset'||command==='createContactSheet'||command==='markContactSheetApproved'||command==='applyManifestAssignment'?'':'secondary';button.disabled=!row.actions[command];button.addEventListener("click",()=>post(command,row.rowId));actions.append(button);}card.append(actions);section.append(card);}surfaces.append(section);}}
     document.getElementById("refresh").addEventListener("click",()=>post("refresh"));window.addEventListener("message",event=>{const m=event.data;status.textContent=(m.ok?'OK: ':'Blocked: ')+m.message;});render();
   </script>
 </body>

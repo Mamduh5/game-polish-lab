@@ -1,8 +1,8 @@
 # Asset Pipeline Dashboard
 
-Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization. v0.82 adds text/metadata Asset Style Guide generation for selected slots. v0.83 adds manifest/config direct applies only for explicit safe contracts.
+Game Polish Lab v0.80 adds an Asset Pipeline Dashboard for managing visual asset slots and user-provided replacement assets by surface. v0.81 extends that dashboard with opt-in Asset Bounds Normalization. v0.82 adds text/metadata Asset Style Guide generation for selected slots. v0.83 adds manifest/config direct applies only for explicit safe contracts. v0.84 adds manual Asset Contact Sheet Comparison.
 
-This milestone manages metadata, imported candidates, Game Polish Lab-owned normalized copies, style-guide briefs, and safe manifest/config apply metadata only. It does not generate artwork, patch arbitrary source loaders, or compare contact sheets.
+This milestone manages metadata, imported candidates, Game Polish Lab-owned normalized copies, style-guide briefs, contact-sheet comparison records, and safe manifest/config apply metadata only. It does not generate artwork, patch arbitrary source loaders, or judge visual quality automatically.
 
 ## Command
 
@@ -17,6 +17,7 @@ The dashboard shows:
 - visible bounds status when analyzed
 - normalized asset path when created
 - style guide path and generated timestamp when created
+- latest contact-sheet comparison status and counts when created
 - manifest contract safety and last manifest apply status
 - basic validation status
 - direct apply capability
@@ -49,6 +50,10 @@ Asset style guides are written to:
 Manifest direct-apply operation metadata is written to:
 
 - `.game-polish-lab/assets/manifest-applies/`
+
+Contact-sheet comparison metadata and static HTML mockups are written to:
+
+- `.game-polish-lab/assets/contact-sheets/`
 
 Existing asset contracts remain at:
 
@@ -94,6 +99,14 @@ v0.83 can apply approved asset assignments to explicit safe manifest/config cont
 
 Manifest applied does not necessarily mean runtime applied. The dashboard keeps `runtimeApplied` false unless runtime consumption is separately proven and tested.
 
+## Contact Sheet Comparison
+
+See [`asset-contact-sheet-comparison.md`](asset-contact-sheet-comparison.md).
+
+v0.84 can create a static JSON/HTML contact-sheet comparison for a selected asset slot. It shows current/original paths, imported candidates, normalized candidates, assignment choices, manifest-applied choices, validation/bounds/manifest summaries, simple adapter/surface-aware mockups, and manual mark controls.
+
+Contact sheet created does not mean approved. Approved does not mean assigned. Assigned does not mean manifest applied. Manifest applied does not necessarily mean runtime applied. The comparison layer records user decisions only and does not score art, infer image content, generate assets, mutate pixels, run Phaser, or patch source loaders.
+
 ## Assignment
 
 Assignment is conservative and metadata-first.
@@ -127,9 +140,10 @@ Fallback tasks include adapter, surface, slot, imported asset path, normalized a
 
 ## Out Of Scope
 
-v0.83 does not include:
+v0.84 does not include:
 
-- v0.84 contact-sheet comparison
 - v0.85 stabilization
 - visual asset generation
 - automatic computer vision or AI visual analysis
+- subjective AI art scoring
+- source loader patching as part of comparison

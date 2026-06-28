@@ -1,5 +1,6 @@
 import type { VisualAssetStyleGuideSummary } from "./visualAssetStyleGuide";
 import type { VisualAssetManifestApplySummary, VisualAssetManifestContract } from "./visualAssetManifestDirectApply";
+import type { VisualAssetComparisonSummary } from "./visualAssetContactSheetComparison";
 
 export type VisualAssetExpectedType = "image" | "spritesheet" | "icon" | "background" | "effect" | "ui-frame" | "unknown";
 export type VisualAssetSafetyStatus = "safe" | "suspicious" | "unsupported" | "unknown";
@@ -164,6 +165,7 @@ export interface VisualAssetDashboardRow {
   styleGuide?: VisualAssetStyleGuideSummary;
   manifestContract?: VisualAssetManifestContract;
   manifestApplyResult?: VisualAssetManifestApplySummary;
+  contactSheetComparison?: VisualAssetComparisonSummary;
   assignmentAssetPath?: string;
   validation: VisualAssetValidationResult;
   previewMode: "context" | "asset_card";
@@ -184,6 +186,14 @@ export interface VisualAssetDashboardRow {
     applyManifestAssignment: boolean;
     openManifestContract: boolean;
     openManifestApplyResult: boolean;
+    createContactSheet: boolean;
+    openContactSheet: boolean;
+    markContactSheetApproved: boolean;
+    markContactSheetRejected: boolean;
+    markContactSheetMixed: boolean;
+    markContactSheetNeedsRevision: boolean;
+    useApprovedContactSheetForAssignment: boolean;
+    generateRevisionStyleGuide: boolean;
     generateLoaderFallbackTask: boolean;
     openAssetContract: boolean;
     generateFallbackTask: boolean;
@@ -203,6 +213,7 @@ export interface VisualAssetDashboardModel {
   styleGuides: VisualAssetStyleGuideSummary[];
   manifestContracts: VisualAssetManifestContract[];
   manifestApplyResults: VisualAssetManifestApplySummary[];
+  contactSheetComparisons: VisualAssetComparisonSummary[];
   rows: VisualAssetDashboardRow[];
   groupedSurfaceIds: string[];
   statusCounts: Record<VisualAssetPipelineValidationStatus, number>;

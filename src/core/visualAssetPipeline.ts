@@ -22,6 +22,11 @@ import {
   visualAssetManifestApplyIndexRelativePath,
   visualAssetManifestApplyRelativeDir
 } from "./visualAssetManifestDirectApply";
+import {
+  readLatestVisualAssetContactSheetComparisonSummaries,
+  visualAssetContactSheetComparisonIndexRelativePath,
+  visualAssetContactSheetComparisonRelativeDir
+} from "./visualAssetContactSheetComparison";
 import { detectGenericPhaserProject } from "./genericPhaserAdapterModel";
 import { monsterFarmAssetTargets } from "./monsterFarmAssetTargets";
 import { detectCursorArenaProject, detectSortPuzzleProject } from "./visualGameAdapters";
@@ -57,6 +62,7 @@ export const visualAssetContractRelativePath = ".game-polish-lab/assets/asset-co
 export { visualAssetBoundsResultsRelativePath, visualAssetNormalizationResultsRelativePath, visualAssetNormalizedRelativeDir };
 export { visualAssetStyleGuideIndexRelativePath, visualAssetStyleGuideRelativeDir };
 export { visualAssetManifestApplyIndexRelativePath, visualAssetManifestApplyRelativeDir };
+export { visualAssetContactSheetComparisonIndexRelativePath, visualAssetContactSheetComparisonRelativeDir };
 
 const supportedExtensions = [".png", ".webp"];
 const reasonableAssetBytes = 5 * 1024 * 1024;
@@ -100,7 +106,8 @@ export function buildVisualAssetDashboardModel(input: {
     contract: findVisualAssetSlotContract(contractFile, slot)
   }));
   const manifestApplyResults = readLatestVisualAssetManifestApplySummaries(input.workspaceRoot);
-  const rows = buildVisualAssetDashboardRows(slots, candidates, assignments, input.updatedAt, boundsResults, normalizationResults, styleGuides, manifestContracts, manifestApplyResults);
+  const contactSheetComparisons = readLatestVisualAssetContactSheetComparisonSummaries(input.workspaceRoot);
+  const rows = buildVisualAssetDashboardRows(slots, candidates, assignments, input.updatedAt, boundsResults, normalizationResults, styleGuides, manifestContracts, manifestApplyResults, contactSheetComparisons);
   return {
     schemaVersion: "visual-asset-pipeline-dashboard/v1",
     activeAdapter,
@@ -113,6 +120,7 @@ export function buildVisualAssetDashboardModel(input: {
     styleGuides,
     manifestContracts,
     manifestApplyResults,
+    contactSheetComparisons,
     rows,
     groupedSurfaceIds: Array.from(new Set(slots.map((slot) => slot.surfaceId))).sort(),
     statusCounts: countValidationStatuses(rows),
@@ -121,7 +129,7 @@ export function buildVisualAssetDashboardModel(input: {
   };
 }
 
-export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidates: ImportedVisualAssetCandidate[], assignments: AssignedVisualAsset[], checkedAt?: string, boundsResults: VisualAssetBoundsAnalysisResult[] = [], normalizationResults: VisualAssetNormalizationResult[] = [], styleGuides: VisualAssetDashboardRow["styleGuide"][] = [], manifestContracts: VisualAssetDashboardRow["manifestContract"][] = [], manifestApplyResults: VisualAssetDashboardRow["manifestApplyResult"][] = []): VisualAssetDashboardRow[] {
+export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidates: ImportedVisualAssetCandidate[], assignments: AssignedVisualAsset[], checkedAt?: string, boundsResults: VisualAssetBoundsAnalysisResult[] = [], normalizationResults: VisualAssetNormalizationResult[] = [], styleGuides: VisualAssetDashboardRow["styleGuide"][] = [], manifestContracts: VisualAssetDashboardRow["manifestContract"][] = [], manifestApplyResults: VisualAssetDashboardRow["manifestApplyResult"][] = [], contactSheetComparisons: VisualAssetDashboardRow["contactSheetComparison"][] = []): VisualAssetDashboardRow[] {
   return slots.map((slot) => {
     const assignment = assignments.find((candidate) => candidate.slotId === slot.slotId);
     const candidate = assignment
@@ -133,7 +141,9 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
     const styleGuide = styleGuides.find((entry) => entry?.assetSlotId === slot.slotId);
     const manifestContract = manifestContracts.find((entry) => entry?.assetSlotId === slot.slotId && entry.writablePathSafety === "safe") ?? manifestContracts.find((entry) => entry?.assetSlotId === slot.slotId);
     const manifestApplyResult = manifestApplyResults.find((entry) => entry?.slotId === slot.slotId);
+    const contactSheetComparison = contactSheetComparisons.find((entry) => entry?.assetSlotId === slot.slotId);
     const assignmentAssetPath = assignment?.normalizedAssetPath ?? assignment?.copiedAssetPath;
+    const approvedContactSheetAssetPath = contactSheetComparison?.chosenAssetPath;
     return {
       rowId: slot.slotId,
       slot: {
@@ -148,6 +158,7 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
       styleGuide,
       manifestContract,
       manifestApplyResult,
+      contactSheetComparison,
       assignmentAssetPath,
       validation,
       previewMode: slot.directApplyCapability === "config_only" || slot.directApplyCapability === "asset_copy_only" ? "context" : "asset_card",
@@ -168,6 +179,14 @@ export function buildVisualAssetDashboardRows(slots: VisualAssetSlot[], candidat
         applyManifestAssignment: Boolean((candidate || assignment) && manifestContract?.writablePathSafety === "safe" && manifestContract.supportedOperation !== "unsupported"),
         openManifestContract: Boolean(manifestContract),
         openManifestApplyResult: Boolean(manifestApplyResult),
+        createContactSheet: Boolean(slot.currentAssetPath || candidate || normalization || assignment),
+        openContactSheet: Boolean(contactSheetComparison),
+        markContactSheetApproved: Boolean(contactSheetComparison && contactSheetComparison.status === "ready"),
+        markContactSheetRejected: Boolean(contactSheetComparison && contactSheetComparison.status === "ready"),
+        markContactSheetMixed: Boolean(contactSheetComparison && contactSheetComparison.status === "ready"),
+        markContactSheetNeedsRevision: Boolean(contactSheetComparison && contactSheetComparison.status === "ready"),
+        useApprovedContactSheetForAssignment: Boolean(contactSheetComparison?.decisionStatus === "approved" && approvedContactSheetAssetPath && slot.directApplyCapability !== "unsupported"),
+        generateRevisionStyleGuide: Boolean(contactSheetComparison && (contactSheetComparison.decisionStatus === "rejected" || contactSheetComparison.decisionStatus === "mixed" || contactSheetComparison.decisionStatus === "needs_revision")),
         generateLoaderFallbackTask: Boolean(manifestContract?.writablePathSafety !== "safe" || manifestContract.supportedOperation === "unsupported"),
         openAssetContract: true,
         generateFallbackTask: slot.directApplyCapability === "fallback_required" || slot.safetyStatus !== "safe",
@@ -782,6 +801,7 @@ function writeVisualAssetDashboardFile(workspaceRoot: string, patch: { candidate
     styleGuides: existing.styleGuides ?? [],
     manifestContracts: existing.manifestContracts ?? [],
     manifestApplyResults: existing.manifestApplyResults ?? [],
+    contactSheetComparisons: existing.contactSheetComparisons ?? [],
     rows: existing.rows ?? [],
     groupedSurfaceIds: existing.groupedSurfaceIds ?? [],
     statusCounts: existing.statusCounts ?? { missing: 0, valid: 0, warning: 0, invalid: 0, unvalidated: 0 },

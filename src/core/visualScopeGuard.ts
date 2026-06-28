@@ -178,7 +178,7 @@ function suspicious(reasonCode: string, message: string, test: PathRule["test"])
 
 export function visualScopeGuardRulesSummary(): string[] {
   return [
-    "safe: .game-polish-lab/** including .game-polish-lab/assets/**, .game-polish-lab/assets/imported/**, .game-polish-lab/assets/normalized/**, .game-polish-lab/assets/style-guides/**, .game-polish-lab/assets/manifest-applies/**, asset bounds/normalization results, assignments, visual recipes, asset contracts, adapter style/config paths, generated Game Polish Lab style modules",
+    "safe: .game-polish-lab/** including .game-polish-lab/assets/**, .game-polish-lab/assets/imported/**, .game-polish-lab/assets/normalized/**, .game-polish-lab/assets/style-guides/**, .game-polish-lab/assets/manifest-applies/**, .game-polish-lab/assets/contact-sheets/**, asset bounds/normalization results, assignments, visual recipes, asset contracts, adapter style/config paths, generated Game Polish Lab style modules",
     "safe: docs/** and src/test/fixtures/** for regression documentation and fixture updates",
     "suspicious: selected asset manifests, loader/preload files, scenes, UI/view/rendering files, shared asset registries, broad source files",
     "forbidden: save, economy/balance/reward tables, progression/unlock/upgrade, merge, hatch, quest, ad/monetization/analytics/SDK, level data/gameplay rules, Sort Puzzle rules/solver/undo/hint, Cursor Arena balance/player/projectile/shooter/auto-shooter paths, package manager files during visual writes"
