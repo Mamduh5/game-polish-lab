@@ -1,14 +1,32 @@
 {
   "name": "game-polish-lab",
   "displayName": "Game Polish Lab",
-  "description": "Phaser-first polish workflow tools for pixel-art game feel, VFX readability, and UI/HUD polish.",
-  "version": "0.7.9",
+  "description": "VS Code visual polish console for Phaser games with guarded tuning, direct apply, rollback, and asset-pipeline workflows.",
+  "version": "0.9.4",
   "publisher": "local-dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mamduh5/game-polish-lab.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Mamduh5/game-polish-lab/issues"
+  },
+  "homepage": "https://github.com/Mamduh5/game-polish-lab#readme",
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "phaser",
+    "pixel-art",
+    "visual-polish",
+    "game-development",
+    "direct-apply",
+    "rollback",
+    "asset-pipeline"
   ],
   "activationEvents": [
     "onCommand:gamePolishLab.initializeProfile",
@@ -66,7 +84,7 @@
       },
       {
         "command": "gamePolishLab.createOptionalDevOverlaySpike",
-        "title": "Game Polish Lab: Create Optional In-game Dev Overlay Spike"
+        "title": "Game Polish Lab: Create Optional Dev Overlay Spike"
       },
       {
         "command": "gamePolishLab.createRescueTask",
@@ -166,7 +184,7 @@
       },
       {
         "command": "gamePolishLab.annotateScreenshotVisualIssue",
-        "title": "Game Polish Lab: Annotate Screenshot"
+        "title": "Game Polish Lab: Annotate Screenshot Issue"
       },
       {
         "command": "gamePolishLab.refreshAssetContracts",
@@ -180,13 +198,38 @@
         "command": "gamePolishLab.markLatestTuningResult",
         "title": "Game Polish Lab: Mark Latest Tuning Result"
       }
-    ]
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "gamePolishLab.openVisualTuningDashboard"
+        },
+        {
+          "command": "gamePolishLab.tuneVisualSurface"
+        },
+        {
+          "command": "gamePolishLab.openAssetPipelineDashboard"
+        },
+        {
+          "command": "gamePolishLab.openRollbackHistory"
+        },
+        {
+          "command": "gamePolishLab.checkCodexScope"
+        },
+        {
+          "command": "gamePolishLab.refreshAssetContracts"
+        }
+      ]
+    }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "tsc --noEmit -p ./",
-    "test": "npm run compile && node dist/test/monsterFarmDeepAudit.spec.js && node dist/test/visualAssetBoundsNormalization.spec.js && node dist/test/visualAssetStyleGuide.spec.js && node dist/test/visualAssetManifestDirectApply.spec.js && node dist/test/visualAssetContactSheetComparison.spec.js && node dist/test/visualAssetPipelineStabilization.spec.js"
+    "package:check": "node scripts/package-check.js",
+    "package": "npm run compile && npm run package:check && npm pack --dry-run",
+    "test": "npm run compile && node dist/test/monsterFarmDeepAudit.spec.js && node dist/test/visualAssetBoundsNormalization.spec.js && node dist/test/visualAssetStyleGuide.spec.js && node dist/test/visualAssetManifestDirectApply.spec.js && node dist/test/visualAssetContactSheetComparison.spec.js && node dist/test/visualAssetPipelineStabilization.spec.js && node dist/test/releaseReadinessSafety.spec.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",

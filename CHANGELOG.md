@@ -1,0 +1,38 @@
+# Changelog
+
+## 0.9.4 - Release-Readiness Foundation
+
+- Added VS Code extension packaging metadata, package-readiness validation, dry-run packaging script, CI workflow, and release-readiness documentation.
+- Added practical user docs for quick start, sample-game walkthroughs, asset replacement, direct apply, runtime bridge handoff, fallback tasks, rollback, and safety review.
+- Polished command titles for release-facing dashboard and screenshot workflows while keeping command IDs stable.
+- Added release-critical safety tests for scope guard, fallback framing, direct apply gating, manifest direct apply, rollback path containment, and package metadata checks.
+
+## 0.8.5 - Asset Pipeline Stabilization
+
+- Stabilized asset pipeline states for imported, normalized, style-guide, contact-sheet, assigned, manifest-applied, and runtime-applied records.
+- Kept loader/source integration fallback-only unless a safe manifest/config contract exists.
+- Added rollback snapshots for repeated Game Polish Lab-owned metadata writes.
+- Clarified that the extension does not generate art, rate art, patch arbitrary source loaders, or claim runtime application by default.
+
+## 0.8.0 - Asset Pipeline Dashboard
+
+- Added the Asset Pipeline Dashboard for visual asset slots, imports, validation, assignment metadata, style guides, contact sheets, and manifest-apply summaries.
+- Added asset contract refresh and contact-sheet workflows for existing asset contracts.
+- Kept original project assets protected from direct overwrites.
+
+## 0.7.0 - Adapter Stabilization
+
+- Added Sort Puzzle, Cursor Arena, and Generic Phaser v2 adapter coverage.
+- Added theme export/import, screenshot annotation handoffs, and multi-game regression fixtures.
+- Preserved config-only direct apply for supported targets and fallback-only handling for source integration.
+
+## 0.6.0 - Visual Tuning Console
+
+- Added the Visual Tuning Dashboard, surface tuner, preview renderer, style presets, direct apply templates, scope guard summaries, rollback history, and result tracking.
+- Established the normal workflow: choose a surface, tune by eye, save config, direct apply where supported, then verify and rollback if needed.
+
+## 0.5.0 - Scope Guard and Direct-Apply Foundations
+
+- Added visual scope guard rules for safe, suspicious, forbidden, and unknown paths.
+- Added early rollback-safe direct-apply planning for Game Polish Lab-owned visual config paths.
+- Blocked save, economy, progression, ad, gameplay-rule, package, and unrelated runtime files from visual polish writes.

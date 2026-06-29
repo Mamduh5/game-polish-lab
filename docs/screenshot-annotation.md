@@ -1,6 +1,6 @@
 # Screenshot Annotation
 
-`Game Polish Lab: Annotate Screenshot` is a lightweight manual annotation workflow. It does not run OCR, computer vision, automatic visual judgment, or AI image analysis.
+`Game Polish Lab: Annotate Screenshot Issue` is a lightweight manual annotation workflow. It does not run OCR, computer vision, automatic visual judgment, or AI image analysis.
 
 The user picks a screenshot, marks one rectangle with numeric fields, chooses a visual surface, optionally targets an adapter row, adds a note, and saves the annotation under `.game-polish-lab/annotations/**`. The annotation index lives at `.game-polish-lab/annotations/index.json`.
 

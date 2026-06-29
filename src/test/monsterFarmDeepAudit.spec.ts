@@ -2547,10 +2547,10 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.7.9");
+assert.strictEqual(packageJson.version, "0.9.4");
 const packageLockJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8")) as { version: string; packages: Record<string, { version?: string }> };
-assert.strictEqual(packageLockJson.version, "0.7.9");
-assert.strictEqual(packageLockJson.packages[""].version, "0.7.9");
+assert.strictEqual(packageLockJson.version, "0.9.4");
+assert.strictEqual(packageLockJson.packages[""].version, "0.9.4");
 const requiredV06Commands = [
   "gamePolishLab.openVisualTuningDashboard",
   "gamePolishLab.tuneVisualSurface",
@@ -2581,9 +2581,9 @@ assert.ok(packageJson.contributes.commands.some((command) => command.command ===
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.openVisualTuningDashboard" && command.title === "Game Polish Lab: Open Visual Tuning Dashboard"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.exportVisualTheme" && command.title === "Game Polish Lab: Export Visual Theme"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.importVisualTheme" && command.title === "Game Polish Lab: Import Visual Theme"));
-assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.annotateScreenshotVisualIssue" && command.title === "Game Polish Lab: Annotate Screenshot"));
+assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.annotateScreenshotVisualIssue" && command.title === "Game Polish Lab: Annotate Screenshot Issue"));
 assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.refreshAssetContracts" && command.title === "Game Polish Lab: Refresh Asset Contracts"));
-assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.createOptionalDevOverlaySpike" && command.title === "Game Polish Lab: Create Optional In-game Dev Overlay Spike"));
+assert.ok(packageJson.contributes.commands.some((command) => command.command === "gamePolishLab.createOptionalDevOverlaySpike" && command.title === "Game Polish Lab: Create Optional Dev Overlay Spike"));
 const stabilizationGuide = fs.readFileSync(path.join(process.cwd(), "docs", "v0.6-stabilization.md"), "utf8");
 for (const requiredSection of [
   "# Game Polish Lab v0.6 User Guide",

@@ -1,6 +1,10 @@
 .vscode/**
+.github/**
 .gitignore
 src/**
+fixtures/**
+scripts/**
 tsconfig.json
 node_modules/**
 *.map
+*.tgz

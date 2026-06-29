@@ -4,9 +4,11 @@ Game Polish Lab is a VS Code extension for solo game developers who want safer, 
 
 It does not beautify a game automatically, call external AI APIs, require network access, require Phaser to be installed inside this extension, add runtime dependencies to the user game, or make the optional in-game dev overlay part of the normal polish loop.
 
-## Current v0.7 Guide
+## Current v0.9 Readiness Guide
 
-For the stabilized v0.6 workflow, including the Visual Tuning Dashboard, preview renderer, style presets, asset contracts/contact sheets, scope guard, rollback history, direct apply templates, and optional `?polish=1` dev overlay, see [`docs/v0.6-stabilization.md`](docs/v0.6-stabilization.md). v0.7 extends that console with Sort Puzzle, Cursor Arena, Generic Phaser v2 metadata, theme export/import, screenshot annotation handoffs, and multi-game regression fixtures.
+For the beta-readiness workflow, start with [`docs/quick-start.md`](docs/quick-start.md) and [`docs/release-readiness.md`](docs/release-readiness.md). Game Polish Lab remains a VS Code visual polish console: choose a surface, preview/tune by eye, save config or asset metadata, direct apply only where supported, then use rollback, scope checks, and result tracking. Codex fallback tasks are for unsupported adapters, one-time bridge work, unusual integration, or structural tasks only.
+
+For the stabilized v0.6 workflow, including the Visual Tuning Dashboard, preview renderer, style presets, asset contracts/contact sheets, scope guard, rollback history, direct apply templates, and optional `?polish=1` dev overlay, see [`docs/v0.6-stabilization.md`](docs/v0.6-stabilization.md). v0.7 extends that console with Sort Puzzle, Cursor Arena, Generic Phaser v2 metadata, theme export/import, screenshot annotation handoffs, and multi-game regression fixtures. v0.85 stabilizes the asset pipeline, and v0.90-v0.94 adds packaging, CI, documentation, UX naming, and safety review foundations.
 
 For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-contract.md). Adapter and v0.7 docs:
 
@@ -24,6 +26,19 @@ For adapter-contract details, see [`docs/adapter-contract.md`](docs/adapter-cont
 - [`docs/asset-contact-sheet-comparison.md`](docs/asset-contact-sheet-comparison.md)
 - [`docs/asset-pipeline-stabilization.md`](docs/asset-pipeline-stabilization.md)
 - [`docs/v0.7-migration-notes.md`](docs/v0.7-migration-notes.md)
+- [`docs/extension-packaging.md`](docs/extension-packaging.md)
+- [`docs/ci.md`](docs/ci.md)
+- [`docs/quick-start.md`](docs/quick-start.md)
+- [`docs/monster-farm-walkthrough.md`](docs/monster-farm-walkthrough.md)
+- [`docs/sort-puzzle-walkthrough.md`](docs/sort-puzzle-walkthrough.md)
+- [`docs/cursor-arena-walkthrough.md`](docs/cursor-arena-walkthrough.md)
+- [`docs/asset-replacement-guide.md`](docs/asset-replacement-guide.md)
+- [`docs/direct-apply-guide.md`](docs/direct-apply-guide.md)
+- [`docs/adapter-runtime-bridge-guide.md`](docs/adapter-runtime-bridge-guide.md)
+- [`docs/fallback-task-guide.md`](docs/fallback-task-guide.md)
+- [`docs/rollback-guide.md`](docs/rollback-guide.md)
+- [`docs/release-readiness.md`](docs/release-readiness.md)
+- [`docs/safety-review.md`](docs/safety-review.md)
 
 v0.85 stabilizes the v0.80-v0.84 asset pipeline. The dashboard now keeps imported, normalized, style-guide, contact-sheet, assigned, manifest-applied, and runtime-applied states separate; repeat metadata writes snapshot previous Game Polish Lab-owned files; unsupported loader/source integration stays fallback-only; and the extension does not generate images, rate art, patch arbitrary source loaders, or claim runtime application by default.
 
@@ -280,7 +295,7 @@ Each kit creates:
 - `Game Polish Lab: Tune Visual Surface` opens the preview/tuning workflow for supported surfaces.
 - `Game Polish Lab: Refresh Asset Contracts` refreshes `.game-polish-lab/assets/asset-contracts.json`.
 - `Game Polish Lab: Mark Latest Tuning Result` records the latest tuning result.
-- `Game Polish Lab: Create Optional In-game Dev Overlay Spike` generates developer-only overlay files after explicit approval.
+- `Game Polish Lab: Create Optional Dev Overlay Spike` generates developer-only overlay files after explicit approval.
 - `Game Polish Lab: Add Field Note` records project-specific lessons for future prompts.
 
 ## Visual Polish Contracts
