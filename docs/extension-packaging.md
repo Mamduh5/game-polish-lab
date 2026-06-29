@@ -25,10 +25,10 @@ npm run package
 
 ## Metadata Decisions
 
-- Version: `0.9.4` for v0.90-v0.94 release-readiness work.
+- Version: `0.9.5` for v0.95 beta dogfooding work.
 - Publisher: `local-dev` is still a placeholder and must be replaced before Marketplace publication.
 - Repository, bugs, and homepage point to the existing GitHub remote.
 - License selection is pending. No `LICENSE` file is present, and this release-readiness pass does not invent a legal license.
 - No extension icon is declared yet. Add a small committed icon asset and `package.json` `icon` only after a real asset is chosen.
 - `.vscodeignore` keeps source, fixtures, CI metadata, scripts, dependencies, maps, and tarballs out of future VSIX packages while leaving compiled `dist/`, README, changelog, and docs available.
-- Publishing is intentionally out of scope for v0.90-v0.94.
+- Publishing is intentionally out of scope for v0.95.

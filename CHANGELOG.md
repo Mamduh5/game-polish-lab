@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.5 - Beta Dogfooding
+
+- Added v0.95 dogfooding report and checklist for Idle Monster Farm, Sort Puzzle, and Cursor Arena adapter surfaces.
+- Added dogfooding-critical regression coverage for adapter detection, dashboard rows, config/direct-apply/fallback honesty, scope guard blocks, asset contract/contact-sheet state, result notes, and dogfooding docs.
+- Kept the milestone limited to beta dogfooding evidence, docs, and tests; no sample gameplay, save, economy, progression, or ad logic was changed.
+
 ## 0.9.4 - Release-Readiness Foundation
 
 - Added VS Code extension packaging metadata, package-readiness validation, dry-run packaging script, CI workflow, and release-readiness documentation.

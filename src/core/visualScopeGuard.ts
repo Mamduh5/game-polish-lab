@@ -24,9 +24,9 @@ const forbiddenRules: PathRule[] = [
   blocked("hatch_rule_file", "Hatch rule files are outside visual polish scope.", (path) => includesAny(path, ["/state/hatch", "/systems/hatch", "hatchstate", "hatchsystem"])),
   blocked("quest_reward_file", "Quest state, quest data, and quest reward files are outside visual polish scope.", (path) => includesAny(path, ["/state/quest", "/systems/quest", "/data/quest", "queststate", "questreward"])),
   blocked("ad_or_sdk_file", "Ad, monetization, analytics, and SDK files are outside visual polish scope.", (path) => includesAny(path, ["/ads", "/ad/", "admob", "rewardedad", "rewarded-ad", "rewarded_ad", "monetization", "analytics", "sdk"])),
-  blocked("level_data_file", "Level data and gameplay rules are outside visual polish scope.", (path) => includesAny(path, ["leveldata", "level-data", "/levels", "spiritSortLevels", "gameplay", "/rules", "rules.ts", "rules.js"])),
+  blocked("level_data_file", "Level data and gameplay rules are outside visual polish scope.", (path) => includesAny(path, ["leveldata", "level-data", "/levels", "spiritSortLevels", "/rules", "rules.ts", "rules.js"]) || (path.includes("gameplay") && !isVisualUiRendererPath(path))),
   blocked("sort_puzzle_rule_file", "Sort Puzzle rules, solvers, validation, undo, and hint logic are outside visual polish scope.", (path) => includesAny(path, ["sortrules", "/solver", "sortsolver", "movevalidation", "validmove", "undosystem", "hintsystem"])),
-  blocked("cursor_arena_balance_file", "Cursor Arena economy, upgrades, enemy HP/speed/spawn/damage, scoring, and rewards are outside visual polish scope.", (path) => includesAny(path, ["arenabalance", "balanceconfig", "/economy", "/upgrades", "upgradevalue", "upgradecost", "upgrade-cost", "upgradeeffect", "upgrade-effect", "spawnrate", "spawn-rate", "spawnsystem", "enemyspawn", "enemy-spawn", "enemyhp", "enemy-health", "enemyspeed", "enemy-speed", "enemydamage", "enemy-damage", "damage", "/scoring", "/rewards"])),
+  blocked("cursor_arena_balance_file", "Cursor Arena economy, upgrades, enemy HP/speed/spawn/damage, scoring, and rewards are outside visual polish scope.", (path) => !isKnownVisualAssetPath(path) && includesAny(path, ["arenabalance", "balanceconfig", "/economy", "/upgrades", "upgradevalue", "upgradecost", "upgrade-cost", "upgradeeffect", "upgrade-effect", "spawnrate", "spawn-rate", "spawnsystem", "enemyspawn", "enemy-spawn", "enemyhp", "enemy-health", "enemyspeed", "enemy-speed", "enemydamage", "enemy-damage", "damage", "/scoring", "/rewards"])),
   blocked("cursor_arena_player_projectile_file", "Cursor Arena player, projectile, shooter, and auto-shooter systems are outside visual polish scope.", (path) => includesAny(path, ["/player", "playercontroller", "/projectile", "projectilesystem", "shootersystem", "autoshooter", "auto-shooter"])),
   blocked("original_game_asset_overwrite", "Original project asset files are not safe write targets for the asset pipeline.", (path, request) => (request.operationType === "asset_pipeline_assignment" || request.operationType === "asset_manifest_direct_apply") && /^(src\/assets|public\/assets|assets)\//.test(path) && /\.(png|webp|jpg|jpeg|gif|svg)$/i.test(path)),
   blocked("package_manager_file", "Package manager files are blocked during visual apply operations.", (path, request) => request.operationType !== "asset_contact_sheet_read" && /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|package\.json)$/.test(path))
@@ -159,6 +159,14 @@ function isKnownStyleConfigPath(path: string): boolean {
       || path.includes("assetmanifest")
       || path.includes("gamepolishlab")
     );
+}
+
+function isKnownVisualAssetPath(path: string): boolean {
+  return /^(src\/assets|public\/assets|assets)\//.test(path) && !includesAny(path, ["manifest", "registry", "loader"]);
+}
+
+function isVisualUiRendererPath(path: string): boolean {
+  return includesAny(path, ["/ui/", "/rendering/", "renderer", "view.ts", "view.js", "hud"]);
 }
 
 function includesAny(path: string, terms: string[]): boolean {

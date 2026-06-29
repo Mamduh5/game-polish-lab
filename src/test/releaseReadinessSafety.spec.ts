@@ -31,7 +31,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package
   scripts?: Record<string, string>;
 };
 
-assert.strictEqual(packageJson.version, "0.9.4");
+assert.strictEqual(packageJson.version, "0.9.5");
 assert.ok(packageJson.description.includes("VS Code visual polish console"));
 assert.ok(packageJson.repository?.url?.includes("github.com/Mamduh5/game-polish-lab"));
 assert.ok(packageJson.bugs?.url?.includes("/issues"));
@@ -54,6 +54,8 @@ for (const requiredDoc of [
   "docs/direct-apply-guide.md",
   "docs/fallback-task-guide.md",
   "docs/rollback-guide.md",
+  "docs/beta-dogfooding-v0.95.md",
+  "docs/beta-dogfooding-checklist.md",
   "docs/release-readiness.md",
   "docs/safety-review.md",
   "docs/extension-packaging.md",
