@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.9 - 1.0 Release Candidate
+
+- Froze the v1.0 scope around the existing Visual Tuning Dashboard, supported adapter surfaces, asset pipeline workflows, direct apply where already supported, fallback tasks, scope guard, rollback, field notes, packaging, CI, docs, and beta dogfooding readiness.
+- Added RC scope, verification, and release-notes docs without claiming Marketplace publishing or completed manual decisions.
+- Added release-candidate regression coverage for frozen/deferred scope docs, command stability, fallback/direct-apply honesty, scope guard safety, rollback containment, package-check RC docs, and dogfooding continuity.
+- Carried publisher, license, icon, Marketplace copy, and manual VS Code smoke testing as pending manual decisions.
+
 ## 0.9.5 - Beta Dogfooding
 
 - Added v0.95 dogfooding report and checklist for Idle Monster Farm, Sort Puzzle, and Cursor Arena adapter surfaces.

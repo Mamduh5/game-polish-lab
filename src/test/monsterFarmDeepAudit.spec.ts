@@ -2547,10 +2547,10 @@ assert.ok(appendedFieldNotes.includes("Magic glow reduced readability"));
 assert.ok(escapeMarkdown("Magic *Glow* [bad]").includes("\\*Glow\\*"));
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string; activationEvents: string[]; contributes: { commands: Array<{ command: string; title: string }> } };
-assert.strictEqual(packageJson.version, "0.9.5");
+assert.strictEqual(packageJson.version, "0.9.9");
 const packageLockJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8")) as { version: string; packages: Record<string, { version?: string }> };
-assert.strictEqual(packageLockJson.version, "0.9.5");
-assert.strictEqual(packageLockJson.packages[""].version, "0.9.5");
+assert.strictEqual(packageLockJson.version, "0.9.9");
+assert.strictEqual(packageLockJson.packages[""].version, "0.9.9");
 const requiredV06Commands = [
   "gamePolishLab.openVisualTuningDashboard",
   "gamePolishLab.tuneVisualSurface",

@@ -97,6 +97,9 @@ const expectedDocs = [
   "docs/safety-review.md",
   "docs/beta-dogfooding-v0.95.md",
   "docs/beta-dogfooding-checklist.md",
+  "docs/1.0-release-candidate.md",
+  "docs/1.0-rc-verification-checklist.md",
+  "docs/release-notes-v1.0-rc.md",
   ".github/workflows/ci.yml"
 ];
 for (const relativePath of expectedDocs) {
