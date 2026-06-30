@@ -8,12 +8,14 @@ import { applyIdleMonsterFarmPanelStyle, getIdleMonsterFarmPanelAdapterState, se
 import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdapterState, setupIdleMonsterFarmRewardToastBridge, summarizeRewardToastApplyResult } from "../adapters/idleMonsterFarm/rewardToastAdapter";
 import { logCommandEnd, logCommandStart, logError, logInfo, logWarn } from "../core/output";
 import { applyGenericPhaserAsset, applyGenericPhaserStyle, getGenericPhaserAdapterState, GenericPhaserDetection, GenericPhaserSurfaceType } from "../core/genericPhaserAdapter";
+import { genericStyleConfigRelativePath } from "../core/genericPhaserAdapterModel";
 import { createTuningAttempt, getFallbackFieldNoteGuidance, getTreatmentSummary, loadTuningAttemptIndex, updateTuningAttemptResult } from "../core/tuningAttempts";
 import { buildVisualDirectApplyPlan, executeVisualDirectApplyPlan } from "../core/visualDirectApplyTemplates";
 import { checkVisualScopeGuard, renderVisualScopeGuardMessage, visualScopeGuardWarnings } from "../core/visualScopeGuard";
 import { buildVisualPreviewRenderRequest } from "../core/visualPreviewModel";
 import { ensureVisualRecipeFiles } from "../core/visualRecipeFiles";
 import { getVisualSurfaceRecipe, getVisualSurfaceRecipes, visualSurfacePickerOrder } from "../core/visualRecipeRegistry";
+import { findLatestVisualRollbackForFile, restoreVisualRollbackSnapshot } from "../core/visualRollback";
 import {
   backgroundReadabilityStyleConfigRelativePath,
   BackgroundStyleConfigLoadResult,
@@ -56,7 +58,7 @@ export interface TuneVisualSurfaceInitialState {
 }
 
 interface SaveMessage {
-  command: "saveAndApply" | "setupBridge" | "applyAsset" | "markResult";
+  command: "saveAndApply" | "setupBridge" | "applyAsset" | "markResult" | "undoLastApply";
   surfaceType: VisualSurfaceType;
   presetName: string;
   values: SurfaceValues;
@@ -74,7 +76,7 @@ interface SaveMessage {
 }
 
 interface SaveResultMessage {
-  command: "saveResult" | "resultMarked";
+  command: "saveResult" | "resultMarked" | "undoResult";
   ok: boolean;
   surfaceType?: VisualSurfaceType;
   configPath?: string;
@@ -91,6 +93,24 @@ interface SaveResultMessage {
   applySummary?: string[];
   warnings?: string[];
   error?: string;
+  surfaceUpdate?: TunerSurfaceUpdate;
+  latestRollback?: TunerRollbackHandle;
+}
+
+interface TunerRollbackHandle {
+  snapshotId: string;
+  fileId: string;
+  snapshotPath: string;
+  originalPath: string;
+}
+
+interface TunerSurfaceUpdate {
+  surfaceType: Exclude<VisualSurfaceType, "asset_replacement">;
+  initialConfig: unknown;
+  configLoad: { status: "valid"; existingConfigDetected: boolean; initializedFromExistingConfig: boolean };
+  beforeValues: SurfaceValues;
+  preview: ReturnType<typeof buildVisualPreviewRenderRequest>;
+  latestRollback?: TunerRollbackHandle;
 }
 
 export async function tuneVisualSurface(context: vscode.ExtensionContext, initialState: TuneVisualSurfaceInitialState = {}): Promise<void> {
@@ -140,6 +160,7 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
     });
 
     panel.webview.html = renderHtml({
+      workspaceRoot: folder.uri.fsPath,
       slotLoad,
       backgroundLoad,
       panelLoad,
@@ -162,6 +183,8 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
         ? await markAttemptResult(folder, message)
         : message.command === "applyAsset"
         ? await applyAsset(folder, message)
+        : message.command === "undoLastApply"
+        ? await undoLastApply(folder, message)
         : message.command === "setupBridge"
         ? await setupBridge(folder, message, slotLoad, backgroundLoad, panelLoad, rewardToastLoad, buttonLoad)
         : await saveAndApply(folder, message, slotLoad, backgroundLoad, panelLoad, rewardToastLoad, buttonLoad);
@@ -307,8 +330,164 @@ async function saveConfigAndApply(
       `direct apply plan executable: ${plan.executable ? "yes" : "no"}`,
       ...applySummary
     ],
-    warnings: templateResult.warnings
+    warnings: templateResult.warnings,
+    surfaceUpdate: buildTunerSurfaceUpdate(folder.uri.fsPath, surfaceType, config),
+    latestRollback: latestRollbackHandle(folder.uri.fsPath, configRelativePath, surfaceType)
   };
+}
+
+async function undoLastApply(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  if (message.surfaceType === "asset_replacement") {
+    return { command: "undoResult", ok: false, surfaceType: message.surfaceType, error: "Undo Last Apply is only available for generated visual style configs." };
+  }
+  if (message.adapterId === "generic_phaser") {
+    return { command: "undoResult", ok: false, surfaceType: message.surfaceType, error: "Undo Last Apply is only available for supported Idle Monster Farm visual style configs." };
+  }
+  const configPath = configPathForTunerSurface(message.adapterId ?? "idle_monster_farm", message.surfaceType);
+  const latestRollback = findLatestVisualRollbackForFile(folder.uri.fsPath, configPath, message.surfaceType);
+  if (!latestRollback) {
+    return { command: "undoResult", ok: false, surfaceType: message.surfaceType, error: "No safe rollback snapshot is available for this visual surface." };
+  }
+  const result = restoreVisualRollbackSnapshot(folder.uri.fsPath, {
+    snapshotId: latestRollback.snapshot.id,
+    fileIds: [latestRollback.file.fileId]
+  });
+  if (result.restoredFiles.length === 0) {
+    return {
+      command: "undoResult",
+      ok: false,
+      surfaceType: message.surfaceType,
+      error: summarizeUndoFailure(result),
+      warnings: result.warnings
+    };
+  }
+  const config = await loadAppliedSurfaceConfig(folder, message.surfaceType);
+  return {
+    command: "undoResult",
+    ok: true,
+    surfaceType: message.surfaceType,
+    configPath,
+    rollbackPaths: result.restoredFiles.flatMap((file) => file.preRestoreBackupPath ? [file.preRestoreBackupPath] : []),
+    applySummary: [
+      `undo restored: ${result.restoredFiles.map((file) => file.originalPath).join(", ")}`,
+      `snapshot: ${latestRollback.snapshot.id}`
+    ],
+    warnings: result.warnings,
+    surfaceUpdate: buildTunerSurfaceUpdate(folder.uri.fsPath, message.surfaceType, config, false)
+  };
+}
+
+function summarizeUndoFailure(result: ReturnType<typeof restoreVisualRollbackSnapshot>): string {
+  return [
+    `Undo Last Apply failed: ${result.status}.`,
+    ...result.blockedFiles.map((file) => `${file.originalPath}: ${file.message}`),
+    ...result.skippedFiles.map((file) => `${file.originalPath}: ${file.message}`),
+    ...result.errors
+  ].join(" ");
+}
+
+function configPathForTunerSurface(adapterId: "idle_monster_farm" | "generic_phaser", surfaceType: Exclude<VisualSurfaceType, "asset_replacement">): string {
+  if (adapterId === "generic_phaser") {
+    return genericStyleConfigRelativePath(surfaceType);
+  }
+  if (surfaceType === "background_readability") {
+    return backgroundReadabilityStyleConfigRelativePath;
+  }
+  if (surfaceType === "panel") {
+    return panelStyleConfigRelativePath;
+  }
+  if (surfaceType === "reward_toast") {
+    return rewardToastStyleConfigRelativePath;
+  }
+  if (surfaceType === "button") {
+    return buttonStyleConfigRelativePath;
+  }
+  return farmSlotStyleConfigRelativePath;
+}
+
+async function loadAppliedSurfaceConfig(folder: vscode.WorkspaceFolder, surfaceType: Exclude<VisualSurfaceType, "asset_replacement">): Promise<unknown> {
+  const text = await readTextFileIfExists(labUri(folder, ...configPathForTunerSurface("idle_monster_farm", surfaceType).replace(/^\.game-polish-lab\//, "").split("/")));
+  if (surfaceType === "background_readability") {
+    const load = loadBackgroundReadabilityStyleConfigFromText(text);
+    if (load.status !== "valid") {
+      throw new Error("Restored background readability config is not valid.");
+    }
+    return load.config;
+  }
+  if (surfaceType === "panel") {
+    const load = loadPanelStyleConfigFromText(text);
+    if (load.status !== "valid") {
+      throw new Error("Restored panel config is not valid.");
+    }
+    return load.config;
+  }
+  if (surfaceType === "reward_toast") {
+    const load = loadRewardToastStyleConfigFromText(text);
+    if (load.status !== "valid") {
+      throw new Error("Restored reward toast config is not valid.");
+    }
+    return load.config;
+  }
+  if (surfaceType === "button") {
+    const load = loadButtonStyleConfigFromText(text);
+    if (load.status !== "valid") {
+      throw new Error("Restored button config is not valid.");
+    }
+    return load.config;
+  }
+  const load = loadSlotCardStyleConfigFromText(text);
+  if (load.status !== "valid") {
+    throw new Error("Restored farm slot config is not valid.");
+  }
+  return load.config;
+}
+
+function buildTunerSurfaceUpdate(workspaceRoot: string, surfaceType: Exclude<VisualSurfaceType, "asset_replacement">, config: unknown, includeLatestRollback = true): TunerSurfaceUpdate {
+  const typedConfig = config as { values: SurfaceValues };
+  const values = typedConfig.values;
+  const target = previewTargetForSurface(surfaceType);
+  return {
+    surfaceType,
+    initialConfig: typedConfig,
+    configLoad: { status: "valid", existingConfigDetected: true, initializedFromExistingConfig: true },
+    beforeValues: values,
+    preview: buildVisualPreviewRenderRequest({
+      surfaceType,
+      adapterId: target.adapterId,
+      targetId: target.targetId,
+      targetLabel: target.targetLabel,
+      currentStyle: values,
+      draftStyle: values,
+      appliedStyleExists: true
+    }),
+    latestRollback: includeLatestRollback ? latestRollbackHandle(workspaceRoot, configPathForTunerSurface("idle_monster_farm", surfaceType), surfaceType) : undefined
+  };
+}
+
+function previewTargetForSurface(surfaceType: Exclude<VisualSurfaceType, "asset_replacement">): { adapterId: string; targetId: string; targetLabel: string } {
+  if (surfaceType === "background_readability") {
+    return { adapterId: "idle_monster_farm.background", targetId: "background", targetLabel: "Monster Farm Background" };
+  }
+  if (surfaceType === "panel") {
+    return { adapterId: "idle_monster_farm.panels", targetId: "panels", targetLabel: "Monster Farm Panels" };
+  }
+  if (surfaceType === "reward_toast") {
+    return { adapterId: "idle_monster_farm.reward_toast", targetId: "reward_toast", targetLabel: "Monster Farm Reward Toast" };
+  }
+  if (surfaceType === "button") {
+    return { adapterId: "idle_monster_farm.buttons", targetId: "buttons", targetLabel: "Monster Farm Buttons" };
+  }
+  return { adapterId: "idle_monster_farm.farm_slots", targetId: "farm_slots", targetLabel: "Monster Farm Slots" };
+}
+
+function latestRollbackHandle(workspaceRoot: string, originalPath: string, surfaceType: Exclude<VisualSurfaceType, "asset_replacement">): TunerRollbackHandle | undefined {
+  const latest = findLatestVisualRollbackForFile(workspaceRoot, originalPath, surfaceType);
+  return latest ? {
+    snapshotId: latest.snapshot.id,
+    fileId: latest.file.fileId,
+    snapshotPath: latest.file.snapshotPath,
+    originalPath: latest.file.originalPath
+  } : undefined;
 }
 
 async function setupBridge(folder: vscode.WorkspaceFolder, message: SaveMessage, slotLoad: StyleConfigLoadResult, backgroundLoad: BackgroundStyleConfigLoadResult, panelLoad: PanelStyleConfigLoadResult, rewardToastLoad: RewardToastStyleConfigLoadResult, buttonLoad: ButtonStyleConfigLoadResult): Promise<SaveResultMessage> {
@@ -730,6 +909,7 @@ function visualRecipeChecklist(recipePaths: string[]): string[] {
 }
 
 function renderHtml(input: {
+  workspaceRoot: string;
   slotLoad: StyleConfigLoadResult;
   backgroundLoad: BackgroundStyleConfigLoadResult;
   panelLoad: PanelStyleConfigLoadResult;
@@ -754,11 +934,11 @@ function renderHtml(input: {
   const buttonBeforeValues = input.buttonLoad.initializedFromExistingConfig ? input.buttonLoad.config.values : defaultButtonStyle;
   const payload = JSON.stringify({
     surfaces: {
-      slot_card: { presets: slotCardPresets, bounds: slotCardStyleBounds, initialConfig: input.slotLoad.config, configLoad: input.slotLoad, adapterState: input.slotState, beforeValues: slotBeforeValues, preview: buildVisualPreviewRenderRequest({ surfaceType: "slot_card", adapterId: "idle_monster_farm.farm_slots", targetId: "farm_slots", targetLabel: "Monster Farm Slots", currentStyle: slotBeforeValues, draftStyle: input.slotLoad.config.values, appliedStyleExists: input.slotLoad.initializedFromExistingConfig }) },
-      background_readability: { presets: backgroundReadabilityPresets, bounds: backgroundReadabilityStyleBounds, initialConfig: input.backgroundLoad.config, configLoad: input.backgroundLoad, adapterState: input.backgroundState, beforeValues: backgroundBeforeValues, preview: buildVisualPreviewRenderRequest({ surfaceType: "background_readability", adapterId: "idle_monster_farm.background", targetId: "background", targetLabel: "Monster Farm Background", currentStyle: backgroundBeforeValues, draftStyle: input.backgroundLoad.config.values, appliedStyleExists: input.backgroundLoad.initializedFromExistingConfig }) },
-      panel: { presets: panelStylePresets, bounds: panelStyleBounds, initialConfig: input.panelLoad.config, configLoad: input.panelLoad, adapterState: input.panelState, beforeValues: panelBeforeValues, preview: buildVisualPreviewRenderRequest({ surfaceType: "panel", adapterId: "idle_monster_farm.panels", targetId: "panels", targetLabel: "Monster Farm Panels", currentStyle: panelBeforeValues, draftStyle: input.panelLoad.config.values, appliedStyleExists: input.panelLoad.initializedFromExistingConfig }) },
-      reward_toast: { presets: rewardToastPresets, bounds: rewardToastStyleBounds, initialConfig: input.rewardToastLoad.config, configLoad: input.rewardToastLoad, adapterState: input.rewardToastState, beforeValues: rewardToastBeforeValues, preview: buildVisualPreviewRenderRequest({ surfaceType: "reward_toast", adapterId: "idle_monster_farm.reward_toast", targetId: "reward_toast", targetLabel: "Monster Farm Reward Toast", currentStyle: rewardToastBeforeValues, draftStyle: input.rewardToastLoad.config.values, appliedStyleExists: input.rewardToastLoad.initializedFromExistingConfig }) },
-      button: { presets: buttonStylePresets, bounds: buttonStyleBounds, initialConfig: input.buttonLoad.config, configLoad: input.buttonLoad, adapterState: input.buttonState, beforeValues: buttonBeforeValues, preview: buildVisualPreviewRenderRequest({ surfaceType: "button", adapterId: "idle_monster_farm.buttons", targetId: "buttons", targetLabel: "Monster Farm Buttons", currentStyle: buttonBeforeValues, draftStyle: input.buttonLoad.config.values, appliedStyleExists: input.buttonLoad.initializedFromExistingConfig }) }
+      slot_card: { presets: slotCardPresets, bounds: slotCardStyleBounds, initialConfig: input.slotLoad.config, configLoad: input.slotLoad, adapterState: input.slotState, beforeValues: slotBeforeValues, latestRollback: latestRollbackHandle(input.workspaceRoot, farmSlotStyleConfigRelativePath, "slot_card"), preview: buildVisualPreviewRenderRequest({ surfaceType: "slot_card", adapterId: "idle_monster_farm.farm_slots", targetId: "farm_slots", targetLabel: "Monster Farm Slots", currentStyle: slotBeforeValues, draftStyle: input.slotLoad.config.values, appliedStyleExists: input.slotLoad.initializedFromExistingConfig }) },
+      background_readability: { presets: backgroundReadabilityPresets, bounds: backgroundReadabilityStyleBounds, initialConfig: input.backgroundLoad.config, configLoad: input.backgroundLoad, adapterState: input.backgroundState, beforeValues: backgroundBeforeValues, latestRollback: latestRollbackHandle(input.workspaceRoot, backgroundReadabilityStyleConfigRelativePath, "background_readability"), preview: buildVisualPreviewRenderRequest({ surfaceType: "background_readability", adapterId: "idle_monster_farm.background", targetId: "background", targetLabel: "Monster Farm Background", currentStyle: backgroundBeforeValues, draftStyle: input.backgroundLoad.config.values, appliedStyleExists: input.backgroundLoad.initializedFromExistingConfig }) },
+      panel: { presets: panelStylePresets, bounds: panelStyleBounds, initialConfig: input.panelLoad.config, configLoad: input.panelLoad, adapterState: input.panelState, beforeValues: panelBeforeValues, latestRollback: latestRollbackHandle(input.workspaceRoot, panelStyleConfigRelativePath, "panel"), preview: buildVisualPreviewRenderRequest({ surfaceType: "panel", adapterId: "idle_monster_farm.panels", targetId: "panels", targetLabel: "Monster Farm Panels", currentStyle: panelBeforeValues, draftStyle: input.panelLoad.config.values, appliedStyleExists: input.panelLoad.initializedFromExistingConfig }) },
+      reward_toast: { presets: rewardToastPresets, bounds: rewardToastStyleBounds, initialConfig: input.rewardToastLoad.config, configLoad: input.rewardToastLoad, adapterState: input.rewardToastState, beforeValues: rewardToastBeforeValues, latestRollback: latestRollbackHandle(input.workspaceRoot, rewardToastStyleConfigRelativePath, "reward_toast"), preview: buildVisualPreviewRenderRequest({ surfaceType: "reward_toast", adapterId: "idle_monster_farm.reward_toast", targetId: "reward_toast", targetLabel: "Monster Farm Reward Toast", currentStyle: rewardToastBeforeValues, draftStyle: input.rewardToastLoad.config.values, appliedStyleExists: input.rewardToastLoad.initializedFromExistingConfig }) },
+      button: { presets: buttonStylePresets, bounds: buttonStyleBounds, initialConfig: input.buttonLoad.config, configLoad: input.buttonLoad, adapterState: input.buttonState, beforeValues: buttonBeforeValues, latestRollback: latestRollbackHandle(input.workspaceRoot, buttonStyleConfigRelativePath, "button"), preview: buildVisualPreviewRenderRequest({ surfaceType: "button", adapterId: "idle_monster_farm.buttons", targetId: "buttons", targetLabel: "Monster Farm Buttons", currentStyle: buttonBeforeValues, draftStyle: input.buttonLoad.config.values, appliedStyleExists: input.buttonLoad.initializedFromExistingConfig }) }
     },
     stylePresetLibrary: visualPresetLibrary,
     recipes: input.recipes,
@@ -779,13 +959,13 @@ function renderHtml(input: {
   <style nonce="${nonce}">
     :root{color-scheme:light dark;--panel:var(--vscode-editorWidget-background);--border:var(--vscode-panel-border);--text:var(--vscode-foreground);--muted:var(--vscode-descriptionForeground);--button:var(--vscode-button-background);--button-text:var(--vscode-button-foreground);--focus:var(--vscode-focusBorder)}
     *{box-sizing:border-box} body{margin:0;padding:18px;color:var(--text);font-family:var(--vscode-font-family);background:var(--vscode-editor-background)}
-    main{display:grid;grid-template-columns:minmax(280px,360px) minmax(360px,1fr);gap:18px;align-items:start} h1,h2,h3,p{margin:0} h1{font-size:20px} h2{font-size:15px;margin-bottom:10px}.meta,.status,.list,.preset-description{color:var(--muted);font-size:12px;line-height:1.45}.preset-description{margin-top:6px}.preset-active{color:var(--focus);font-weight:700}.panel{border:1px solid var(--border);background:var(--panel);border-radius:8px;padding:14px}.controls{display:grid;gap:12px}label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}select,input[type=number],input[type=color],input[type=text],textarea{width:100%;color:var(--vscode-input-foreground);background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,var(--border));border-radius:4px;min-height:28px}textarea{min-height:68px;resize:vertical}input[type=range]{width:100%}.control-row{display:grid;grid-template-columns:1fr 76px;gap:8px;align-items:center}.preview-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;justify-content:space-between;margin-bottom:12px}.preview-toolbar label{margin:0}.preview-grid{display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:14px}.compare-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px}.frame-label{font-size:11px;color:var(--muted)}.board{position:relative;display:grid;align-content:start;gap:12px;min-height:390px;overflow:hidden;border:1px solid var(--border);border-radius:6px;padding:14px;background:#253629}.board.desktop{width:100%;min-height:390px}.board.mobile{width:min(100%,360px);min-height:560px;margin:0 auto}.slot-grid{display:grid;grid-template-columns:repeat(3,var(--slot-width));gap:var(--slot-gap)}.slot-card{position:relative;display:grid;place-items:center;width:var(--slot-width);height:var(--slot-height);background:var(--fill-color);border:var(--border-width) solid var(--border-color);border-radius:var(--corner-radius);overflow:hidden}.slot-card.empty{opacity:var(--empty-opacity)}.slot-card.selected{box-shadow:0 0 calc(28px * var(--selected-glow)) var(--border-color)}.slot-card.locked:after{content:"";position:absolute;inset:0;background:rgba(0,0,0,var(--locked-opacity))}.slot-card.merge_candidate.animate .monster{animation:merge-pulse 900ms ease-in-out infinite alternate}.state-label{position:absolute;left:6px;top:5px;z-index:2;font-size:10px;color:#fff;text-shadow:0 1px 2px #000}.monster{width:52px;height:52px;border-radius:45%;background:radial-gradient(circle at 34% 28%,#fff 0 8%,#81d37b 9% 44%,#2f8a4a 45% 100%);border:3px solid #173f25;transform:translateY(var(--monster-offset)) scale(var(--monster-scale))}.state-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px}.state-tile{display:grid;gap:6px;justify-items:center;border:1px solid var(--border);border-radius:6px;padding:8px;background:rgba(255,255,255,.03)}.state-tile.unsupported{opacity:.6}.state-tile .slot-card{--slot-width:88px;--slot-height:88px}.hud{position:relative;z-index:1;width:max-content;padding:6px 8px;color:#fff;background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.35);border-radius:6px}.bg:before{content:"";position:absolute;inset:0;opacity:var(--image-opacity);background:repeating-linear-gradient(45deg,rgba(255,255,255,var(--pattern-opacity)) 0 8px,transparent 8px 18px),radial-gradient(circle at 28% 25%,rgba(255,255,255,.3),transparent 18%)}.bg:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,transparent 0 50%,rgba(0,0,0,var(--vignette)) 100%),linear-gradient(var(--overlay-color),var(--overlay-color));opacity:var(--overlay-opacity)}.foreground{position:relative;z-index:1}.panel-preview{position:relative;display:grid;gap:var(--panel-gap);width:min(100%,360px);padding:var(--panel-padding);color:#fff;background:color-mix(in srgb,var(--panel-fill) calc(var(--panel-opacity) * 100%),transparent);border:var(--panel-border-width) solid var(--panel-border);border-radius:var(--panel-radius);box-shadow:0 10px calc(28px * var(--panel-shadow)) rgba(0,0,0,.55),0 0 calc(24px * var(--panel-glow)) var(--panel-border);overflow:hidden}.panel-preview:before{content:"";position:absolute;left:0;right:0;top:0;height:var(--panel-accent-height);background:var(--panel-accent)}.panel-title{font-size:var(--panel-title-size);font-weight:700}.panel-row{display:grid;grid-template-columns:24px 1fr auto;gap:8px;align-items:center;min-height:28px;font-size:var(--panel-body-size)}.panel-row.disabled{opacity:var(--panel-disabled)}.panel-icon{width:18px;height:18px;border-radius:4px;background:var(--panel-accent)}.panel-divider{height:var(--panel-divider-thickness);background:var(--panel-divider);opacity:var(--panel-divider-opacity)}.panel-action{justify-self:start;min-width:92px;min-height:26px;border-radius:5px;border:1px solid var(--panel-border);background:rgba(255,255,255,.12);display:grid;place-items:center;font-size:var(--panel-body-size)}.reward-stage{position:relative;min-height:330px;display:grid;place-items:center;background:linear-gradient(#314934,#203129)}.reward-toast{position:absolute;display:grid;grid-template-columns:auto auto;gap:8px;align-items:center;padding:8px 12px;color:#fff;background:color-mix(in srgb,var(--toast-fill) calc(var(--toast-opacity) * 100%),transparent);border:var(--toast-border-width) solid var(--toast-border);border-radius:var(--toast-radius);box-shadow:0 12px calc(30px * var(--toast-shadow)) rgba(0,0,0,.55),0 0 calc(28px * var(--toast-glow)) var(--toast-border);font-size:var(--toast-text-size);font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.7);animation:reward-rise var(--toast-duration) ease-out infinite}.reward-icon{width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 34% 28%,#fff4a8 0 18%,#ffc845 19% 62%,#b96d1c 63% 100%);transform:scale(var(--toast-icon-scale))}.sparkle{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--toast-border);box-shadow:0 0 calc(10px * var(--sparkle-scale)) var(--toast-border);animation:sparkle-pop var(--toast-duration) ease-out infinite}.button-stage{align-content:start;background:linear-gradient(#2f4235,#202b29)}.button-preview-group{display:grid;gap:10px}.button-context{color:#dce8df;font-size:11px;text-transform:uppercase;letter-spacing:.04em}.button-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(0,0,0,.18)}.button-preview{position:relative;display:inline-grid;grid-template-columns:auto auto;place-items:center;align-items:center;gap:var(--button-gap);width:var(--button-width);height:var(--button-height);padding:var(--button-padding-y) var(--button-padding-x);color:var(--button-label);background:color-mix(in srgb,var(--button-fill) calc(var(--button-opacity) * 100%),transparent);border:var(--button-border-width) solid var(--button-border);border-radius:var(--button-radius);box-shadow:0 8px calc(24px * var(--button-shadow)) rgba(0,0,0,.55),0 0 calc(22px * var(--button-glow)) var(--button-border);font-size:var(--button-text-size);font-weight:700;transition:transform var(--button-press-duration) ease,filter var(--button-press-duration) ease}.button-preview:after{content:"";position:absolute;inset:0;border-radius:inherit;background:rgba(0,0,0,var(--button-active-darken));opacity:0;pointer-events:none}.button-preview.hover{transform:translateY(calc(var(--button-hover-lift) * -1));box-shadow:0 10px calc(24px * var(--button-shadow)) rgba(0,0,0,.55),0 0 calc(28px * var(--button-hover-glow)) var(--button-border)}.button-preview.active{animation:button-press var(--button-press-duration) ease infinite alternate}.button-preview.active:after{opacity:1}.button-preview.disabled{opacity:var(--button-disabled-opacity);filter:saturate(var(--button-disabled-saturation))}.button-icon{width:20px;height:20px;border-radius:6px;background:radial-gradient(circle at 32% 25%,#fff 0 12%,#8dd27f 13% 58%,#2f8650 59% 100%);transform:scale(var(--button-icon-scale))}.button-label{transform:scale(var(--button-label-scale));white-space:nowrap}.drop-zone{border:1px dashed var(--border);border-radius:6px;padding:14px;color:var(--muted);text-align:center}.asset-img{max-width:96px;max-height:96px;object-fit:contain}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}button{min-height:30px;color:var(--button-text);background:var(--button);border:1px solid transparent;border-radius:4px;padding:4px 12px}.secondary{color:var(--vscode-button-secondaryForeground);background:var(--vscode-button-secondaryBackground)}.status{margin-top:12px;white-space:pre-wrap}.list{margin:8px 0 0;padding-left:18px}@keyframes merge-pulse{from{transform:translateY(var(--monster-offset)) scale(var(--monster-scale))}to{transform:translateY(var(--monster-offset)) scale(calc(var(--monster-scale) * var(--merge-pulse)))}}@keyframes button-press{from{transform:scale(1)}to{transform:scale(var(--button-active-scale))}}@keyframes reward-rise{0%{opacity:0;transform:translateY(0) scale(var(--toast-start-scale))}18%{opacity:1;transform:translateY(calc(var(--toast-rise) * -.24)) scale(var(--toast-peak-scale))}40%{transform:translateY(calc(var(--toast-rise) * -.5)) scale(calc(var(--toast-end-scale) + var(--toast-bounce) * .08))}78%{opacity:1}100%{opacity:0;transform:translateY(calc(var(--toast-rise) * -1)) scale(var(--toast-end-scale))}}@keyframes sparkle-pop{0%,18%{opacity:0;transform:scale(.2)}34%{opacity:1;transform:scale(var(--sparkle-scale))}100%{opacity:0;transform:translateY(-26px) scale(.1)}}@media(max-width:900px){main,.preview-grid{grid-template-columns:1fr}}
+    main{display:grid;grid-template-columns:minmax(280px,360px) minmax(360px,1fr);gap:18px;align-items:start} h1,h2,h3,p{margin:0} h1{font-size:20px} h2{font-size:15px;margin-bottom:10px}.meta,.status,.list,.preset-description{color:var(--muted);font-size:12px;line-height:1.45}.preset-description{margin-top:6px}.preset-active{color:var(--focus);font-weight:700}.panel{border:1px solid color-mix(in srgb,var(--border) 72%,transparent);background:var(--panel);border-radius:8px;padding:14px}.controls{display:grid;gap:12px}label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}select,input[type=number],input[type=color],input[type=text],textarea{width:100%;color:var(--vscode-input-foreground);background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,var(--border));border-radius:4px;min-height:28px}textarea{min-height:68px;resize:vertical}input[type=range]{width:100%}.control-row{display:grid;grid-template-columns:1fr 76px;gap:8px;align-items:center}.preview-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;justify-content:space-between;margin-bottom:12px}.preview-toolbar label{margin:0}.preview-grid{display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:14px}.compare-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px}.frame-label{font-size:11px;color:var(--muted)}.board{position:relative;display:grid;align-content:start;gap:12px;min-height:390px;overflow:hidden;border:1px solid color-mix(in srgb,var(--border) 72%,transparent);border-radius:6px;padding:14px;background:#253629}.board.desktop{width:100%;min-height:390px}.board.mobile{width:min(100%,360px);min-height:560px;margin:0 auto}.slot-grid{display:grid;grid-template-columns:repeat(3,var(--slot-width));gap:var(--slot-gap)}.slot-card{position:relative;display:grid;place-items:center;width:var(--slot-width);height:var(--slot-height);background:var(--fill-color);border:var(--border-width) solid var(--border-color);border-radius:var(--corner-radius);overflow:hidden}.slot-card.empty{opacity:var(--empty-opacity)}.slot-card.selected{box-shadow:0 0 calc(28px * var(--selected-glow)) var(--border-color)}.slot-card.locked:after{content:"";position:absolute;inset:0;background:rgba(0,0,0,var(--locked-opacity))}.slot-card.merge_candidate.animate .monster{animation:merge-pulse 900ms ease-in-out infinite alternate}.state-label{position:absolute;left:6px;top:5px;z-index:2;font-size:10px;color:#fff;text-shadow:0 1px 2px #000}.monster{width:52px;height:52px;border-radius:45%;background:radial-gradient(circle at 34% 28%,#fff 0 8%,#81d37b 9% 44%,#2f8a4a 45% 100%);border:3px solid #173f25;transform:translateY(var(--monster-offset)) scale(var(--monster-scale))}.state-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px}.state-tile{display:grid;gap:6px;justify-items:center;border:1px solid color-mix(in srgb,var(--border) 70%,transparent);border-radius:6px;padding:8px;background:rgba(255,255,255,.03)}.state-tile.unsupported{opacity:.6}.state-tile .slot-card{--slot-width:88px;--slot-height:88px}.hud{position:relative;z-index:1;width:max-content;padding:6px 8px;color:#fff;background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.35);border-radius:6px}.bg:before{content:"";position:absolute;inset:0;opacity:var(--image-opacity);background:repeating-linear-gradient(45deg,rgba(255,255,255,var(--pattern-opacity)) 0 8px,transparent 8px 18px),radial-gradient(circle at 28% 25%,rgba(255,255,255,.3),transparent 18%)}.bg:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,transparent 0 50%,rgba(0,0,0,var(--vignette)) 100%),linear-gradient(var(--overlay-color),var(--overlay-color));opacity:var(--overlay-opacity)}.foreground{position:relative;z-index:1}.panel-preview{position:relative;display:grid;gap:var(--panel-gap);width:min(100%,360px);padding:var(--panel-padding);color:#fff;background:color-mix(in srgb,var(--panel-fill) calc(var(--panel-opacity) * 100%),transparent);border:var(--panel-border-width) solid var(--panel-border);border-radius:var(--panel-radius);box-shadow:0 10px calc(28px * var(--panel-shadow)) rgba(0,0,0,.55),0 0 calc(24px * var(--panel-glow)) var(--panel-border);overflow:hidden}.panel-preview:before{content:"";position:absolute;left:0;right:0;top:0;height:var(--panel-accent-height);background:var(--panel-accent)}.panel-title{font-size:var(--panel-title-size);font-weight:700}.panel-row{display:grid;grid-template-columns:24px 1fr auto;gap:8px;align-items:center;min-height:28px;font-size:var(--panel-body-size)}.panel-row.disabled{opacity:var(--panel-disabled)}.panel-icon{width:18px;height:18px;border-radius:4px;background:var(--panel-accent)}.panel-divider{height:var(--panel-divider-thickness);background:var(--panel-divider);opacity:var(--panel-divider-opacity)}.panel-action{justify-self:start;min-width:92px;min-height:26px;border-radius:5px;border:1px solid var(--panel-border);background:rgba(255,255,255,.12);display:grid;place-items:center;font-size:var(--panel-body-size)}.reward-stage{position:relative;min-height:330px;display:grid;place-items:center;background:linear-gradient(#314934,#203129)}.reward-toast{position:absolute;display:grid;grid-template-columns:auto auto;gap:8px;align-items:center;padding:8px 12px;color:#fff;background:color-mix(in srgb,var(--toast-fill) calc(var(--toast-opacity) * 100%),transparent);border:var(--toast-border-width) solid var(--toast-border);border-radius:var(--toast-radius);box-shadow:0 12px calc(30px * var(--toast-shadow)) rgba(0,0,0,.55),0 0 calc(28px * var(--toast-glow)) var(--toast-border);font-size:var(--toast-text-size);font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.7);animation:reward-rise var(--toast-duration) ease-out infinite}.reward-icon{width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 34% 28%,#fff4a8 0 18%,#ffc845 19% 62%,#b96d1c 63% 100%);transform:scale(var(--toast-icon-scale))}.sparkle{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--toast-border);box-shadow:0 0 calc(10px * var(--sparkle-scale)) var(--toast-border);animation:sparkle-pop var(--toast-duration) ease-out infinite}.button-stage{align-content:start;background:linear-gradient(#2f4235,#202b29)}.button-preview-group{display:grid;gap:10px}.button-context{color:#dce8df;font-size:11px;text-transform:uppercase;letter-spacing:.04em}.button-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(0,0,0,.18)}.button-preview{position:relative;display:inline-grid;grid-template-columns:auto auto;place-items:center;align-items:center;gap:var(--button-gap);width:var(--button-width);height:var(--button-height);padding:var(--button-padding-y) var(--button-padding-x);color:var(--button-label);background:color-mix(in srgb,var(--button-fill) calc(var(--button-opacity) * 100%),transparent);border:var(--button-border-width) solid var(--button-border);border-radius:var(--button-radius);box-shadow:0 8px calc(24px * var(--button-shadow)) rgba(0,0,0,.55),0 0 calc(22px * var(--button-glow)) var(--button-border);font-size:var(--button-text-size);font-weight:700;transition:transform var(--button-press-duration) ease,filter var(--button-press-duration) ease}.button-preview:after{content:"";position:absolute;inset:0;border-radius:inherit;background:rgba(0,0,0,var(--button-active-darken));opacity:0;pointer-events:none}.button-preview.hover{transform:translateY(calc(var(--button-hover-lift) * -1));box-shadow:0 10px calc(24px * var(--button-shadow)) rgba(0,0,0,.55),0 0 calc(28px * var(--button-hover-glow)) var(--button-border)}.button-preview.active{animation:button-press var(--button-press-duration) ease infinite alternate}.button-preview.active:after{opacity:1}.button-preview.disabled{opacity:var(--button-disabled-opacity);filter:saturate(var(--button-disabled-saturation))}.button-icon{width:20px;height:20px;border-radius:6px;background:radial-gradient(circle at 32% 25%,#fff 0 12%,#8dd27f 13% 58%,#2f8650 59% 100%);transform:scale(var(--button-icon-scale))}.button-label{transform:scale(var(--button-label-scale));white-space:nowrap}.drop-zone{border:1px dashed var(--border);border-radius:6px;padding:14px;color:var(--muted);text-align:center}.asset-img{max-width:96px;max-height:96px;object-fit:contain}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}button{min-height:30px;color:var(--button-text);background:var(--button);border:1px solid transparent;border-radius:4px;padding:4px 12px;transition:background-color .12s ease,border-color .12s ease,transform .08s ease,opacity .12s ease}button:hover:not(:disabled){background:var(--vscode-button-hoverBackground);border-color:color-mix(in srgb,var(--focus) 45%,transparent)}button:focus-visible{outline:1px solid var(--focus);outline-offset:2px}button:active:not(:disabled){transform:translateY(1px)}button:disabled{opacity:.52;cursor:not-allowed}.secondary{color:var(--vscode-button-secondaryForeground);background:var(--vscode-button-secondaryBackground)}.secondary:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground)}.warning-action{color:var(--vscode-editorWarning-foreground);border-color:color-mix(in srgb,var(--vscode-editorWarning-foreground) 60%,transparent)}.status{margin-top:12px;white-space:pre-wrap}.list{margin:8px 0 0;padding-left:18px}@keyframes merge-pulse{from{transform:translateY(var(--monster-offset)) scale(var(--monster-scale))}to{transform:translateY(var(--monster-offset)) scale(calc(var(--monster-scale) * var(--merge-pulse)))}}@keyframes button-press{from{transform:scale(1)}to{transform:scale(var(--button-active-scale))}}@keyframes reward-rise{0%{opacity:0;transform:translateY(0) scale(var(--toast-start-scale))}18%{opacity:1;transform:translateY(calc(var(--toast-rise) * -.24)) scale(var(--toast-peak-scale))}40%{transform:translateY(calc(var(--toast-rise) * -.5)) scale(calc(var(--toast-end-scale) + var(--toast-bounce) * .08))}78%{opacity:1}100%{opacity:0;transform:translateY(calc(var(--toast-rise) * -1)) scale(var(--toast-end-scale))}}@keyframes sparkle-pop{0%,18%{opacity:0;transform:scale(.2)}34%{opacity:1;transform:scale(var(--sparkle-scale))}100%{opacity:0;transform:translateY(-26px) scale(.1)}}@media(max-width:900px){main,.preview-grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
   <div style="margin-bottom:16px"><h1>Game Polish Lab v0.62: Visual Surface Tuning</h1><p class="meta">Preset library -> preview across frames/states -> save config/assets -> direct apply for supported adapters -> record result.</p></div>
   <main>
-    <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"></select></div><div><label for="adapterMode">Adapter</label><select id="adapterMode"><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option></select></div><div id="genericFields" style="display:none"><label for="genericTarget">Manual target label</label><input id="genericTarget" type="text" value="Manual visual target"><label for="genericFiles">Selected target files</label><textarea id="genericFiles"></textarea><label for="genericAssetFolder">Asset destination folder</label><input id="genericAssetFolder" type="text" value="src/assets"><label><input id="genericDirect" type="checkbox"> Write generated style module</label></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select><div id="presetDescription" class="preset-description"></div></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="resultPanel" style="display:none;margin-top:12px"><label for="resultNote">Result note</label><textarea id="resultNote" placeholder="What improved, got worse, or did not move?"></textarea><div class="actions"><button class="secondary" data-result="better">Mark Better</button><button class="secondary" data-result="worse">Mark Worse</button><button class="secondary" data-result="same">Mark Same</button><button class="secondary" data-result="mixed">Mark Mixed</button><button data-result="unreviewed">Add Note</button></div></div><div id="status" class="status"></div></section>
+    <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"></select></div><div><label for="adapterMode">Adapter</label><select id="adapterMode"><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option></select></div><div id="genericFields" style="display:none"><label for="genericTarget">Manual target label</label><input id="genericTarget" type="text" value="Manual visual target"><label for="genericFiles">Selected target files</label><textarea id="genericFiles"></textarea><label for="genericAssetFolder">Asset destination folder</label><input id="genericAssetFolder" type="text" value="src/assets"><label><input id="genericDirect" type="checkbox"> Write generated style module</label></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select><div id="presetDescription" class="preset-description"></div></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary warning-action" id="undoApply" disabled>Undo Last Apply</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="resultPanel" style="display:none;margin-top:12px"><label for="resultNote">Result note</label><textarea id="resultNote" placeholder="What improved, got worse, or did not move?"></textarea><div class="actions"><button class="secondary" data-result="better">Mark Better</button><button class="secondary" data-result="worse">Mark Worse</button><button class="secondary" data-result="same">Mark Same</button><button class="secondary" data-result="mixed">Mark Mixed</button><button data-result="unreviewed">Add Note</button></div></div><div id="status" class="status"></div></section>
     <section><div class="preview-toolbar"><div><label for="frameMode">Preview frame</label><select id="frameMode"><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select></div><label><input id="animationToggle" type="checkbox" checked> Play preview animation</label></div><section class="preview-grid"><div><div class="compare-heading"><h2>Before</h2><span id="beforeLabel" class="frame-label"></span></div><div id="before"></div></div><div><div class="compare-heading"><h2>After</h2><span id="afterLabel" class="frame-label"></span></div><div id="after"></div></div></section><section class="panel" style="margin-top:14px"><h3>State Preview Grid</h3><p id="stateGridLabel" class="meta"></p><div id="stateGrid" class="state-grid"></div></section></section>
   </main>
   <section class="panel" style="margin-top:14px"><h3>Adapter Detection</h3><ul id="adapter" class="list"></ul></section>
@@ -795,7 +975,7 @@ function renderHtml(input: {
     const labels={},numeric={},colors={};
     for(const recipe of data.recipes){numeric[recipe.surfaceType]=[];colors[recipe.surfaceType]=[];for(const token of recipe.supportedStyleTokens){labels[token.tokenId]=token.label;if(token.valueType==="number")numeric[recipe.surfaceType].push(token.tokenId);if(token.valueType==="color")colors[recipe.surfaceType].push(token.tokenId);}}
     let surfaceType=data.initialState.surfaceType&&data.surfaceOrder.includes(data.initialState.surfaceType)?data.initialState.surfaceType:"slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName, values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values), selectedPresetId="", selectedAsset=null, needsSetup=false, adapterId=data.initialState.adapterId||"idle_monster_farm", currentAttemptPath="", frameMode="desktop", animationOn=true;
-    const surface=document.getElementById("surface"), preset=document.getElementById("preset"), presetDescription=document.getElementById("presetDescription"), controls=document.getElementById("controls"), status=document.getElementById("status"), adapterMode=document.getElementById("adapterMode"), genericFields=document.getElementById("genericFields"), genericTarget=document.getElementById("genericTarget"), genericFiles=document.getElementById("genericFiles"), genericAssetFolder=document.getElementById("genericAssetFolder"), genericDirect=document.getElementById("genericDirect"), frameModeSelect=document.getElementById("frameMode"), animationToggle=document.getElementById("animationToggle"), beforeLabel=document.getElementById("beforeLabel"), afterLabel=document.getElementById("afterLabel"), stateGrid=document.getElementById("stateGrid"), stateGridLabel=document.getElementById("stateGridLabel");
+    const surface=document.getElementById("surface"), preset=document.getElementById("preset"), presetDescription=document.getElementById("presetDescription"), controls=document.getElementById("controls"), status=document.getElementById("status"), adapterMode=document.getElementById("adapterMode"), genericFields=document.getElementById("genericFields"), genericTarget=document.getElementById("genericTarget"), genericFiles=document.getElementById("genericFiles"), genericAssetFolder=document.getElementById("genericAssetFolder"), genericDirect=document.getElementById("genericDirect"), frameModeSelect=document.getElementById("frameMode"), animationToggle=document.getElementById("animationToggle"), beforeLabel=document.getElementById("beforeLabel"), afterLabel=document.getElementById("afterLabel"), stateGrid=document.getElementById("stateGrid"), stateGridLabel=document.getElementById("stateGridLabel"), undoApply=document.getElementById("undoApply");
     genericTarget.value=data.initialState.targetLabel||genericTarget.value;genericFiles.value=(data.genericPhaser.likelySceneFiles||[]).join("\\n");genericAssetFolder.value=(data.genericPhaser.likelyAssetFolders&&data.genericPhaser.likelyAssetFolders[0])||"src/assets";
     for(const id of data.surfaceOrder){const option=document.createElement("option");option.value=id;option.textContent=recipesBySurface[id]?recipesBySurface[id].displayName:id;option.selected=id===surfaceType;surface.append(option);}
     adapterMode.value=adapterId;
@@ -805,7 +985,7 @@ function renderHtml(input: {
     animationToggle.addEventListener("change",()=>{animationOn=animationToggle.checked;render();});
     [genericTarget,genericFiles,genericAssetFolder,genericDirect].forEach(el=>el.addEventListener("input",renderAdapter));
     function genericSelectedFiles(){return genericFiles.value.split(/\\r?\\n|,/).map(v=>v.trim()).filter(Boolean);}
-    function rebuild(){genericFields.style.display=adapterId==="generic_phaser"?"block":"none";buildPreset();buildControls();render();renderAdapter();document.getElementById("setup").style.display=adapterId==="generic_phaser"?"none":needsSetup?"inline-block":"none";status.textContent=surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning?surfaceData.configLoad.warning:"";}
+    function rebuild(){genericFields.style.display=adapterId==="generic_phaser"?"block":"none";buildPreset();buildControls();render();renderAdapter();document.getElementById("setup").style.display=adapterId==="generic_phaser"?"none":needsSetup?"inline-block":"none";updateUndoState();status.textContent=surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning?surfaceData.configLoad.warning:"";}
     function buildPreset(){preset.textContent="";presetDescription.textContent="";document.getElementById("presetRow").style.display=surfaceType==="asset_replacement"?"none":"block";if(surfaceType==="asset_replacement")return;const options=presetOptions();if(!selectedPresetId){const match=options.find(p=>p.name===presetName)||options.find(p=>draftMatches(p.values,values));selectedPresetId=match?match.id:"";}if(options.some(p=>p.kind==="library")){for(const family of data.stylePresetLibrary.families){const groupOptions=options.filter(p=>p.familyId===family.familyId);if(!groupOptions.length)continue;const group=document.createElement("optgroup");group.label=family.name;for(const p of groupOptions)appendPresetOption(group,p);preset.append(group);}}else{for(const p of options)appendPresetOption(preset,p);}const selected=selectedPresetOption();if(selected){preset.value=selected.id;describePreset(selected);}}
     function appendPresetOption(parent,p){const o=document.createElement("option");o.value=p.id;const signal=signalForPreset(p.name), active=selectedPresetId===p.id||draftMatches(p.values,values);o.textContent=p.name+(active?" (active draft)":signal?" - "+signal:"");parent.append(o);}
     function presetOptions(){const library=((data.stylePresetLibrary&&data.stylePresetLibrary.presets)||[]).filter(p=>(p.supportedSurfaces||[]).some(s=>s.surfaceType===surfaceType&&(!s.adapterIds||s.adapterIds.includes(adapterId))));if(library.length){return library.map(p=>({kind:"library",id:p.presetId,name:p.displayName,familyId:p.familyId,familyName:p.familyName,description:p.description,tags:p.tags||[],values:p.stylePatch}));}return (surfaceData.presets||[]).map(p=>({kind:"legacy",id:p.name,name:p.name,familyId:"legacy",familyName:"Surface preset",description:"Legacy surface preset.",tags:[],values:p.values}));}
@@ -819,9 +999,14 @@ function renderHtml(input: {
     preset.addEventListener("change",()=>{const p=selectedPresetOption();if(!p)return;selectedPresetId=p.id;presetName=p.name;values=structuredClone(p.values);buildControls();render();buildPreset();});
     document.getElementById("reset").addEventListener("click",()=>{if(surfaceType==="asset_replacement"){selectedAsset=null;render();return;}const p=selectedPresetOption();if(!p)return;selectedPresetId=p.id;presetName=p.name;values=structuredClone(p.values);buildControls();render();buildPreset();});
     document.getElementById("save").addEventListener("click",()=>{if(surfaceType==="asset_replacement"){if(!selectedAsset){status.textContent="Choose a PNG/WebP asset before applying.";return;}if(adapterId==="generic_phaser"){vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64,assetDestinationFolder:genericAssetFolder.value});return;}vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,assetTargetId:document.getElementById("assetTarget").value,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64});return;}vscode.postMessage({command:"saveAndApply",surfaceType,presetName,values,adapterId,targetLabel:genericTarget.value,selectedFiles:genericSelectedFiles(),directApplyAllowed:genericDirect.checked});});
+    undoApply.addEventListener("click",()=>requestUndoLastApply("button"));
+    window.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&!event.shiftKey&&event.key.toLowerCase()==="z"){if(requestUndoLastApply("keyboard"))event.preventDefault();}});
+    function updateUndoState(){const handle=surfaceType!=="asset_replacement"&&adapterId==="idle_monster_farm"?surfaceData.latestRollback:undefined;undoApply.disabled=!handle;undoApply.title=handle?"Restore latest safe rollback snapshot for this visual config. Shortcut: Ctrl+Z":"No safe rollback snapshot exists for this visual config.";}
+    function requestUndoLastApply(source){if(surfaceType==="asset_replacement"||adapterId!=="idle_monster_farm"){status.textContent="Undo Last Apply is only available for generated visual style configs.";return false;}if(!surfaceData.latestRollback){status.textContent="No safe rollback snapshot exists for this visual surface.";return false;}undoApply.disabled=true;status.textContent=(source==="keyboard"?"Ctrl+Z: ":"")+"Undoing latest apply for "+surfaceType+"...";vscode.postMessage({command:"undoLastApply",surfaceType,presetName,values,adapterId});return true;}
     document.getElementById("setup").addEventListener("click",()=>vscode.postMessage({command:"setupBridge",surfaceType,presetName,values}));
     document.querySelectorAll("[data-result]").forEach(button=>button.addEventListener("click",()=>{if(!currentAttemptPath){status.textContent+="\\nNo saved tuning attempt is available to mark.";return;}vscode.postMessage({command:"markResult",surfaceType,presetName,values,attemptPath:currentAttemptPath,resultStatus:button.dataset.result,resultNote:document.getElementById("resultNote").value});}));
-    window.addEventListener("message",event=>{const m=event.data;if(m.command==="resultMarked"){if(!m.ok){status.textContent+="\\nResult update failed: "+m.error;return;}status.textContent+="\\nResult marked "+m.resultStatus+". Field notes appended.";document.getElementById("resultNote").value="";return;}if(m.command!=="saveResult"||m.surfaceType!==surfaceType)return;if(!m.ok){status.textContent="Save/apply failed: "+m.error;return;}currentAttemptPath=m.attemptPath||"";document.getElementById("resultPanel").style.display=currentAttemptPath?"block":"none";needsSetup=(m.applySummary||[]).some(line=>line.includes("setup offered: yes")||line.includes("one-time setup: blocked"));document.getElementById("setup").style.display=needsSetup?"inline-block":"none";status.textContent=["Saved: "+(m.configPath||""),currentAttemptPath?"Attempt: "+currentAttemptPath+" ("+(m.resultStatus||"unreviewed")+")":"Attempt: none",m.rollbackPaths&&m.rollbackPaths.length?"Rollback: "+m.rollbackPaths.join(", "):"Rollback: no existing target overwritten",(m.warnings&&m.warnings.length)?"":"",...(m.warnings||[]).map(w=>"Field note warning: "+w),"","Adapter:",...(m.applySummary||[]),"","Manual checklist:",...(m.checklist||[]).map(i=>"- "+i)].filter(line=>line!==undefined).join("\\n");});
+    window.addEventListener("message",event=>{const m=event.data;if(m.command==="resultMarked"){if(!m.ok){status.textContent+="\\nResult update failed: "+m.error;return;}status.textContent+="\\nResult marked "+m.resultStatus+". Field notes appended.";document.getElementById("resultNote").value="";return;}if((m.command==="saveResult"||m.command==="undoResult")&&m.surfaceType===surfaceType){if(!m.ok){status.textContent=(m.command==="undoResult"?"Undo failed: ":"Save/apply failed: ")+m.error;updateUndoState();return;}if(m.surfaceUpdate)applySurfaceUpdate(m.surfaceUpdate,m.latestRollback);if(m.command==="undoResult"){currentAttemptPath="";document.getElementById("resultPanel").style.display="none";status.textContent=["Undo Last Apply restored: "+(m.configPath||surfaceType),m.rollbackPaths&&m.rollbackPaths.length?"Pre-restore backup: "+m.rollbackPaths.join(", "):"Undo consumed the latest visible rollback action.",...(m.warnings||[]).map(w=>"Rollback warning: "+w),...(m.applySummary||[])].filter(Boolean).join("\\n");return;}currentAttemptPath=m.attemptPath||"";document.getElementById("resultPanel").style.display=currentAttemptPath?"block":"none";needsSetup=(m.applySummary||[]).some(line=>line.includes("setup offered: yes")||line.includes("one-time setup: blocked"));document.getElementById("setup").style.display=needsSetup?"inline-block":"none";status.textContent=["Saved and applied: "+(m.configPath||""),"Preview baseline refreshed from saved config.",currentAttemptPath?"Attempt: "+currentAttemptPath+" ("+(m.resultStatus||"unreviewed")+")":"Attempt: none",m.rollbackPaths&&m.rollbackPaths.length?"Rollback: "+m.rollbackPaths.join(", "):"Rollback: no existing target overwritten",(m.warnings&&m.warnings.length)?"":"",...(m.warnings||[]).map(w=>"Field note warning: "+w),"","Adapter:",...(m.applySummary||[]),"","Manual checklist:",...(m.checklist||[]).map(i=>"- "+i)].filter(line=>line!==undefined).join("\\n");}});
+    function applySurfaceUpdate(update,latestRollback){if(!update||!data.surfaces[update.surfaceType])return;const current=data.surfaces[update.surfaceType];data.surfaces[update.surfaceType]={...current,initialConfig:update.initialConfig,configLoad:update.configLoad,beforeValues:structuredClone(update.beforeValues),preview:update.preview,latestRollback:latestRollback||update.latestRollback};if(update.surfaceType===surfaceType){surfaceData=data.surfaces[surfaceType];presetName=surfaceData.initialConfig.presetName||presetName;values=structuredClone(surfaceData.initialConfig.values||values);selectedPresetId="";buildControls();buildPreset();render();renderAdapter();updateUndoState();}}
     function render(){const preview=(surfaceData&&surfaceData.preview)||{};beforeLabel.textContent=(preview.comparison?preview.comparison.beforeLabel:"Before")+", "+frameMode+" frame";afterLabel.textContent=(preview.comparison?preview.comparison.afterLabel:"After")+", "+frameMode+" frame";animationToggle.disabled=!preview.animations||preview.animations.length===0;if(surfaceType==="asset_replacement"){renderAsset(document.getElementById("before"),null);renderAsset(document.getElementById("after"),selectedAsset);renderStateGrid({states:[],animations:[]});return;}if(surfaceType==="button"){renderButton(document.getElementById("before"),surfaceData.beforeValues);renderButton(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="reward_toast"){renderRewardToast(document.getElementById("before"),surfaceData.beforeValues);renderRewardToast(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="panel"){renderPanel(document.getElementById("before"),surfaceData.beforeValues);renderPanel(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="background_readability"){renderBackground(document.getElementById("before"),surfaceData.beforeValues);renderBackground(document.getElementById("after"),values);renderStateGrid(preview);return;}renderSlot(document.getElementById("before"),surfaceData.beforeValues);renderSlot(document.getElementById("after"),values);renderStateGrid(preview);}
     function baseBoard(container){container.className="board "+frameMode;container.textContent="";}
     function setSlotVars(el,style){el.style.setProperty("--slot-width",style.slotWidth+"px");el.style.setProperty("--slot-height",style.slotHeight+"px");el.style.setProperty("--slot-gap",style.gap+"px");el.style.setProperty("--border-width",style.borderWidth+"px");el.style.setProperty("--corner-radius",style.cornerRadius+"px");el.style.setProperty("--fill-color",style.fillColor);el.style.setProperty("--border-color",style.borderColor);el.style.setProperty("--selected-glow",style.selectedGlowStrength);el.style.setProperty("--locked-opacity",style.lockedOverlayOpacity);el.style.setProperty("--empty-opacity",style.emptySlotOpacity);el.style.setProperty("--monster-scale",style.monsterDisplayScale);el.style.setProperty("--monster-offset",style.monsterVerticalOffset+"px");el.style.setProperty("--merge-pulse",style.mergeCandidatePulseScale||1);}

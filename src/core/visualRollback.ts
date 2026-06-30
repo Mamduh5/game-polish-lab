@@ -17,6 +17,11 @@ import { VisualSurfaceType } from "../types/visualSurface";
 export const visualRollbackRelativeDir = ".game-polish-lab/rollback";
 export const visualRollbackFallbackTaskRelativeDir = ".game-polish-lab/fallback-tasks";
 
+export interface LatestVisualRollbackFile {
+  snapshot: VisualRollbackSnapshot;
+  file: VisualRollbackSnapshotFile;
+}
+
 interface RollbackMetadataFile {
   id?: unknown;
   createdAt?: unknown;
@@ -91,6 +96,23 @@ export function discoverVisualRollbackSnapshots(workspaceRoot: string): VisualRo
 
   snapshots.sort(compareSnapshotsNewestFirst);
   return { snapshots, warnings };
+}
+
+export function findLatestVisualRollbackForFile(workspaceRoot: string, originalPath: string, surfaceType?: VisualSurfaceType): LatestVisualRollbackFile | undefined {
+  const normalizedOriginalPath = normalizeCandidatePath(originalPath);
+  if (!normalizedOriginalPath) {
+    return undefined;
+  }
+  for (const snapshot of discoverVisualRollbackSnapshots(workspaceRoot).snapshots) {
+    if (surfaceType && snapshot.surfaceType && snapshot.surfaceType !== surfaceType) {
+      continue;
+    }
+    const file = snapshot.files.find((candidate) => candidate.originalPath === normalizedOriginalPath && candidate.restoreEligible);
+    if (file) {
+      return { snapshot, file };
+    }
+  }
+  return undefined;
 }
 
 export function restoreVisualRollbackSnapshot(workspaceRoot: string, request: VisualRollbackRestoreRequest): VisualRollbackRestoreResult {

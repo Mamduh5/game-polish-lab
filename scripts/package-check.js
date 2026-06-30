@@ -82,6 +82,7 @@ if (scripts.package && /publish|vsce\s+publish/.test(scripts.package)) {
 
 const expectedDocs = [
   "CHANGELOG.md",
+  "USAGE.md",
   "docs/extension-packaging.md",
   "docs/ci.md",
   "docs/quick-start.md",

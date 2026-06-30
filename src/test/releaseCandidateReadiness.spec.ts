@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { buildVisualDirectApplyFallbackTask, buildVisualDirectApplyPlan } from "../core/visualDirectApplyTemplates";
-import { discoverVisualRollbackSnapshots, restoreVisualRollbackSnapshot } from "../core/visualRollback";
+import { discoverVisualRollbackSnapshots, findLatestVisualRollbackForFile, restoreVisualRollbackSnapshot } from "../core/visualRollback";
 import { checkVisualScopeGuard } from "../core/visualScopeGuard";
 
 const root = process.cwd();
@@ -24,6 +24,11 @@ const rcNotes = readText("docs/release-notes-v1.0-rc.md");
 const readiness = readText("docs/release-readiness.md");
 const packageCheck = readText("scripts/package-check.js");
 const readme = readText("README.md");
+const usage = readText("USAGE.md");
+const visualDashboardSource = readText("src/commands/openVisualTuningDashboard.ts");
+const assetDashboardSource = readText("src/commands/openAssetPipelineDashboard.ts");
+const rollbackHistorySource = readText("src/commands/openRollbackHistory.ts");
+const tunerSource = readText("src/commands/tuneVisualSurface.ts");
 
 for (const docPath of [
   "docs/1.0-release-candidate.md",
@@ -78,8 +83,14 @@ assert.ok(rcDoc.includes("does not publish the extension"));
 assert.ok(rcNotes.includes("has not been published to Marketplace"));
 assert.ok(readiness.includes("v0.99 1.0 Release Candidate"));
 assert.ok(readiness.includes("does not publish the extension"));
+assert.ok(readme.includes("USAGE.md"));
 assert.ok(readme.includes("docs/1.0-release-candidate.md"));
 assert.ok(readme.includes("docs/1.0-rc-verification-checklist.md"));
+assert.ok(usage.includes("Direct apply is intentionally narrow"));
+assert.ok(usage.includes("Undo Last Apply"));
+assert.ok(usage.includes("Ctrl+Z"));
+assert.ok(usage.includes("Sort Puzzle and Cursor Arena"));
+assert.ok(usage.includes("gameplay, save, economy, progression, ad, rules, solver, level-data, player, projectile, shooter, or monetization logic"));
 
 for (const command of [
   ["gamePolishLab.openVisualTuningDashboard", "Game Polish Lab: Open Visual Tuning Dashboard"],
@@ -142,6 +153,27 @@ assert.ok(forbiddenScope.classifiedFiles.some((file) => file.reasonCode === "cur
 
 const rollbackWorkspace = makeTempWorkspace("v099-rollback");
 try {
+  writeWorkspaceJson(rollbackWorkspace, ".game-polish-lab/styles/farm-slot-style.json", {
+    presetName: "current-style",
+    values: { marker: "current" }
+  });
+  writeWorkspaceJson(rollbackWorkspace, ".game-polish-lab/rollback/farm-slot-before.json", {
+    presetName: "before-style",
+    values: { marker: "before" }
+  });
+  writeWorkspaceJson(rollbackWorkspace, ".game-polish-lab/rollback/slot.rollback.json", {
+    id: "slot-style",
+    createdAt: "2026-06-29T00:11:00.000Z",
+    sourceOperation: "rc-test",
+    adapterId: "idle_monster_farm",
+    surfaceType: "slot_card",
+    targetId: "farm_slots",
+    files: [{
+      originalPath: ".game-polish-lab/styles/farm-slot-style.json",
+      snapshotPath: ".game-polish-lab/rollback/farm-slot-before.json",
+      fileKind: "style_config"
+    }]
+  });
   writeWorkspaceFile(rollbackWorkspace, ".game-polish-lab/rollback/snapshot.json", "{}\n");
   writeWorkspaceJson(rollbackWorkspace, ".game-polish-lab/rollback/escape.rollback.json", {
     id: "escape",
@@ -156,6 +188,13 @@ try {
     }]
   });
   const discovery = discoverVisualRollbackSnapshots(rollbackWorkspace);
+  const latestSlotRollback = findLatestVisualRollbackForFile(rollbackWorkspace, ".game-polish-lab/styles/farm-slot-style.json", "slot_card");
+  assert.strictEqual(latestSlotRollback?.snapshot.id, "slot-style");
+  assert.strictEqual(latestSlotRollback?.file.originalPath, ".game-polish-lab/styles/farm-slot-style.json");
+  const restoredSlot = restoreVisualRollbackSnapshot(rollbackWorkspace, { snapshotId: "slot-style", fileIds: [latestSlotRollback!.file.fileId], now: new Date("2026-06-29T00:12:00.000Z") });
+  assert.strictEqual(restoredSlot.status, "restored");
+  assert.strictEqual(restoredSlot.restoredFiles.length, 1);
+  assert.strictEqual((JSON.parse(fs.readFileSync(path.join(rollbackWorkspace, ".game-polish-lab", "styles", "farm-slot-style.json"), "utf8")) as { presetName: string }).presetName, "before-style");
   assert.ok(discovery.snapshots.some((snapshot) => snapshot.id === "escape"));
   const restored = restoreVisualRollbackSnapshot(rollbackWorkspace, { snapshotId: "escape", now: new Date("2026-06-29T00:10:00.000Z") });
   assert.notStrictEqual(restored.status, "restored");
@@ -164,6 +203,24 @@ try {
 } finally {
   cleanupTempWorkspace(rollbackWorkspace);
 }
+
+for (const source of [visualDashboardSource, assetDashboardSource, rollbackHistorySource]) {
+  assert.ok(source.includes("Last refreshed"));
+  assert.ok(source.includes(":hover"));
+  assert.ok(source.includes(":focus-visible"));
+  assert.ok(source.includes(":active"));
+  assert.ok(source.includes("color-mix"));
+  assert.ok(source.includes("button:disabled"));
+}
+assert.ok(visualDashboardSource.includes("Refreshing dashboard..."));
+assert.ok(assetDashboardSource.includes("Refreshing asset pipeline dashboard..."));
+assert.ok(rollbackHistorySource.includes("Refreshing rollback history..."));
+assert.ok(tunerSource.includes("Undo Last Apply"));
+assert.ok(tunerSource.includes("undoLastApply"));
+assert.ok(tunerSource.includes("Ctrl+Z"));
+assert.ok(tunerSource.includes("Preview baseline refreshed from saved config."));
+assert.ok(tunerSource.includes("findLatestVisualRollbackForFile"));
+assert.ok(tunerSource.includes("supported Idle Monster Farm visual style configs"));
 
 for (const dogfoodDocPath of ["docs/beta-dogfooding-v0.95.md", "docs/beta-dogfooding-checklist.md"]) {
   const text = readText(dogfoodDocPath);
