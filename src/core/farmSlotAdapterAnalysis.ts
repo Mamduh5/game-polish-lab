@@ -1,4 +1,5 @@
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
+import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
 
 export interface FarmSlotFileInspection {
   relativePath: string;
@@ -22,6 +23,7 @@ export interface FarmSlotStyleConnection {
   connectionType: FarmSlotStyleConnectionType;
   connectedFiles: string[];
   missingPieces: string[];
+  runtimeProof: VisualRuntimeConnectionProof;
 }
 
 export interface FarmSlotAdapterState {
@@ -57,23 +59,31 @@ export function analyzeFarmSlotDetection(files: FarmSlotFileInspection[], suppor
 }
 
 export function analyzeFarmSlotStyleConnection(files: FarmSlotFileInspection[], supportedStyleModulePath = "src/config/farmSlotStyle.ts"): FarmSlotStyleConnection {
-  const connectedFiles = files
-    .filter((file) => file.relativePath !== supportedStyleModulePath && detectConnectionType(file.text, supportedStyleModulePath) !== "none")
+  const runtimeProof = analyzeVisualRuntimeConnectionProof({
+    files,
+    supportedStyleModulePath,
+    styleIdentifier: "FARM_SLOT_STYLE",
+    styleProperties: farmSlotStyleProperties,
+    styleConfigPath: ".game-polish-lab/styles/farm-slot-style.json",
+    importNameHints: ["FARM_SLOT_STYLE", "farmSlotStyle", "farm_slot_style"],
+    commentMarkers: ["runtime bridge", "farm slot style bridge", "gamepolishlabfarmslotstyle", "renderer should read FARM_SLOT_STYLE"],
+    usageDescription: "Farm slot owner/rendering files"
+  });
+  const connectedFiles = runtimeProof.evidenceFiles
+    .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")
     .map((file) => file.relativePath)
     .sort();
-  const connectionType = resolveConnectionType(files.filter((file) => file.relativePath !== supportedStyleModulePath), supportedStyleModulePath);
+  const connectionType = runtimeProof.connected ? runtimeProof.styleSource : resolveConnectionType(files.filter((file) => file.relativePath !== supportedStyleModulePath), supportedStyleModulePath, runtimeProof);
   const missingPieces: string[] = [];
-  if (connectionType === "none") {
-    missingPieces.push("Farm slot owner/rendering files do not import or read the generated farm slot style module/config.");
-  }
-  if (!files.some((file) => file.relativePath === supportedStyleModulePath)) {
-    missingPieces.push(`${supportedStyleModulePath} has not been generated yet.`);
+  if (!runtimeProof.connected) {
+    missingPieces.push(...runtimeProof.missingPieces);
   }
   return {
-    connected: connectionType !== "none",
+    connected: runtimeProof.connected,
     connectionType,
     connectedFiles,
-    missingPieces
+    missingPieces: Array.from(new Set(missingPieces)),
+    runtimeProof
   };
 }
 
@@ -161,7 +171,10 @@ function resolveDetectionConfidence(ownerFiles: string[], reasons: string[]): "h
   return "low";
 }
 
-function resolveConnectionType(files: FarmSlotFileInspection[], supportedStyleModulePath: string): FarmSlotStyleConnectionType {
+function resolveConnectionType(files: FarmSlotFileInspection[], supportedStyleModulePath: string, runtimeProof?: VisualRuntimeConnectionProof): FarmSlotStyleConnectionType {
+  if (runtimeProof?.styleSource && runtimeProof.styleSource !== "none") {
+    return runtimeProof.styleSource;
+  }
   const detectedTypes = files.map((file) => detectConnectionType(file.text, supportedStyleModulePath));
   for (const type of ["style_module", "json_config", "runtime_bridge", "unknown"] as FarmSlotStyleConnectionType[]) {
     if (detectedTypes.includes(type)) {
@@ -170,3 +183,19 @@ function resolveConnectionType(files: FarmSlotFileInspection[], supportedStyleMo
   }
   return "none";
 }
+
+const farmSlotStyleProperties = [
+  "slotWidth",
+  "slotHeight",
+  "gap",
+  "borderWidth",
+  "cornerRadius",
+  "fillColor",
+  "borderColor",
+  "selectedGlowStrength",
+  "lockedOverlayOpacity",
+  "emptySlotOpacity",
+  "mergeCandidatePulseScale",
+  "monsterDisplayScale",
+  "monsterVerticalOffset"
+];

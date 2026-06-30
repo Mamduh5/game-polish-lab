@@ -1,5 +1,6 @@
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
 import { FarmSlotStyleConnectionType } from "./farmSlotAdapterAnalysis";
+import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
 
 export interface BackgroundFileInspection {
   relativePath: string;
@@ -21,6 +22,7 @@ export interface BackgroundStyleConnection {
   connectionType: FarmSlotStyleConnectionType;
   connectedFiles: string[];
   missingPieces: string[];
+  runtimeProof: VisualRuntimeConnectionProof;
 }
 
 export interface BackgroundAdapterState {
@@ -54,23 +56,27 @@ export function analyzeBackgroundDetection(files: BackgroundFileInspection[], su
 
 export function analyzeBackgroundStyleConnection(files: BackgroundFileInspection[], supportedStyleModulePath = "src/config/backgroundReadabilityStyle.ts"): BackgroundStyleConnection {
   const ownerFiles = files.filter((file) => file.relativePath !== supportedStyleModulePath);
-  const connectedFiles = ownerFiles
-    .filter((file) => detectBackgroundConnectionType(file.text, supportedStyleModulePath) !== "none")
+  const runtimeProof = analyzeVisualRuntimeConnectionProof({
+    files,
+    supportedStyleModulePath,
+    styleIdentifier: "BACKGROUND_READABILITY_STYLE",
+    styleProperties: backgroundStyleProperties,
+    styleConfigPath: ".game-polish-lab/styles/background-readability-style.json",
+    importNameHints: ["BACKGROUND_READABILITY_STYLE", "backgroundReadabilityStyle", "background_readability_style"],
+    commentMarkers: ["background readability bridge", "gamepolishlabbackgroundstyle", "renderer should read BACKGROUND_READABILITY_STYLE"],
+    usageDescription: "Background owner/rendering files"
+  });
+  const connectedFiles = runtimeProof.evidenceFiles
+    .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")
     .map((file) => file.relativePath)
     .sort();
-  const connectionType = resolveConnectionType(ownerFiles, supportedStyleModulePath);
-  const missingPieces: string[] = [];
-  if (connectionType === "none") {
-    missingPieces.push("Background owner/rendering files do not import or read the generated background readability style module/config.");
-  }
-  if (!files.some((file) => file.relativePath === supportedStyleModulePath)) {
-    missingPieces.push(`${supportedStyleModulePath} has not been generated yet.`);
-  }
+  const connectionType = runtimeProof.connected ? runtimeProof.styleSource : resolveConnectionType(ownerFiles, supportedStyleModulePath, runtimeProof);
   return {
-    connected: connectionType !== "none",
+    connected: runtimeProof.connected,
     connectionType,
     connectedFiles,
-    missingPieces
+    missingPieces: runtimeProof.connected ? [] : runtimeProof.missingPieces,
+    runtimeProof
   };
 }
 
@@ -153,7 +159,10 @@ function resolveConfidence(ownerFiles: string[]): "high" | "medium" | "low" {
   return ownerFiles.length > 0 ? "low" : "low";
 }
 
-function resolveConnectionType(files: BackgroundFileInspection[], supportedStyleModulePath: string): FarmSlotStyleConnectionType {
+function resolveConnectionType(files: BackgroundFileInspection[], supportedStyleModulePath: string, runtimeProof?: VisualRuntimeConnectionProof): FarmSlotStyleConnectionType {
+  if (runtimeProof?.styleSource && runtimeProof.styleSource !== "none") {
+    return runtimeProof.styleSource;
+  }
   const detectedTypes = files.map((file) => detectBackgroundConnectionType(file.text, supportedStyleModulePath));
   for (const type of ["style_module", "json_config", "runtime_bridge", "unknown"] as FarmSlotStyleConnectionType[]) {
     if (detectedTypes.includes(type)) {
@@ -162,3 +171,15 @@ function resolveConnectionType(files: BackgroundFileInspection[], supportedStyle
   }
   return "none";
 }
+
+const backgroundStyleProperties = [
+  "backgroundColor",
+  "backgroundImageOpacity",
+  "contrastOverlayColor",
+  "contrastOverlayOpacity",
+  "vignetteStrength",
+  "patternOpacity",
+  "blurAmount",
+  "brightness",
+  "contrast"
+];

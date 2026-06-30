@@ -4,6 +4,7 @@ import { VisualAssetContractStatusCounts } from "./visualAssetContract";
 import { VisualGameAdapterContractSummary } from "./visualGameAdapter";
 import { VisualScopeClassificationCounts, VisualScopeRecommendedAction } from "./visualScopeGuard";
 import type { ProductionWorkspaceMode } from "../core/workspace";
+import type { VisualRuntimeConnectionProof } from "../core/visualRuntimeConnectionProof";
 
 export type DashboardAdapterId = "idle_monster_farm" | "generic_phaser" | "sort_puzzle" | "cursor_arena";
 export type DashboardAppliedStatus = "applied" | "config_only" | "fallback_ready" | "unapplied" | "unsupported" | "invalid" | "unknown";
@@ -57,6 +58,7 @@ export interface VisualTuningDashboardRow {
   recipePath?: string;
   connectedState: DashboardConnectionState;
   generatedStyleModulePath?: string;
+  runtimeConnectionProof?: VisualRuntimeConnectionProof;
   lastTunedAt?: string;
   lastResult: DashboardLastResultStatus;
   latestNoteSummary?: string;

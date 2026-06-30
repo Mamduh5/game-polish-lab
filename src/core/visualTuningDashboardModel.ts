@@ -19,6 +19,7 @@ import { PolishDevOverlayStatus } from "./visualDevOverlay";
 import { getVisualGameAdapterSurfaceTargets, summarizeRegisteredVisualGameAdapterContracts } from "./visualGameAdapters";
 import { VisualAdapterProjectDetection } from "../types/visualGameAdapter";
 import { GenericPhaserManualSurfaceId, GenericPhaserOwnerFileSuggestion, genericManualStyleConfigRelativePath, manualSurfaceIdToVisualSurfaceType } from "./genericPhaserAdapterModel";
+import { VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
 
 export interface DashboardConfigInfo {
   status: DashboardConfigStatus;
@@ -41,6 +42,7 @@ export interface DashboardAdapterInfo {
   confidence: "high" | "medium" | "low" | "unknown";
   directApplySupported: boolean;
   generatedStyleModulePath?: string;
+  runtimeConnectionProof?: VisualRuntimeConnectionProof;
   ownerFiles: string[];
   warnings: string[];
 }
@@ -343,6 +345,7 @@ export function buildDashboardRow(surface: DashboardSurfaceInput, attemptIndex: 
     recipePath: surface.recipeFile.path,
     connectedState: surface.adapter.connectedState,
     generatedStyleModulePath: surface.adapter.generatedStyleModulePath,
+    runtimeConnectionProof: surface.adapter.runtimeConnectionProof,
     lastTunedAt: latest?.createdAt,
     lastResult: latest?.resultStatus ?? "none",
     latestNoteSummary: latest ? summarizeLatestNote(latest) : undefined,
@@ -483,8 +486,8 @@ function toDashboardScopeSummary(scope: ReturnType<typeof checkVisualScopeGuard>
     classificationCounts: scope.counts,
     recommendedAction: scope.recommendedAction,
     summaryMessage: scope.summaryMessage,
-    directApplySafe: forbiddenFiles.length === 0 && surface.adapter.directApplySupported && surface.adapter.connectedState === "connected",
-    setupOrFallbackRequired: surface.adapter.connectedState !== "connected" || forbiddenFiles.length > 0
+    directApplySafe: forbiddenFiles.length === 0 && surface.adapter.directApplySupported && surface.adapter.connectedState === "connected" && proofAllowsDirectApply(surface.adapter.runtimeConnectionProof),
+    setupOrFallbackRequired: surface.adapter.connectedState !== "connected" || !proofAllowsDirectApply(surface.adapter.runtimeConnectionProof) || forbiddenFiles.length > 0
   };
 }
 
@@ -505,12 +508,21 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
     return { enabled: true, label: "Direct Apply" };
   }
   if (surface.adapter.connectedState !== "connected") {
-    return { enabled: false, label: "Direct Apply", reason: "Adapter is not connected; use setup or fallback first." };
+    const proof = surface.adapter.runtimeConnectionProof;
+    return { enabled: false, label: "Direct Apply", reason: proof ? `Runtime proof is ${proof.status}/${proof.proofLevel}; use setup or fallback first.` : "Adapter is not connected; use setup or fallback first." };
+  }
+  if (!proofAllowsDirectApply(surface.adapter.runtimeConnectionProof)) {
+    const proof = surface.adapter.runtimeConnectionProof;
+    return { enabled: false, label: "Direct Apply", reason: proof ? `Runtime proof is ${proof.status}/${proof.proofLevel}; direct apply requires runtime_value_usage.` : "Runtime value usage proof is missing." };
   }
   if (surface.config.status !== "valid") {
     return { enabled: false, label: "Direct Apply", reason: "A valid config is required before direct apply." };
   }
   return { enabled: appliedStatus !== "invalid", label: "Direct Apply" };
+}
+
+function proofAllowsDirectApply(proof: VisualRuntimeConnectionProof | undefined): boolean {
+  return !proof || (proof.connected && proof.status === "connected" && proof.proofLevel === "runtime_value_usage");
 }
 
 function exportThemeAction(surface: DashboardSurfaceInput) {

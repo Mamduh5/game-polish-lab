@@ -1,5 +1,6 @@
 import { FarmSlotStyleConnectionType } from "./farmSlotAdapterAnalysis";
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
+import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
 
 export type MonsterFarmButtonTarget = "action_bar_button" | "hatch_button" | "upgrade_button" | "disabled_locked_button";
 
@@ -24,6 +25,7 @@ export interface ButtonStyleConnection {
   connectionType: FarmSlotStyleConnectionType;
   connectedFiles: string[];
   missingPieces: string[];
+  runtimeProof: VisualRuntimeConnectionProof;
 }
 
 export interface ButtonAdapterState {
@@ -58,23 +60,27 @@ export function analyzeButtonDetection(files: ButtonFileInspection[], supportedS
 
 export function analyzeButtonStyleConnection(files: ButtonFileInspection[], supportedStyleModulePath = "src/config/buttonStyle.ts"): ButtonStyleConnection {
   const ownerFiles = files.filter((file) => file.relativePath !== supportedStyleModulePath);
-  const connectedFiles = ownerFiles
-    .filter((file) => detectButtonConnectionType(file.text, supportedStyleModulePath) !== "none")
+  const runtimeProof = analyzeVisualRuntimeConnectionProof({
+    files,
+    supportedStyleModulePath,
+    styleIdentifier: "BUTTON_STYLE",
+    styleProperties: buttonStyleProperties,
+    styleConfigPath: ".game-polish-lab/styles/button-style.json",
+    importNameHints: ["BUTTON_STYLE", "buttonStyle", "button_style"],
+    commentMarkers: ["button style bridge", "gamepolishlabbuttonstyle", "renderer should read BUTTON_STYLE"],
+    usageDescription: "Button/action-bar owner/rendering files"
+  });
+  const connectedFiles = runtimeProof.evidenceFiles
+    .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")
     .map((file) => file.relativePath)
     .sort();
-  const connectionType = resolveConnectionType(ownerFiles, supportedStyleModulePath);
-  const missingPieces: string[] = [];
-  if (connectionType === "none") {
-    missingPieces.push("Button/action-bar owner/rendering files do not import or read the generated button style module/config.");
-  }
-  if (!files.some((file) => file.relativePath === supportedStyleModulePath)) {
-    missingPieces.push(`${supportedStyleModulePath} has not been generated yet.`);
-  }
+  const connectionType = runtimeProof.connected ? runtimeProof.styleSource : resolveConnectionType(ownerFiles, supportedStyleModulePath, runtimeProof);
   return {
-    connected: connectionType !== "none",
+    connected: runtimeProof.connected,
     connectionType,
     connectedFiles,
-    missingPieces
+    missingPieces: runtimeProof.connected ? [] : runtimeProof.missingPieces,
+    runtimeProof
   };
 }
 
@@ -180,7 +186,10 @@ function resolveConfidence(ownerFiles: string[], targetButtons: MonsterFarmButto
   return "low";
 }
 
-function resolveConnectionType(files: ButtonFileInspection[], supportedStyleModulePath: string): FarmSlotStyleConnectionType {
+function resolveConnectionType(files: ButtonFileInspection[], supportedStyleModulePath: string, runtimeProof?: VisualRuntimeConnectionProof): FarmSlotStyleConnectionType {
+  if (runtimeProof?.styleSource && runtimeProof.styleSource !== "none") {
+    return runtimeProof.styleSource;
+  }
   const detectedTypes = files.map((file) => detectButtonConnectionType(file.text, supportedStyleModulePath));
   for (const type of ["style_module", "json_config", "runtime_bridge", "unknown"] as FarmSlotStyleConnectionType[]) {
     if (detectedTypes.includes(type)) {
@@ -189,3 +198,29 @@ function resolveConnectionType(files: ButtonFileInspection[], supportedStyleModu
   }
   return "none";
 }
+
+const buttonStyleProperties = [
+  "width",
+  "height",
+  "fillColor",
+  "fillOpacity",
+  "borderColor",
+  "borderWidth",
+  "cornerRadius",
+  "labelColor",
+  "labelTextSize",
+  "iconScale",
+  "labelScale",
+  "contentGap",
+  "paddingX",
+  "paddingY",
+  "hoverGlowStrength",
+  "hoverLift",
+  "activePressScale",
+  "activePressDurationMs",
+  "activeDarkenOpacity",
+  "disabledOpacity",
+  "disabledSaturation",
+  "shadowStrength",
+  "glowStrength"
+];

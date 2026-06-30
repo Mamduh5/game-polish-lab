@@ -2,15 +2,16 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { checkV05VisualScope, isForbiddenV05Path } from "../../core/v05VisualScopeGuard";
+import { connectFarmSlotOwnerFileToStyleModule } from "../../core/farmSlotStyleBridgePatch";
 import {
   analyzeFarmSlotDetection,
   analyzeFarmSlotStyleConnection,
-  detectConnectionType,
   FarmSlotAdapterDetection,
   FarmSlotAdapterState,
   FarmSlotFileInspection,
   FarmSlotStyleConnection
 } from "../../core/farmSlotAdapterAnalysis";
+import { VisualRuntimeConnectionProof } from "../../core/visualRuntimeConnectionProof";
 import { buildRollbackSnapshotName } from "../../core/visualSurfaceConfig";
 import { ensureDirectory, labUri, normalizeWorkspacePath, pathExists, readTextFile, readTextFileIfExists, toWorkspaceRelativePath, writeTextFile } from "../../core/workspace";
 import { SlotCardStyleConfig, SlotCardStyleValues } from "../../types/visualSurface";
@@ -25,6 +26,7 @@ export interface FarmSlotApplyResult {
   blockedFiles: string[];
   detection: FarmSlotAdapterDetection;
   connection: FarmSlotStyleConnection;
+  runtimeConnectionProof: VisualRuntimeConnectionProof;
 }
 
 export interface FarmSlotSetupResult {
@@ -36,6 +38,7 @@ export interface FarmSlotSetupResult {
   blockedFiles: string[];
   detection: FarmSlotAdapterDetection;
   connection: FarmSlotStyleConnection;
+  fallbackTaskPath?: string;
 }
 
 const likelyFarmSlotFiles = [
@@ -87,7 +90,8 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
       ],
       blockedFiles: [],
       detection,
-      connection
+      connection,
+      runtimeConnectionProof: connection.runtimeProof
     };
   }
 
@@ -104,7 +108,8 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
       ],
       blockedFiles: [],
       detection,
-      connection
+      connection,
+      runtimeConnectionProof: connection.runtimeProof
     };
   }
 
@@ -118,7 +123,8 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
       warnings,
       blockedFiles: scope.forbiddenFiles,
       detection,
-      connection
+      connection,
+      runtimeConnectionProof: connection.runtimeProof
     };
   }
 
@@ -135,7 +141,8 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
     warnings,
     blockedFiles: [],
     detection,
-    connection
+    connection,
+    runtimeConnectionProof: connection.runtimeProof
   };
 }
 
@@ -163,15 +170,17 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
   }
 
   if (!setupTarget) {
+    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, detection, connection, "No safe farm slot owner file was detected for automatic visual wiring.");
     return {
       setupApplied: false,
       intendedFiles,
       changedFiles: [],
       rollbackPaths: [],
-      warnings: [...warnings, "One-time setup is unavailable because no safe farm slot owner file was detected."],
+      warnings: [...warnings, "One-time setup is unavailable because no safe farm slot owner file was detected.", `Fallback integration task generated: ${fallbackTaskPath}`],
       blockedFiles: [],
       detection,
-      connection
+      connection,
+      fallbackTaskPath
     };
   }
 
@@ -192,15 +201,17 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
   const existingTargetText = await readTextFile(targetUri);
   const patchedTargetText = connectOwnerFileToStyleModule(existingTargetText, setupTarget, detection.supportedStyleModulePath);
   if (!patchedTargetText) {
+    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, detection, connection, `${setupTarget} does not have a recognized visual-only farm slot patch site.`);
     return {
       setupApplied: false,
       intendedFiles,
       changedFiles: [],
       rollbackPaths: [],
-      warnings: [...warnings, `${setupTarget} does not have a safe TypeScript import insertion point for v0.51 setup.`],
+      warnings: [...warnings, `${setupTarget} does not have a recognized visual-only farm slot patch site for v0.99.4 setup.`, `Fallback integration task generated: ${fallbackTaskPath}`],
       blockedFiles: [],
       detection,
-      connection
+      connection,
+      fallbackTaskPath
     };
   }
 
@@ -211,6 +222,20 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
   await writeTextFile(targetUri, patchedTargetText);
 
   const updatedState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
+  if (!updatedState.connection.connected || updatedState.connection.runtimeProof.proofLevel !== "runtime_value_usage") {
+    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, updatedState.detection, updatedState.connection, "Automatic farm slot setup did not produce runtime value usage proof.");
+    return {
+      setupApplied: false,
+      intendedFiles,
+      changedFiles: intendedFiles,
+      rollbackPaths,
+      warnings: [...warnings, "One-time setup wrote only safe visual files but runtime value usage proof was not established.", `Fallback integration task generated: ${fallbackTaskPath}`],
+      blockedFiles: [],
+      detection: updatedState.detection,
+      connection: updatedState.connection,
+      fallbackTaskPath
+    };
+  }
   return {
     setupApplied: true,
     intendedFiles,
@@ -288,21 +313,49 @@ function pickSetupTarget(detection: FarmSlotAdapterDetection): string | undefine
 }
 
 function connectOwnerFileToStyleModule(text: string, ownerPath: string, styleModulePath: string): string | undefined {
-  if (detectConnectionType(text, styleModulePath) !== "none") {
-    return text;
-  }
-  if (!/\.(ts|tsx)$/.test(ownerPath)) {
-    return undefined;
-  }
-  const importPath = relativeImportPath(ownerPath, styleModulePath);
-  const importLine = `import { FARM_SLOT_STYLE } from "${importPath}";`;
-  const lines = text.split(/\r?\n/);
-  const lastImportIndex = lines.reduce((latest, line, index) => line.startsWith("import ") ? index : latest, -1);
-  if (lastImportIndex < 0) {
-    return undefined;
-  }
-  lines.splice(lastImportIndex + 1, 0, importLine, "// Game Polish Lab v0.51 bridge: renderer should read FARM_SLOT_STYLE for visual-only slot values.");
-  return lines.join("\n");
+  return connectFarmSlotOwnerFileToStyleModule(text, ownerPath, styleModulePath);
+}
+
+export function connectFarmSlotOwnerFileToStyleModuleForTest(text: string, ownerPath: string, styleModulePath = "src/config/farmSlotStyle.ts"): string | undefined {
+  return connectOwnerFileToStyleModule(text, ownerPath, styleModulePath);
+}
+
+async function writeFarmSlotFallbackTask(folder: vscode.WorkspaceFolder, detection: FarmSlotAdapterDetection, connection: FarmSlotStyleConnection, reason: string): Promise<string> {
+  await ensureDirectory(labUri(folder, "fallback-tasks"));
+  const relativePath = `.game-polish-lab/fallback-tasks/${new Date().toISOString().replace(/[:.]/g, "-")}-slot-card-runtime-connection.json`;
+  const task = {
+    adapterId: "idle_monster_farm",
+    target: detection.target,
+    surfaceType: "slot_card",
+    reason,
+    connectionStatus: connection.runtimeProof.status,
+    proofLevel: connection.runtimeProof.proofLevel,
+    candidateOwnerFiles: detection.ownerFiles,
+    requiredStyleModulePath: detection.supportedStyleModulePath,
+    requiredRuntimeStyleProperties: [
+      "FARM_SLOT_STYLE.slotWidth",
+      "FARM_SLOT_STYLE.slotHeight",
+      "FARM_SLOT_STYLE.gap",
+      "FARM_SLOT_STYLE.fillColor",
+      "FARM_SLOT_STYLE.borderColor",
+      "FARM_SLOT_STYLE.borderWidth",
+      "FARM_SLOT_STYLE.cornerRadius",
+      "FARM_SLOT_STYLE.monsterDisplayScale",
+      "FARM_SLOT_STYLE.monsterVerticalOffset"
+    ],
+    evidenceFiles: connection.runtimeProof.evidenceFiles,
+    missingPieces: connection.runtimeProof.missingPieces,
+    codexMayDo: [
+      "Wire generated farm slot style properties into existing visual-only slot rendering expressions.",
+      "Patch adapter-approved renderer/style files only."
+    ],
+    codexMustNotDo: [
+      "Do not change gameplay, save, economy, progression, ad, rules, solver, level-data, player, projectile, shooter, monetization, merge, hatch, quest, unlock, or slot-count behavior.",
+      "Do not claim direct apply from imports, comments, config existence, or arbitrary string markers."
+    ]
+  };
+  await writeTextFile(labUri(folder, "fallback-tasks", path.basename(relativePath)), `${JSON.stringify(task, null, 2)}\n`);
+  return relativePath;
 }
 
 function relativeImportPath(fromPath: string, toPath: string): string {

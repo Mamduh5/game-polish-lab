@@ -241,8 +241,9 @@ assert.ok(tunerSource.includes("Saved config only. Direct apply is not connected
 assert.ok(tunerSource.includes("save/apply result:"));
 assert.ok(tunerSource.includes("applied_to_real_workspace"));
 assert.ok(tunerSource.includes("saved_config_only"));
-assert.ok(tunerSource.includes("directApplySummaryApplied"));
-assert.ok(tunerSource.includes("direct apply:\\s*applied"));
+assert.ok(tunerSource.includes("adapterOutcomeAppliedToRuntime"));
+assert.ok(tunerSource.includes("runtime_value_usage"));
+assert.ok(tunerSource.includes("runtimeConnectionProof"));
 
 const idleSurface = fakeSurface("idle_monster_farm", "Monster Farm Slots", "slot_card");
 const genericSurface = fakeSurface("generic_phaser", "Generic Phaser Slot/Card", "slot_card");

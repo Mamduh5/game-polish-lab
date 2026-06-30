@@ -15,6 +15,7 @@ import {
 import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
 import { analyzeButtonDetection, analyzeButtonStyleConnection } from "../core/buttonAdapterAnalysis";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection } from "../core/farmSlotAdapterAnalysis";
+import { connectFarmSlotOwnerFileToStyleModule } from "../core/farmSlotStyleBridgePatch";
 import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/panelAdapterAnalysis";
 import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
@@ -1540,9 +1541,126 @@ assert.ok(detection.warnings.some((warning) => warning.includes("merge behavior"
 
 const disconnected = analyzeFarmSlotStyleConnection(disconnectedFiles);
 assert.strictEqual(disconnected.connected, false);
-assert.strictEqual(disconnected.connectionType, "none");
+assert.strictEqual(disconnected.connectionType, "json_config");
 assert.deepStrictEqual(disconnected.connectedFiles, []);
-assert.ok(disconnected.missingPieces.some((piece) => piece.includes("owner/rendering files")));
+assert.strictEqual(disconnected.runtimeProof.status, "config_only");
+assert.notStrictEqual(disconnected.runtimeProof.proofLevel, "runtime_value_usage");
+assert.ok(disconnected.missingPieces.some((piece) => piece.includes("must read generated style values")));
+
+const importOnlyFarmSlotConnection = analyzeFarmSlotStyleConnection([
+  {
+    relativePath: "src/ui/FarmSlotView.ts",
+    text: "import { FARM_SLOT_STYLE } from '../config/farmSlotStyle';\n// renderer should read FARM_SLOT_STYLE\nexport function renderSlot() {}"
+  },
+  {
+    relativePath: "src/config/farmSlotStyle.ts",
+    text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };"
+  }
+]);
+assert.strictEqual(importOnlyFarmSlotConnection.connected, false);
+assert.strictEqual(importOnlyFarmSlotConnection.runtimeProof.status, "import_only");
+assert.notStrictEqual(importOnlyFarmSlotConnection.runtimeProof.proofLevel, "runtime_value_usage");
+
+const commentOnlyFarmSlotConnection = analyzeFarmSlotStyleConnection([
+  {
+    relativePath: "src/ui/FarmSlotView.ts",
+    text: "// Game Polish Lab farm slot style bridge: renderer should read FARM_SLOT_STYLE"
+  }
+]);
+assert.strictEqual(commentOnlyFarmSlotConnection.connected, false);
+assert.strictEqual(commentOnlyFarmSlotConnection.runtimeProof.status, "comment_only");
+
+const runtimePropertyFarmSlotConnection = analyzeFarmSlotStyleConnection([
+  {
+    relativePath: "src/ui/FarmSlotView.ts",
+    text: `import { FARM_SLOT_STYLE } from '../config/farmSlotStyle';
+export function renderSlot(scene, x, y) {
+  const bg = scene.add.rectangle(
+    x,
+    y,
+    FARM_SLOT_STYLE.slotWidth,
+    FARM_SLOT_STYLE.slotHeight,
+    Number(FARM_SLOT_STYLE.fillColor.replace("#", "0x"))
+  );
+  bg.setStrokeStyle(FARM_SLOT_STYLE.borderWidth, Number(FARM_SLOT_STYLE.borderColor.replace("#", "0x")));
+}`
+  },
+  {
+    relativePath: "src/config/farmSlotStyle.ts",
+    text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };"
+  }
+]);
+assert.strictEqual(runtimePropertyFarmSlotConnection.connected, true);
+assert.strictEqual(runtimePropertyFarmSlotConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.deepStrictEqual(
+  runtimePropertyFarmSlotConnection.runtimeProof.evidenceFiles.flatMap((file) => file.matchedProperties).sort(),
+  ["borderColor", "borderWidth", "fillColor", "slotHeight", "slotWidth"]
+);
+
+const destructuredFarmSlotConnection = analyzeFarmSlotStyleConnection([
+  {
+    relativePath: "src/ui/FarmSlotView.ts",
+    text: "import { FARM_SLOT_STYLE } from '../config/farmSlotStyle'; const { slotWidth, slotHeight, gap } = FARM_SLOT_STYLE; layoutSlots(slotWidth, slotHeight, gap);"
+  },
+  {
+    relativePath: "src/config/farmSlotStyle.ts",
+    text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };"
+  }
+]);
+assert.strictEqual(destructuredFarmSlotConnection.connected, true);
+assert.deepStrictEqual(
+  destructuredFarmSlotConnection.runtimeProof.evidenceFiles.flatMap((file) => file.matchedProperties).sort(),
+  ["gap", "slotHeight", "slotWidth"]
+);
+
+const unusedDestructuredFarmSlotConnection = analyzeFarmSlotStyleConnection([
+  {
+    relativePath: "src/ui/FarmSlotView.ts",
+    text: "import { FARM_SLOT_STYLE } from '../config/farmSlotStyle'; const { slotWidth } = FARM_SLOT_STYLE;"
+  },
+  {
+    relativePath: "src/config/farmSlotStyle.ts",
+    text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };"
+  }
+]);
+assert.strictEqual(unusedDestructuredFarmSlotConnection.connected, false);
+assert.notStrictEqual(unusedDestructuredFarmSlotConnection.runtimeProof.proofLevel, "runtime_value_usage");
+
+const importOnlyPatchAttempt = connectFarmSlotOwnerFileToStyleModule("import { other } from './other';\nexport function renderSlot() { return other; }", "src/ui/FarmSlotView.ts", "src/config/farmSlotStyle.ts");
+assert.strictEqual(importOnlyPatchAttempt, undefined);
+
+const realFarmScenePatchSource = `import { MonsterRenderer } from '../rendering/MonsterRenderer';
+export class FarmScene extends Phaser.Scene {
+  private cellSize = CELL_SIZE;
+  private addUnlockedSlotTile(container, x, y, slotId) {
+    const slotTile = this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot)
+      .setOrigin(0)
+      .setStrokeStyle(3, THEME.slotBorder, 0.9);
+    const inner = this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, THEME.slotInner, 0.22)
+      .setOrigin(0);
+  }
+  private addLockedExpansionSlotTile(container, x, y) {
+    const lockedTile = this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.locked, 0.72)
+      .setOrigin(0)
+      .setStrokeStyle(3, THEME.lockedBorder, 0.72);
+  }
+  private addSlotDropIndicator(slotId, kind, isHoverSlot) {
+    const indicatorSize = this.cellSize + dropIndicatorSizePadding;
+  }
+  private renderMonsterInSlot(slot) {
+    const visualScale = Math.min(1, Math.max(0.72, this.cellSize / CELL_SIZE));
+    this.monsterRenderer.addMonsterVisual(visual, monster, 0, 0, visualScale);
+  }
+}`;
+const realFarmScenePatch = connectFarmSlotOwnerFileToStyleModule(realFarmScenePatchSource, "src/scenes/FarmScene.ts", "src/config/farmSlotStyle.ts");
+assert.ok(realFarmScenePatch);
+const realFarmScenePatchedConnection = analyzeFarmSlotStyleConnection([
+  { relativePath: "src/scenes/FarmScene.ts", text: realFarmScenePatch! },
+  { relativePath: "src/config/farmSlotStyle.ts", text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };" }
+]);
+assert.strictEqual(realFarmScenePatchedConnection.connected, true);
+assert.strictEqual(realFarmScenePatchedConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.ok(realFarmScenePatchedConnection.runtimeProof.evidenceFiles.some((file) => file.matchedProperties.includes("monsterDisplayScale")));
 
 const connectedFiles = [
   {
@@ -1636,7 +1754,8 @@ assert.ok(backgroundDetection.warnings.some((warning) => warning.includes("camer
 
 const disconnectedBackground = analyzeBackgroundStyleConnection(disconnectedBackgroundFiles);
 assert.strictEqual(disconnectedBackground.connected, false);
-assert.strictEqual(disconnectedBackground.connectionType, "none");
+assert.strictEqual(disconnectedBackground.connectionType, "json_config");
+assert.strictEqual(disconnectedBackground.runtimeProof.status, "config_only");
 assert.ok(disconnectedBackground.missingPieces.some((piece) => piece.includes("Background owner/rendering files")));
 
 const connectedBackgroundFiles = [
@@ -2003,7 +2122,8 @@ assert.ok(panelDetection.warnings.some((warning) => warning.includes("quest logi
 
 const disconnectedPanel = analyzePanelStyleConnection(disconnectedPanelFiles);
 assert.strictEqual(disconnectedPanel.connected, false);
-assert.strictEqual(disconnectedPanel.connectionType, "none");
+assert.strictEqual(disconnectedPanel.connectionType, "json_config");
+assert.strictEqual(disconnectedPanel.runtimeProof.status, "config_only");
 assert.ok(disconnectedPanel.missingPieces.some((piece) => piece.includes("Panel owner/rendering files")));
 
 const connectedPanelFiles = [
@@ -2125,7 +2245,8 @@ assert.ok(rewardToastDetection.warnings.some((warning) => warning.includes("anim
 
 const disconnectedRewardToast = analyzeRewardToastStyleConnection(disconnectedRewardToastFiles);
 assert.strictEqual(disconnectedRewardToast.connected, false);
-assert.strictEqual(disconnectedRewardToast.connectionType, "none");
+assert.strictEqual(disconnectedRewardToast.connectionType, "json_config");
+assert.strictEqual(disconnectedRewardToast.runtimeProof.status, "config_only");
 assert.ok(disconnectedRewardToast.missingPieces.some((piece) => piece.includes("Reward feedback owner/rendering files")));
 
 const connectedRewardToastFiles = [
@@ -2261,7 +2382,8 @@ assert.ok(buttonDetection.warnings.some((warning) => warning.includes("upgrade l
 
 const disconnectedButton = analyzeButtonStyleConnection(disconnectedButtonFiles);
 assert.strictEqual(disconnectedButton.connected, false);
-assert.strictEqual(disconnectedButton.connectionType, "none");
+assert.strictEqual(disconnectedButton.connectionType, "json_config");
+assert.strictEqual(disconnectedButton.runtimeProof.status, "config_only");
 assert.ok(disconnectedButton.missingPieces.some((piece) => piece.includes("Button/action-bar owner/rendering files")));
 
 const connectedButtonFiles = [

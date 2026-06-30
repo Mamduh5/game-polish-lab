@@ -1,5 +1,6 @@
 import { FarmSlotStyleConnectionType } from "./farmSlotAdapterAnalysis";
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
+import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
 
 export type MonsterFarmRewardFeedbackTarget = "reward_toast" | "coin_reward_feedback" | "floating_reward_text" | "reward_icon_feedback";
 
@@ -24,6 +25,7 @@ export interface RewardToastStyleConnection {
   connectionType: FarmSlotStyleConnectionType;
   connectedFiles: string[];
   missingPieces: string[];
+  runtimeProof: VisualRuntimeConnectionProof;
 }
 
 export interface RewardToastAdapterState {
@@ -58,23 +60,27 @@ export function analyzeRewardToastDetection(files: RewardToastFileInspection[], 
 
 export function analyzeRewardToastStyleConnection(files: RewardToastFileInspection[], supportedStyleModulePath = "src/config/rewardToastStyle.ts"): RewardToastStyleConnection {
   const ownerFiles = files.filter((file) => file.relativePath !== supportedStyleModulePath);
-  const connectedFiles = ownerFiles
-    .filter((file) => detectRewardToastConnectionType(file.text, supportedStyleModulePath) !== "none")
+  const runtimeProof = analyzeVisualRuntimeConnectionProof({
+    files,
+    supportedStyleModulePath,
+    styleIdentifier: "REWARD_TOAST_STYLE",
+    styleProperties: rewardToastStyleProperties,
+    styleConfigPath: ".game-polish-lab/styles/reward-toast-style.json",
+    importNameHints: ["REWARD_TOAST_STYLE", "rewardToastStyle", "reward_toast_style"],
+    commentMarkers: ["reward toast bridge", "gamepolishlabrewardtoast", "renderer should read REWARD_TOAST_STYLE"],
+    usageDescription: "Reward feedback owner/rendering files"
+  });
+  const connectedFiles = runtimeProof.evidenceFiles
+    .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")
     .map((file) => file.relativePath)
     .sort();
-  const connectionType = resolveConnectionType(ownerFiles, supportedStyleModulePath);
-  const missingPieces: string[] = [];
-  if (connectionType === "none") {
-    missingPieces.push("Reward feedback owner/rendering files do not import or read the generated reward toast style module/config.");
-  }
-  if (!files.some((file) => file.relativePath === supportedStyleModulePath)) {
-    missingPieces.push(`${supportedStyleModulePath} has not been generated yet.`);
-  }
+  const connectionType = runtimeProof.connected ? runtimeProof.styleSource : resolveConnectionType(ownerFiles, supportedStyleModulePath, runtimeProof);
   return {
-    connected: connectionType !== "none",
+    connected: runtimeProof.connected,
     connectionType,
     connectedFiles,
-    missingPieces
+    missingPieces: runtimeProof.connected ? [] : runtimeProof.missingPieces,
+    runtimeProof
   };
 }
 
@@ -173,7 +179,10 @@ function resolveConfidence(ownerFiles: string[], targetFeedback: MonsterFarmRewa
   return "low";
 }
 
-function resolveConnectionType(files: RewardToastFileInspection[], supportedStyleModulePath: string): FarmSlotStyleConnectionType {
+function resolveConnectionType(files: RewardToastFileInspection[], supportedStyleModulePath: string, runtimeProof?: VisualRuntimeConnectionProof): FarmSlotStyleConnectionType {
+  if (runtimeProof?.styleSource && runtimeProof.styleSource !== "none") {
+    return runtimeProof.styleSource;
+  }
   const detectedTypes = files.map((file) => detectRewardToastConnectionType(file.text, supportedStyleModulePath));
   for (const type of ["style_module", "json_config", "runtime_bridge", "unknown"] as FarmSlotStyleConnectionType[]) {
     if (detectedTypes.includes(type)) {
@@ -182,3 +191,25 @@ function resolveConnectionType(files: RewardToastFileInspection[], supportedStyl
   }
   return "none";
 }
+
+const rewardToastStyleProperties = [
+  "durationMs",
+  "riseDistance",
+  "startScale",
+  "peakScale",
+  "endScale",
+  "bounceStrength",
+  "fadeInMs",
+  "fadeOutMs",
+  "sparkleCount",
+  "sparkleScale",
+  "textSize",
+  "iconScale",
+  "toastFillColor",
+  "toastFillOpacity",
+  "toastBorderColor",
+  "toastBorderWidth",
+  "cornerRadius",
+  "shadowStrength",
+  "glowStrength"
+];

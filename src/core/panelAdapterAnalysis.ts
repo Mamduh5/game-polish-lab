@@ -1,5 +1,6 @@
 import { FarmSlotStyleConnectionType } from "./farmSlotAdapterAnalysis";
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
+import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
 
 export type MonsterFarmPanelTarget = "navigation_panel" | "hatch_panel" | "quest_panel";
 
@@ -24,6 +25,7 @@ export interface PanelStyleConnection {
   connectionType: FarmSlotStyleConnectionType;
   connectedFiles: string[];
   missingPieces: string[];
+  runtimeProof: VisualRuntimeConnectionProof;
 }
 
 export interface PanelAdapterState {
@@ -58,23 +60,27 @@ export function analyzePanelDetection(files: PanelFileInspection[], supportedSty
 
 export function analyzePanelStyleConnection(files: PanelFileInspection[], supportedStyleModulePath = "src/config/panelStyle.ts"): PanelStyleConnection {
   const ownerFiles = files.filter((file) => file.relativePath !== supportedStyleModulePath);
-  const connectedFiles = ownerFiles
-    .filter((file) => detectPanelConnectionType(file.text, supportedStyleModulePath) !== "none")
+  const runtimeProof = analyzeVisualRuntimeConnectionProof({
+    files,
+    supportedStyleModulePath,
+    styleIdentifier: "PANEL_STYLE",
+    styleProperties: panelStyleProperties,
+    styleConfigPath: ".game-polish-lab/styles/panel-style.json",
+    importNameHints: ["PANEL_STYLE", "panelStyle", "panel_style"],
+    commentMarkers: ["panel style bridge", "gamepolishlabpanelstyle", "renderer should read PANEL_STYLE"],
+    usageDescription: "Panel owner/rendering files"
+  });
+  const connectedFiles = runtimeProof.evidenceFiles
+    .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")
     .map((file) => file.relativePath)
     .sort();
-  const connectionType = resolveConnectionType(ownerFiles, supportedStyleModulePath);
-  const missingPieces: string[] = [];
-  if (connectionType === "none") {
-    missingPieces.push("Panel owner/rendering files do not import or read the generated panel style module/config.");
-  }
-  if (!files.some((file) => file.relativePath === supportedStyleModulePath)) {
-    missingPieces.push(`${supportedStyleModulePath} has not been generated yet.`);
-  }
+  const connectionType = runtimeProof.connected ? runtimeProof.styleSource : resolveConnectionType(ownerFiles, supportedStyleModulePath, runtimeProof);
   return {
-    connected: connectionType !== "none",
+    connected: runtimeProof.connected,
     connectionType,
     connectedFiles,
-    missingPieces
+    missingPieces: runtimeProof.connected ? [] : runtimeProof.missingPieces,
+    runtimeProof
   };
 }
 
@@ -177,7 +183,10 @@ function resolveConfidence(ownerFiles: string[], targetPanels: MonsterFarmPanelT
   return "low";
 }
 
-function resolveConnectionType(files: PanelFileInspection[], supportedStyleModulePath: string): FarmSlotStyleConnectionType {
+function resolveConnectionType(files: PanelFileInspection[], supportedStyleModulePath: string, runtimeProof?: VisualRuntimeConnectionProof): FarmSlotStyleConnectionType {
+  if (runtimeProof?.styleSource && runtimeProof.styleSource !== "none") {
+    return runtimeProof.styleSource;
+  }
   const detectedTypes = files.map((file) => detectPanelConnectionType(file.text, supportedStyleModulePath));
   for (const type of ["style_module", "json_config", "runtime_bridge", "unknown"] as FarmSlotStyleConnectionType[]) {
     if (detectedTypes.includes(type)) {
@@ -186,3 +195,23 @@ function resolveConnectionType(files: PanelFileInspection[], supportedStyleModul
   }
   return "none";
 }
+
+const panelStyleProperties = [
+  "fillColor",
+  "fillOpacity",
+  "borderColor",
+  "borderWidth",
+  "cornerRadius",
+  "headerAccentColor",
+  "headerAccentHeight",
+  "padding",
+  "contentGap",
+  "dividerColor",
+  "dividerOpacity",
+  "dividerThickness",
+  "shadowStrength",
+  "glowStrength",
+  "titleTextSize",
+  "bodyTextSize",
+  "disabledOpacity"
+];

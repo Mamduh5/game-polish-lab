@@ -39,6 +39,7 @@ import {
   StyleConfigLoadResult
 } from "../core/visualSurfaceConfig";
 import { labUri, readTextFileIfExists, requireWorkspaceFolder, resolveProductionWorkspaceContext } from "../core/workspace";
+import { VisualRuntimeConnectionProof } from "../core/visualRuntimeConnectionProof";
 import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { buttonStyleBounds, buttonStylePresets, defaultButtonStyle } from "../presets/buttonStylePresets";
 import { defaultPanelStyle, panelStyleBounds, panelStylePresets } from "../presets/panelStylePresets";
@@ -93,10 +94,22 @@ interface SaveResultMessage {
   rollbackPaths?: string[];
   checklist?: string[];
   applySummary?: string[];
+  runtimeConnectionProof?: VisualRuntimeConnectionProof;
   warnings?: string[];
   error?: string;
   surfaceUpdate?: TunerSurfaceUpdate;
   latestRollback?: TunerRollbackHandle;
+}
+
+interface AdapterApplyOutcome {
+  applied: boolean;
+  summary: string[];
+  changedFiles: string[];
+  rollbackPaths: string[];
+  blockedFiles: string[];
+  warnings: string[];
+  runtimeConnectionProof?: VisualRuntimeConnectionProof;
+  expectedRuntimeStylePath?: string;
 }
 
 interface TunerRollbackHandle {
@@ -263,7 +276,10 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
     }
     if (message.surfaceType === "background_readability") {
       const config = buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues);
-      const result = await saveConfigAndApply(folder, "background_readability", backgroundReadabilityStyleConfigRelativePath, backgroundLoad, config, async () => summarizeBackgroundApplyResult(folder, await applyIdleMonsterFarmBackgroundStyle(folder, config)));
+      const result = await saveConfigAndApply(folder, "background_readability", backgroundReadabilityStyleConfigRelativePath, backgroundLoad, config, async () => {
+        const applyResult = await applyIdleMonsterFarmBackgroundStyle(folder, config);
+        return adapterOutcomeFromResult(summarizeBackgroundApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
+      });
       if (!result.ok) {
         return result;
       }
@@ -271,7 +287,10 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
     }
     if (message.surfaceType === "panel") {
       const config = buildPanelStyleConfig(message.presetName, message.values as PanelStyleValues);
-      const result = await saveConfigAndApply(folder, "panel", panelStyleConfigRelativePath, panelLoad, config, async () => summarizePanelApplyResult(folder, await applyIdleMonsterFarmPanelStyle(folder, config)));
+      const result = await saveConfigAndApply(folder, "panel", panelStyleConfigRelativePath, panelLoad, config, async () => {
+        const applyResult = await applyIdleMonsterFarmPanelStyle(folder, config);
+        return adapterOutcomeFromResult(summarizePanelApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
+      });
       if (!result.ok) {
         return result;
       }
@@ -279,7 +298,10 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
     }
     if (message.surfaceType === "reward_toast") {
       const config = buildRewardToastStyleConfig(message.presetName, message.values as RewardToastStyleValues);
-      const result = await saveConfigAndApply(folder, "reward_toast", rewardToastStyleConfigRelativePath, rewardToastLoad, config, async () => summarizeRewardToastApplyResult(folder, await applyIdleMonsterFarmRewardToastStyle(folder, config)));
+      const result = await saveConfigAndApply(folder, "reward_toast", rewardToastStyleConfigRelativePath, rewardToastLoad, config, async () => {
+        const applyResult = await applyIdleMonsterFarmRewardToastStyle(folder, config);
+        return adapterOutcomeFromResult(summarizeRewardToastApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
+      });
       if (!result.ok) {
         return result;
       }
@@ -287,14 +309,20 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
     }
     if (message.surfaceType === "button") {
       const config = buildButtonStyleConfig(message.presetName, message.values as ButtonStyleValues);
-      const result = await saveConfigAndApply(folder, "button", buttonStyleConfigRelativePath, buttonLoad, config, async () => summarizeButtonApplyResult(folder, await applyIdleMonsterFarmButtonStyle(folder, config)));
+      const result = await saveConfigAndApply(folder, "button", buttonStyleConfigRelativePath, buttonLoad, config, async () => {
+        const applyResult = await applyIdleMonsterFarmButtonStyle(folder, config);
+        return adapterOutcomeFromResult(summarizeButtonApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
+      });
       if (!result.ok) {
         return result;
       }
       return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons" });
     }
     const config = buildSlotCardStyleConfig(message.presetName, message.values as SlotCardStyleValues);
-    const result = await saveConfigAndApply(folder, "slot_card", farmSlotStyleConfigRelativePath, slotLoad, config, async () => summarizeFarmSlotApplyResult(folder, await applyIdleMonsterFarmFarmSlotStyle(folder, config)));
+    const result = await saveConfigAndApply(folder, "slot_card", farmSlotStyleConfigRelativePath, slotLoad, config, async () => {
+      const applyResult = await applyIdleMonsterFarmFarmSlotStyle(folder, config);
+      return adapterOutcomeFromResult(summarizeFarmSlotApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
+    });
     if (!result.ok) {
       return result;
     }
@@ -311,7 +339,7 @@ async function saveConfigAndApply(
   configRelativePath: string,
   load: StyleConfigLoadResult | BackgroundStyleConfigLoadResult | PanelStyleConfigLoadResult | RewardToastStyleConfigLoadResult | ButtonStyleConfigLoadResult,
   config: unknown,
-  apply: () => Promise<string[]>
+  apply: () => Promise<AdapterApplyOutcome>
 ): Promise<SaveResultMessage> {
   const plan = buildVisualDirectApplyPlan({
     adapterId: "idle_monster_farm",
@@ -324,8 +352,9 @@ async function saveConfigAndApply(
     logWarn(error);
     return { command: "saveResult", ok: false, surfaceType, error, warnings: plan.warnings, directApplyTemplateId: plan.templateId, directApplyTemplateName: plan.templateName };
   }
-  const applySummary = await apply();
-  const runtimeApplied = directApplySummaryApplied(applySummary);
+  const applyResult = await apply();
+  const runtimeApplied = adapterOutcomeAppliedToRuntime(applyResult);
+  const applySummary = applyResult.summary;
   const templateResult = executeVisualDirectApplyPlan(folder.uri.fsPath, plan, [{
     relativePath: configRelativePath,
     text: `${JSON.stringify(config, null, 2)}\n`
@@ -365,13 +394,43 @@ async function saveConfigAndApply(
       ...honestApplySummary
     ],
     warnings,
+    runtimeConnectionProof: applyResult.runtimeConnectionProof,
     surfaceUpdate: buildTunerSurfaceUpdate(folder.uri.fsPath, surfaceType, config, true, "real_project_current_config"),
     latestRollback: latestRollbackHandle(folder.uri.fsPath, configRelativePath, surfaceType)
   };
 }
 
-function directApplySummaryApplied(applySummary: string[]): boolean {
-  return applySummary.some((line) => /^direct apply:\s*applied$/i.test(line.trim()));
+function adapterOutcomeFromResult(
+  summary: string[],
+  result: {
+    applied: boolean;
+    changedFiles: string[];
+    rollbackPaths: string[];
+    warnings: string[];
+    blockedFiles: string[];
+    connection?: { runtimeProof?: VisualRuntimeConnectionProof };
+    runtimeConnectionProof?: VisualRuntimeConnectionProof;
+  },
+  expectedRuntimeStylePath: string
+): AdapterApplyOutcome {
+  return {
+    applied: result.applied,
+    summary,
+    changedFiles: result.changedFiles,
+    rollbackPaths: result.rollbackPaths,
+    blockedFiles: result.blockedFiles,
+    warnings: result.warnings,
+    runtimeConnectionProof: result.runtimeConnectionProof ?? result.connection?.runtimeProof,
+    expectedRuntimeStylePath
+  };
+}
+
+function adapterOutcomeAppliedToRuntime(result: AdapterApplyOutcome): boolean {
+  return result.applied === true
+    && result.blockedFiles.length === 0
+    && result.runtimeConnectionProof?.connected === true
+    && result.runtimeConnectionProof.proofLevel === "runtime_value_usage"
+    && Boolean(result.expectedRuntimeStylePath && result.changedFiles.includes(result.expectedRuntimeStylePath));
 }
 
 async function undoLastApply(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
@@ -547,22 +606,22 @@ async function setupBridge(folder: vscode.WorkspaceFolder, message: SaveMessage,
     }
     if (message.surfaceType === "background_readability") {
       const result = await setupIdleMonsterFarmBackgroundBridge(folder, buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues));
-      return recordTuningAttemptForResult(folder, message, setupResponse("background_readability", backgroundReadabilityStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("background_readability", backgroundLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.background", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability", applyMode: "direct_apply" });
+      return recordTuningAttemptForResult(folder, message, setupResponse("background_readability", backgroundReadabilityStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("background_readability", backgroundLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.background", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability", applyMode: "direct_apply" });
     }
     if (message.surfaceType === "panel") {
       const result = await setupIdleMonsterFarmPanelBridge(folder, buildPanelStyleConfig(message.presetName, message.values as PanelStyleValues));
-      return recordTuningAttemptForResult(folder, message, setupResponse("panel", panelStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("panel", panelLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.panels", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm panels", applyMode: "direct_apply" });
+      return recordTuningAttemptForResult(folder, message, setupResponse("panel", panelStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("panel", panelLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.panels", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm panels", applyMode: "direct_apply" });
     }
     if (message.surfaceType === "reward_toast") {
       const result = await setupIdleMonsterFarmRewardToastBridge(folder, buildRewardToastStyleConfig(message.presetName, message.values as RewardToastStyleValues));
-      return recordTuningAttemptForResult(folder, message, setupResponse("reward_toast", rewardToastStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("reward_toast", rewardToastLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.reward_toast", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm reward toast", applyMode: "direct_apply" });
+      return recordTuningAttemptForResult(folder, message, setupResponse("reward_toast", rewardToastStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("reward_toast", rewardToastLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.reward_toast", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm reward toast", applyMode: "direct_apply" });
     }
     if (message.surfaceType === "button") {
       const result = await setupIdleMonsterFarmButtonBridge(folder, buildButtonStyleConfig(message.presetName, message.values as ButtonStyleValues));
-      return recordTuningAttemptForResult(folder, message, setupResponse("button", buttonStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("button", buttonLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.buttons", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons", applyMode: "direct_apply" });
+      return recordTuningAttemptForResult(folder, message, setupResponse("button", buttonStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("button", buttonLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.buttons", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons", applyMode: "direct_apply" });
     }
     const result = await setupIdleMonsterFarmFarmSlotBridge(folder, buildSlotCardStyleConfig(message.presetName, message.values as SlotCardStyleValues));
-    return recordTuningAttemptForResult(folder, message, setupResponse("slot_card", farmSlotStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("slot_card", slotLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.farm_slots", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm farm slots", applyMode: "direct_apply" });
+    return recordTuningAttemptForResult(folder, message, setupResponse("slot_card", farmSlotStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("slot_card", slotLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.farm_slots", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm farm slots", applyMode: "direct_apply" });
   } catch (error) {
     logError("setup visual bridge failed:", error);
     return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: errorToMessage(error) };
@@ -761,7 +820,7 @@ function setupResponse(surfaceType: VisualSurfaceType, configPath: string, block
   };
 }
 
-function summarizeSetup(target: string, applied: boolean, intendedFiles: string[], changedFiles: string[], rollbackPaths: string[], connected: boolean, connectionType: string, warnings: string[], missingPieces: string[], blockedFiles: string[]): string[] {
+function summarizeSetup(target: string, applied: boolean, intendedFiles: string[], changedFiles: string[], rollbackPaths: string[], connected: boolean, connectionType: string, warnings: string[], missingPieces: string[], blockedFiles: string[], proof?: VisualRuntimeConnectionProof): string[] {
   return [
     `adapter target: ${target}`,
     `one-time setup: ${applied ? "applied" : "blocked"}`,
@@ -769,10 +828,13 @@ function summarizeSetup(target: string, applied: boolean, intendedFiles: string[
     `changed files: ${changedFiles.length > 0 ? changedFiles.join(", ") : "none"}`,
     `rollback snapshots: ${rollbackPaths.length > 0 ? rollbackPaths.join(", ") : "none"}`,
     `connected after setup: ${connected ? "yes" : "no"} (${connectionType})`,
+    proof ? `runtime proof: ${proof.status} (${proof.proofLevel})` : "runtime proof: none",
+    proof ? `style source: ${proof.styleSource}` : undefined,
+    proof ? `proof evidence: ${proof.evidenceFiles.map((entry) => `${entry.relativePath} ${entry.evidenceKind}${entry.matchedProperties.length > 0 ? ` [${entry.matchedProperties.join(", ")}]` : ""}`).join("; ") || "none"}` : undefined,
     ...warnings.map((warning) => `warning: ${warning}`),
     ...missingPieces.map((piece) => `missing: ${piece}`),
     ...blockedFiles.map((file) => `blocked: ${file}`)
-  ];
+  ].filter((line): line is string => Boolean(line));
 }
 
 function genericApplySummary(result: Awaited<ReturnType<typeof applyGenericPhaserStyle>> | Awaited<ReturnType<typeof applyGenericPhaserAsset>>): string[] {
@@ -961,7 +1023,7 @@ function visualRecipeChecklist(recipePaths: string[]): string[] {
     "direct apply path remains unchanged for connected Monster Farm targets",
     "fallback metadata is scoped and not vague",
     "no gameplay/save/economy/progression/ad files changed"
-  ];
+  ].filter((line): line is string => Boolean(line));
 }
 
 function previewSourceFor(workspaceMode: "real_workspace" | "fixture_test" | "no_workspace", existingConfigDetected: boolean, connected: boolean): TunerPreviewSource {
@@ -1078,10 +1140,11 @@ function renderHtml(input: {
     function buildControls(){controls.textContent="";if(surfaceType==="asset_replacement"){buildAssetControls();return;}for(const key of numeric[surfaceType]){const wrap=document.createElement("div"),label=document.createElement("label"),row=document.createElement("div"),range=document.createElement("input"),num=document.createElement("input"),b=surfaceData.bounds[key];label.textContent=labels[key];row.className="control-row";range.type="range";range.min=b.min;range.max=b.max;range.step=b.step;range.value=values[key];num.type="number";num.min=b.min;num.max=b.max;num.step=b.step;num.value=values[key];range.addEventListener("input",()=>setNumber(key,range.value,num,range));num.addEventListener("input",()=>setNumber(key,num.value,num,range));row.append(range,num);wrap.append(label,row);controls.append(wrap);}for(const key of colors[surfaceType]){const wrap=document.createElement("div"),label=document.createElement("label"),input=document.createElement("input");label.textContent=labels[key];input.type="color";input.value=values[key];input.addEventListener("input",()=>{values[key]=input.value;render();});wrap.append(label,input);controls.append(wrap);}}
     function buildAssetControls(){const targetWrap=document.createElement("div"),label=document.createElement("label"),select=document.createElement("select");label.textContent="Asset target";select.id="assetTarget";for(const target of data.assetTargets.targets){const option=document.createElement("option");option.value=target.targetId;option.textContent=target.label+" ("+target.assignmentMode+")";select.append(option);}select.addEventListener("change",render);targetWrap.append(label,select);const fileWrap=document.createElement("div"),fileLabel=document.createElement("label"),drop=document.createElement("div"),file=document.createElement("input");fileLabel.textContent="PNG/WebP replacement";drop.className="drop-zone";drop.textContent="Drop PNG/WebP here or choose a file";file.type="file";file.accept="image/png,image/webp,.png,.webp";file.addEventListener("change",()=>{if(file.files&&file.files[0])readAsset(file.files[0]);});drop.addEventListener("dragover",e=>{e.preventDefault();});drop.addEventListener("drop",e=>{e.preventDefault();if(e.dataTransfer&&e.dataTransfer.files[0])readAsset(e.dataTransfer.files[0]);});fileWrap.append(fileLabel,drop,file);if(adapterId!=="generic_phaser")controls.append(targetWrap);controls.append(fileWrap);}
     function readAsset(file){if(!["image/png","image/webp"].includes(file.type)&&!/\\.(png|webp)$/i.test(file.name)){status.textContent="Unsupported file type. Choose PNG or WebP.";selectedAsset=null;render();return;}const reader=new FileReader();reader.onload=()=>{const dataUrl=String(reader.result);selectedAsset={name:file.name,dataUrl,dataBase64:dataUrl.split(",")[1]||""};status.textContent="Asset loaded for preview: "+file.name;render();};reader.readAsDataURL(file);}
-    function directApplyConnected(){return adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement"&&surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection&&surfaceData.adapterState.connection.connected;}
+    function runtimeProof(){return surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection&&surfaceData.adapterState.connection.runtimeProof;}
+    function directApplyConnected(){const proof=runtimeProof();return adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement"&&proof&&proof.connected&&proof.status==="connected"&&proof.proofLevel==="runtime_value_usage";}
     function updateActionLabels(){const connected=directApplyConnected();saveButton.textContent=surfaceType==="asset_replacement"?"Save Asset Metadata":connected?"Save & Apply":"Save Config";saveButton.title=connected?"Connected direct apply will update the real workspace style path.":"Saved config only. Direct apply is not connected for this workspace.";const showSetup=adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement"&&!connected;setupButton.style.display=showSetup||needsSetup?"inline-block":"none";}
     function previewSourceText(){const source=(surfaceData&&surfaceData.previewSource)||"real_project_generated_default";if(source==="real_project_current_config")return"Preview source: real_project_current_config. Before/current uses the real Game Polish Lab config in this workspace.";if(source==="real_project_generated_default")return"Preview source: real_project_generated_default. No existing config was found; this is a generated default preview for this workspace.";if(source==="example_preview_not_connected")return"Preview source: example_preview_not_connected. Example preview - not read from your game yet. Direct apply is not connected.";if(source==="fixture_test_preview")return"Preview source: fixture_test_preview. Fixture/test preview because the opened workspace is under fixtures/.";return"Preview source: no_workspace.";}
-    function initialStatusText(){const lines=[previewSourceText()];if(surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning)lines.push(surfaceData.configLoad.warning);if(adapterId==="idle_monster_farm"){lines.push(directApplyConnected()?"Direct apply connected.":"Direct apply not connected. Save Config writes JSON only; setup/fallback required before the game consumes it.");}else{lines.push("Generic Phaser mode writes config/fallback metadata only unless explicitly configured; runtime source integration remains fallback-only.");}return lines.join("\\n");}
+    function initialStatusText(){const lines=[previewSourceText()];if(surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning)lines.push(surfaceData.configLoad.warning);if(adapterId==="idle_monster_farm"){const proof=runtimeProof();lines.push(directApplyConnected()?"Direct apply connected: runtime value usage proven.":"Direct apply not connected. Save Config writes JSON only; setup/fallback required before the game consumes it.");if(proof){lines.push("Proof: "+proof.status+" / "+proof.proofLevel+" / "+proof.styleSource);(proof.missingPieces||[]).slice(0,3).forEach(p=>lines.push("Missing: "+p));}}else{lines.push("Generic Phaser mode writes config/fallback metadata only unless explicitly configured; runtime source integration remains fallback-only.");}return lines.join("\\n");}
     function setNumber(key,raw,num,range){const b=surfaceData.bounds[key],next=Math.min(b.max,Math.max(b.min,Number(raw)));values[key]=next;num.value=next;range.value=next;render();}
     preset.addEventListener("change",()=>{const p=selectedPresetOption();if(!p)return;selectedPresetId=p.id;presetName=p.name;values=structuredClone(p.values);buildControls();render();buildPreset();});
     document.getElementById("reset").addEventListener("click",()=>{if(surfaceType==="asset_replacement"){selectedAsset=null;render();return;}const p=selectedPresetOption();if(!p)return;selectedPresetId=p.id;presetName=p.name;values=structuredClone(p.values);buildControls();render();buildPreset();});
@@ -1115,7 +1178,7 @@ function renderHtml(input: {
     function currentAttempts(){return (data.tuningAttemptIndex.attempts||[]).filter(a=>a.surfaceType===surfaceType&&a.adapterId===adapterId);}
     function signalForPreset(name){const matches=currentAttempts().filter(a=>a.presetName===name);if(matches.some(a=>a.resultStatus==="worse"))return"field note: worse";if(matches.some(a=>a.resultStatus==="same"))return"field note: no effect";if(matches.some(a=>a.resultStatus==="mixed"))return"field note: mixed";if(matches.some(a=>a.resultStatus==="better"))return"prior success";return"";}
     function fieldNoteLines(){return currentAttempts().filter(a=>a.resultStatus!=="unreviewed").slice(0,5).map(a=>{const label=(a.presetName?a.presetName+" on ":"")+a.surfaceType+(a.targetLabel?" / "+a.targetLabel:"");if(a.resultStatus==="better")return"Prior success: "+label+" was marked better.";if(a.resultStatus==="worse")return"Warning: "+label+" was marked worse; warn before reusing.";if(a.resultStatus==="same")return"Warning: "+label+" had no meaningful visual effect.";return"Mixed result: "+label+" improved some parts and worsened others.";});}
-    function renderAdapter(){const list=document.getElementById("adapter");list.textContent="";if(adapterId==="generic_phaser"){["Adapter: generic_phaser","Detected: "+data.genericPhaser.detected+" ("+data.genericPhaser.confidence+")","Manual target: "+genericTarget.value,"Selected files: "+(genericSelectedFiles().join(", ")||"none"),"Asset folder: "+genericAssetFolder.value,"Direct module write: "+(genericDirect.checked?"yes":"no, fallback task"),...fieldNoteLines(),...data.genericPhaser.evidence.map(r=>"Evidence: "+r),...data.genericPhaser.warnings.map(w=>"Warning: "+w)].filter(Boolean).forEach(add);return;}if(surfaceType==="asset_replacement"){["Adapter: idle_monster_farm.assets",...fieldNoteLines(),...data.assetTargets.targets.map(t=>t.label+": "+t.assignmentMode+(t.directApplySupported?" direct":" manual_required")),...data.assetTargets.warnings.map(w=>"Warning: "+w)].forEach(add);return;}const adapter=surfaceData.adapterState;["Config: "+surfaceData.configLoad.status,surfaceData.configLoad.warning?"Warning: "+surfaceData.configLoad.warning:"","Detected: "+adapter.detection.detected+" ("+adapter.detection.confidence+")",adapter.detection.targetPanels?"Target panels: "+(adapter.detection.targetPanels.join(", ")||"none"):"",adapter.detection.targetFeedback?"Target feedback: "+(adapter.detection.targetFeedback.join(", ")||"none"):"",adapter.detection.targetButtons?"Target buttons: "+(adapter.detection.targetButtons.join(", ")||"none"):"","Owners: "+(adapter.detection.ownerFiles.length?adapter.detection.ownerFiles.join(", "):"none"),"Connected: "+adapter.connection.connected+" ("+adapter.connection.connectionType+")",...fieldNoteLines(),...adapter.detection.reasons.map(r=>"Reason: "+r),...adapter.connection.missingPieces.map(p=>"Missing: "+p),...adapter.detection.warnings.map(w=>"Warning: "+w)].filter(Boolean).forEach(add);function add(text){const item=document.createElement("li");item.textContent=text;list.append(item);}}
+    function renderAdapter(){const list=document.getElementById("adapter");list.textContent="";if(adapterId==="generic_phaser"){["Adapter: generic_phaser","Detected: "+data.genericPhaser.detected+" ("+data.genericPhaser.confidence+")","Manual target: "+genericTarget.value,"Selected files: "+(genericSelectedFiles().join(", ")||"none"),"Asset folder: "+genericAssetFolder.value,"Direct module write: "+(genericDirect.checked?"yes":"no, fallback task"),...fieldNoteLines(),...data.genericPhaser.evidence.map(r=>"Evidence: "+r),...data.genericPhaser.warnings.map(w=>"Warning: "+w)].filter(Boolean).forEach(add);return;}if(surfaceType==="asset_replacement"){["Adapter: idle_monster_farm.assets",...fieldNoteLines(),...data.assetTargets.targets.map(t=>t.label+": "+t.assignmentMode+(t.directApplySupported?" direct":" manual_required")),...data.assetTargets.warnings.map(w=>"Warning: "+w)].forEach(add);return;}const adapter=surfaceData.adapterState,proof=adapter.connection.runtimeProof;["Config: "+surfaceData.configLoad.status,surfaceData.configLoad.warning?"Warning: "+surfaceData.configLoad.warning:"","Detected: "+adapter.detection.detected+" ("+adapter.detection.confidence+")",adapter.detection.targetPanels?"Target panels: "+(adapter.detection.targetPanels.join(", ")||"none"):"",adapter.detection.targetFeedback?"Target feedback: "+(adapter.detection.targetFeedback.join(", ")||"none"):"",adapter.detection.targetButtons?"Target buttons: "+(adapter.detection.targetButtons.join(", ")||"none"):"","Owners: "+(adapter.detection.ownerFiles.length?adapter.detection.ownerFiles.join(", "):"none"),"Direct apply: "+(directApplyConnected()?"connected":"not connected"),proof?"Proof: "+proof.status+" / "+proof.proofLevel:"Proof: none",proof?"Style source: "+proof.styleSource:"",proof?"Runtime usage enables direct apply: "+(proof.connected&&proof.proofLevel==="runtime_value_usage"?"yes":"no"):"",...((proof&&proof.evidenceFiles)||[]).map(e=>"Evidence: "+e.relativePath+" "+e.evidenceKind+(e.matchedProperties&&e.matchedProperties.length?" ["+e.matchedProperties.join(", ")+"]":"")+" - "+e.reason),...fieldNoteLines(),...adapter.detection.reasons.map(r=>"Reason: "+r),...adapter.connection.missingPieces.map(p=>"Missing: "+p),...((proof&&proof.warnings)||[]).map(w=>"Warning: "+w),...adapter.detection.warnings.map(w=>"Warning: "+w)].filter(Boolean).forEach(add);function add(text){const item=document.createElement("li");item.textContent=text;list.append(item);}}
     rebuild();
   </script>
 </body>
