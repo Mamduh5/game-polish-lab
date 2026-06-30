@@ -3440,6 +3440,63 @@ const v078MixedIdleDetection = getVisualGameAdapter("idle_monster_farm")!.detect
 const v078MixedSortDetection = detectSortPuzzleProject(v078MixedFixture);
 const v078MixedCursorDetection = detectCursorArenaProject(v078MixedFixture);
 const v078MixedGenericDetection = detectGenericPhaserProject(v078MixedFixture);
+const v078GeneratedStyleConfigs: Record<string, string> = {
+  [farmSlotStyleConfigRelativePath]: JSON.stringify(validFarmSlotConfig, null, 2),
+  [sortPuzzleShelfStyleConfigRelativePath]: JSON.stringify({
+    schemaVersion: 1,
+    surfaceType: "slot_card",
+    adapterTarget: "sort_puzzle.shelf_card",
+    presetName: "v078 Shelf",
+    updatedAt: "2026-06-28T01:05:00.000Z",
+    values: {
+      shelfWidth: 132,
+      shelfHeight: 92,
+      gap: 10,
+      cornerRadius: 8,
+      fillColor: "#203040",
+      borderColor: "#88aadd",
+      borderWidth: 3,
+      shadowStrength: 0.34,
+      selectedGlowStrength: 0.42,
+      completedGlowStrength: 0.5,
+      completedBorderColor: "#c8f070",
+      completedFillColor: "#284020",
+      selectedOutlineWidth: 4,
+      targetOutlineWidth: 3,
+      targetGlowStrength: 0.36
+    }
+  }, null, 2),
+  [sortPuzzleSpiritPresentationConfigRelativePath]: JSON.stringify({
+    schemaVersion: 1,
+    surfaceType: "slot_card",
+    adapterTarget: "sort_puzzle.spirit_slot",
+    presetName: "v078 Spirit Presentation",
+    updatedAt: "2026-06-28T01:05:00.000Z",
+    values: { spiritDisplayScale: 0.92, spiritVerticalOffset: -3, spiritHorizontalOffset: 0 }
+  }, null, 2),
+  [sortPuzzleFeedbackStyleConfigRelativePath]: JSON.stringify({
+    schemaVersion: 1,
+    surfaceType: "reward_toast",
+    adapterTarget: "sort_puzzle.win_reward_toast",
+    presetName: "v078 Feedback",
+    updatedAt: "2026-06-28T01:05:00.000Z",
+    values: {
+      invalidFeedbackColor: "#ff6677",
+      invalidFeedbackAlpha: 0.72,
+      invalidFeedbackDurationMs: 260,
+      invalidFeedbackScale: 1.04,
+      invalidShakeStrength: 5,
+      toastFillColor: "#203040",
+      toastBorderColor: "#88aadd",
+      toastDurationMs: 900,
+      sparkleScale: 0.85
+    }
+  }, null, 2),
+  [cursorArenaHudStyleConfigRelativePath]: JSON.stringify({ schemaVersion: 1, surfaceType: "panel", adapterTarget: "cursor_arena.arena_hud_panel", values: { fillColor: "#182434" } }, null, 2),
+  [cursorArenaUpgradeCardStyleConfigRelativePath]: JSON.stringify({ schemaVersion: 1, surfaceType: "slot_card", adapterTarget: "cursor_arena.upgrade_card", values: { fillColor: "#202838" } }, null, 2),
+  [cursorArenaFeedbackStyleConfigRelativePath]: JSON.stringify({ schemaVersion: 1, surfaceType: "reward_toast", adapterTarget: "cursor_arena.cursor_hit_feedback", values: { hitColor: "#f8d66d" } }, null, 2),
+  [cursorArenaBackgroundReadabilityConfigRelativePath]: JSON.stringify({ schemaVersion: 1, surfaceType: "background_readability", adapterTarget: "cursor_arena.arena_background_readability", values: { backgroundColor: "#101820" } }, null, 2)
+};
 
 assert.strictEqual(v078IdleDetection.detected, true);
 assert.ok(v078IdleDetection.confidence === "medium" || v078IdleDetection.confidence === "high");
@@ -3482,6 +3539,14 @@ const v078IdleDashboard = buildVisualTuningDashboardModel({
 });
 assert.ok(v078IdleDashboard.rows.some((row) => row.adapterId === "idle_monster_farm" && row.targetId === "farm_slots"));
 assert.ok(v078IdleDashboard.rows.some((row) => row.actions.directApply.enabled));
+const v078IdleFarmSlotsRow = v078IdleDashboard.rows.find((row) => row.adapterId === "idle_monster_farm" && row.targetId === "farm_slots");
+assert.strictEqual(v078IdleFarmSlotsRow?.configStatus, "valid");
+assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.enabled, true);
+assert.strictEqual(v078IdleFarmSlotsRow?.directApplyTemplate.templateId, "idle-monster-farm.slot_card.style-config.v1");
+assert.strictEqual(v078IdleFarmSlotsRow?.directApplyTemplate.executable, true);
+const v078IdleAssetRow = v078IdleDashboard.rows.find((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "asset_replacement");
+assert.strictEqual(v078IdleAssetRow?.actions.directApply.enabled, false);
+assert.ok(v078IdleAssetRow?.actions.directApply.reason?.includes("Asset replacement"));
 assert.ok(v078IdleDashboard.rows.every((row) => row.actions.runScopeCheck.enabled && row.actions.annotateScreenshot.enabled));
 assert.strictEqual(v078IdleDashboard.rows.find((row) => row.targetId === "farm_slots")?.configPath, farmSlotStyleConfigRelativePath);
 
@@ -3503,6 +3568,9 @@ const v078SortDashboard = buildVisualTuningDashboardModel({
 assert.ok(v078SortDashboard.rows.some((row) => row.targetId === "shelf_card" && row.appliedStatus === "config_only"));
 assert.ok(v078SortDashboard.rows.some((row) => row.targetId === "spirit_asset_presentation" && row.appliedStatus === "unsupported"));
 assert.ok(v078SortDashboard.rows.every((row) => row.appliedStatus !== "applied"));
+assert.ok(v078SortDashboard.rows.filter((row) => row.surfaceType !== "asset_replacement").every((row) => row.actions.generateFallbackTask.label === "Generate Fallback Task"));
+assert.ok(v078SortDashboard.rows.filter((row) => row.surfaceType !== "asset_replacement").every((row) => row.adapterId === "sort_puzzle" && row.appliedStatus === "config_only"));
+assert.ok(v078SortDashboard.rows.some((row) => row.adapterId === "sort_puzzle" && row.actions.generateFallbackTask.enabled));
 
 const v078CursorDashboard = buildVisualTuningDashboardModel({
   workspaceFolder: path.join(v078FixtureRoot, "cursor-arena"),
@@ -3522,6 +3590,8 @@ const v078CursorDashboard = buildVisualTuningDashboardModel({
 assert.deepStrictEqual(v078CursorDashboard.rows.map((row) => row.targetId), ["arena_hud_panel", "upgrade_card", "cursor_hit_feedback", "cursor_miss_feedback", "enemy_kill_feedback", "combo_feedback", "arena_background_readability"]);
 assert.ok(v078CursorDashboard.rows.some((row) => row.targetId === "arena_hud_panel" && row.appliedStatus === "config_only"));
 assert.ok(v078CursorDashboard.rows.every((row) => row.appliedStatus !== "applied"));
+assert.ok(v078CursorDashboard.rows.every((row) => row.actions.generateFallbackTask.label === "Generate Fallback Task"));
+assert.ok(v078CursorDashboard.rows.every((row) => row.adapterId === "cursor_arena" && row.appliedStatus === "config_only"));
 assert.ok(v078CursorDashboard.rows.some((row) => row.configPath === cursorArenaHudStyleConfigRelativePath));
 assert.ok(v078CursorDashboard.rows.some((row) => row.configPath === cursorArenaUpgradeCardStyleConfigRelativePath));
 assert.ok(v078CursorDashboard.rows.some((row) => row.configPath === cursorArenaFeedbackStyleConfigRelativePath));
@@ -3661,7 +3731,7 @@ assert.ok(JSON.stringify(v078ScreenshotFallback).includes("Preserve gameplay beh
 
 const v078ThemeWorkspace = makeTempWorkspace("v078-theme-fixture");
 try {
-  writeWorkspaceFile(v078ThemeWorkspace, sortPuzzleShelfStyleConfigRelativePath, readFixtureText(path.join(v078FixtureRoot, "sort-puzzle"), sortPuzzleShelfStyleConfigRelativePath));
+  writeWorkspaceFile(v078ThemeWorkspace, sortPuzzleShelfStyleConfigRelativePath, v078GeneratedStyleConfigs[sortPuzzleShelfStyleConfigRelativePath]);
   const exported = exportVisualThemeFromStyleConfigs(v078ThemeWorkspace, {
     themeName: "v078 Shelf",
     sourceAdapterId: "sort_puzzle",
@@ -4017,7 +4087,7 @@ function fixtureConfigInfoForTargets(adapterId: "idle_monster_farm" | "generic_p
     if (!target.styleConfigPath) {
       continue;
     }
-    const exists = fs.existsSync(path.join(fixtureRoot, ...target.styleConfigPath.split("/")));
+    const exists = fixtureStyleConfigExists(fixtureRoot, target.styleConfigPath);
     configs[`${adapterId}_${target.targetId}`] = {
       status: exists ? "valid" : "missing",
       path: target.styleConfigPath,
@@ -4039,7 +4109,7 @@ function buildFixtureDashboardSurfaces(adapterId: "idle_monster_farm" | "generic
   return getVisualGameAdapterSurfaceTargets(adapterId).map((target) => {
     const recipe = target.surfaceType === "asset_replacement" ? undefined : getVisualSurfaceRecipe(target.surfaceType);
     const configPath = target.styleConfigPath;
-    const configExists = configPath ? fs.existsSync(path.join(fixtureRoot, ...configPath.split("/"))) : false;
+    const configExists = configPath ? fixtureStyleConfigExists(fixtureRoot, configPath) : false;
     const config = configPath
       ? { status: configExists ? "valid" as const : "missing" as const, path: configPath, exists: configExists }
       : { status: "not_applicable" as const, exists: false };
@@ -4065,6 +4135,10 @@ function buildFixtureDashboardSurfaces(adapterId: "idle_monster_farm" | "generic
       scopeFiles: [config.path, target.generatedStyleModulePath, ...target.likelyOwnerFiles].filter((value): value is string => Boolean(value))
     };
   });
+}
+
+function fixtureStyleConfigExists(fixtureRoot: string, configPath: string): boolean {
+  return fs.existsSync(path.join(fixtureRoot, ...configPath.split("/"))) || v078GeneratedStyleConfigs[configPath] !== undefined;
 }
 
 function readFixtureText(root: string, relativePath: string): string {
