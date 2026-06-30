@@ -87,13 +87,16 @@ export function discoverVisualAssetSlots(files: VisualAssetInspectedFile[], adap
 
 export function buildVisualAssetDashboardModel(input: {
   workspaceRoot: string;
+  workspaceName?: string;
+  workspaceMode?: "real_workspace" | "fixture_test" | "no_workspace";
   files: VisualAssetInspectedFile[];
   candidates?: ImportedVisualAssetCandidate[];
   assignments?: AssignedVisualAsset[];
   adapterId?: string;
   updatedAt?: string;
 }): VisualAssetDashboardModel {
-  const activeAdapter = input.adapterId ?? chooseAssetPipelineAdapter(input.files);
+  const detection = detectAssetPipelineAdapter(input.files);
+  const activeAdapter = input.adapterId ?? detection.activeAdapter;
   const slots = discoverVisualAssetSlots(input.files, activeAdapter);
   const candidates = input.candidates ?? readVisualAssetCandidates(input.workspaceRoot);
   const assignments = input.assignments ?? readVisualAssetAssignments(input.workspaceRoot);
@@ -111,8 +114,13 @@ export function buildVisualAssetDashboardModel(input: {
   const rows = buildVisualAssetDashboardRows(slots, candidates, assignments, input.updatedAt, boundsResults, normalizationResults, styleGuides, manifestContracts, manifestApplyResults, contactSheetComparisons);
   return {
     schemaVersion: "visual-asset-pipeline-dashboard/v1",
+    workspaceRoot: path.resolve(input.workspaceRoot),
+    workspaceName: input.workspaceName ?? path.basename(path.resolve(input.workspaceRoot)),
+    workspaceMode: input.workspaceMode ?? "real_workspace",
     activeAdapter,
     activeAdapterLabel: adapterLabel(activeAdapter),
+    detectionEvidence: detection.evidence,
+    detectionWarnings: detection.warnings,
     slots,
     candidates,
     assignments,
@@ -542,6 +550,10 @@ export function assetPipelineScopePaths(slot: VisualAssetSlot): string[] {
 }
 
 function chooseAssetPipelineAdapter(files: VisualAssetInspectedFile[]): string {
+  return detectAssetPipelineAdapter(files).activeAdapter;
+}
+
+function detectAssetPipelineAdapter(files: VisualAssetInspectedFile[]): { activeAdapter: string; evidence: string[]; warnings: string[] } {
   const idle = detectIdleMonsterFarm(files);
   const sort = detectSortPuzzleProject(files);
   const cursor = detectCursorArenaProject(files);
@@ -549,22 +561,62 @@ function chooseAssetPipelineAdapter(files: VisualAssetInspectedFile[]): string {
   const idleScore = idle.detected ? confidenceScore(idle.confidence) : 0;
   const sortScore = sort.detected ? confidenceScore(sort.confidence) : 0;
   const cursorScore = cursor.detected ? confidenceScore(cursor.confidence) : 0;
+  const evidence = [
+    ...idle.evidence.map((entry) => `idle_monster_farm: ${entry}`),
+    ...sort.evidence.map((entry) => `sort_puzzle: ${entry}`),
+    ...cursor.evidence.map((entry) => `cursor_arena: ${entry}`),
+    ...generic.evidence.map((entry) => `generic_phaser: ${entry}`)
+  ];
+  const warnings = [
+    ...idle.warnings,
+    ...sort.warnings,
+    ...cursor.warnings,
+    ...generic.warnings
+  ];
   if (idleScore > 0 && idleScore >= sortScore && idleScore >= cursorScore) {
-    return "idle_monster_farm";
+    return { activeAdapter: "idle_monster_farm", evidence, warnings };
   }
   if (sortScore >= 2 && sortScore >= cursorScore && sortScore > idleScore) {
-    return "sort_puzzle";
+    return { activeAdapter: "sort_puzzle", evidence, warnings };
   }
   if (cursorScore >= 2 && cursorScore > idleScore && cursorScore > sortScore) {
-    return "cursor_arena";
+    return { activeAdapter: "cursor_arena", evidence, warnings };
   }
-  return generic.detected ? "generic_phaser" : "unknown";
+  return { activeAdapter: generic.detected ? "generic_phaser" : "unknown", evidence, warnings };
 }
 
-function detectIdleMonsterFarm(files: VisualAssetInspectedFile[]): { detected: boolean; confidence: "high" | "medium" | "low" | "unknown" } {
-  const text = files.map((file) => `${file.relativePath}\n${file.text}`).join("\n").toLowerCase();
-  const score = (text.includes("farmscene") ? 1 : 0) + (text.includes("monster") ? 1 : 0) + (text.includes("hatch") ? 1 : 0);
-  return { detected: score >= 1, confidence: score >= 3 ? "high" : score >= 2 ? "medium" : score === 1 ? "low" : "unknown" };
+function detectIdleMonsterFarm(files: VisualAssetInspectedFile[]): { detected: boolean; confidence: "high" | "medium" | "low" | "unknown"; evidence: string[]; warnings: string[] } {
+  const evidence: string[] = [];
+  let score = 0;
+  for (const file of files) {
+    const relativePath = file.relativePath.replace(/\\/g, "/");
+    const lowerPath = relativePath.toLowerCase();
+    const text = file.text.toLowerCase();
+    if (lowerPath.endsWith("src/scenes/farmscene.ts") || lowerPath.endsWith("src/scenes/farmscene.js") || lowerPath.includes("farmscene")) {
+      evidence.push(`${relativePath}: FarmScene marker found.`);
+      score += 2;
+    }
+    if (lowerPath.includes("monsterrenderer") || lowerPath.includes("farmSlotState".toLowerCase()) || lowerPath.includes("hatchpanelview")) {
+      evidence.push(`${relativePath}: Monster Farm owner path found.`);
+      score += 2;
+    }
+    if (text.includes("monsterdefinition") || text.includes("monster_definitions") || text.includes("hatch") && text.includes("farm") && text.includes("monster")) {
+      evidence.push(`${relativePath}: Monster Farm runtime terms found.`);
+      score += 1;
+    }
+    if (lowerPath.endsWith("package.json") && text.includes("\"phaser\"")) {
+      evidence.push(`${relativePath}: Phaser dependency found.`);
+      score += 1;
+    }
+  }
+  const uniqueEvidence = Array.from(new Set(evidence));
+  const confidence = score >= 5 ? "high" : score >= 3 ? "medium" : score > 0 ? "low" : "unknown";
+  return {
+    detected: score >= 3,
+    confidence,
+    evidence: uniqueEvidence,
+    warnings: score > 0 && score < 3 ? ["Idle Monster Farm markers are possible but not strong enough for Monster Farm asset slots."] : []
+  };
 }
 
 function buildIdleMonsterFarmSlots(): VisualAssetSlot[] {
@@ -793,8 +845,13 @@ function writeVisualAssetDashboardFile(workspaceRoot: string, patch: { candidate
   const assignments = mergeById(existing.assignments ?? [], patch.assignments ?? [], (assignment) => assignment.assignmentId);
   const model = {
     schemaVersion: "visual-asset-pipeline-dashboard/v1",
+    workspaceRoot: existing.workspaceRoot ?? path.resolve(workspaceRoot),
+    workspaceName: existing.workspaceName ?? path.basename(path.resolve(workspaceRoot)),
+    workspaceMode: existing.workspaceMode ?? "real_workspace",
     activeAdapter: existing.activeAdapter ?? "unknown",
     activeAdapterLabel: existing.activeAdapterLabel ?? "Unknown",
+    detectionEvidence: existing.detectionEvidence ?? [],
+    detectionWarnings: existing.detectionWarnings ?? [],
     slots: existing.slots ?? [],
     candidates,
     assignments,

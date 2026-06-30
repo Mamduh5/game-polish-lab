@@ -38,7 +38,7 @@ import {
   RewardToastStyleConfigLoadResult,
   StyleConfigLoadResult
 } from "../core/visualSurfaceConfig";
-import { labUri, readTextFileIfExists, requireWorkspaceFolder } from "../core/workspace";
+import { labUri, readTextFileIfExists, requireWorkspaceFolder, resolveProductionWorkspaceContext } from "../core/workspace";
 import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { buttonStyleBounds, buttonStylePresets, defaultButtonStyle } from "../presets/buttonStylePresets";
 import { defaultPanelStyle, panelStyleBounds, panelStylePresets } from "../presets/panelStylePresets";
@@ -152,6 +152,16 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
     const genericPhaserState = await getGenericPhaserAdapterState(folder);
     const assetTargets = getIdleMonsterFarmAssetTargets();
     const tuningAttemptIndex = await loadTuningAttemptIndex(folder);
+    const workspaceContext = resolveProductionWorkspaceContext(folder);
+    const idleMonsterFarmDetected = [slotState, backgroundState, panelState, rewardToastState, buttonState].some((state) => state.detection.detected);
+    const normalizedInitialState = {
+      ...initialState,
+      adapterId: initialState.adapterId === "idle_monster_farm" && idleMonsterFarmDetected
+        ? "idle_monster_farm" as const
+        : initialState.adapterId === "generic_phaser"
+          ? "generic_phaser" as const
+          : undefined
+    };
 
     const panel = vscode.window.createWebviewPanel("gamePolishLab.tuneVisualSurface", "Tune Visual Surface", vscode.ViewColumn.One, {
       enableScripts: true,
@@ -161,6 +171,9 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
 
     panel.webview.html = renderHtml({
       workspaceRoot: folder.uri.fsPath,
+      workspaceName: workspaceContext.workspaceName,
+      workspaceMode: workspaceContext.mode,
+      idleMonsterFarmDetected,
       slotLoad,
       backgroundLoad,
       panelLoad,
@@ -173,7 +186,7 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
       buttonState,
       genericPhaserState,
       tuningAttemptIndex,
-      initialState,
+      initialState: normalizedInitialState,
       recipes: getVisualSurfaceRecipes(),
       assetTargets
     });
@@ -239,6 +252,9 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
         connectionState: "unknown",
         scopeSummary: result.changedFiles.length > 0 ? result.changedFiles.join(", ") : result.configPath
       });
+    }
+    if (!(await workspaceSupportsIdleMonsterFarm(folder))) {
+      return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Idle Monster Farm direct apply is blocked because this active workspace does not contain Idle Monster Farm evidence." };
     }
     if (message.surfaceType === "background_readability") {
       const config = buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues);
@@ -490,8 +506,22 @@ function latestRollbackHandle(workspaceRoot: string, originalPath: string, surfa
   } : undefined;
 }
 
+async function workspaceSupportsIdleMonsterFarm(folder: vscode.WorkspaceFolder): Promise<boolean> {
+  const [slotState, backgroundState, panelState, rewardToastState, buttonState] = await Promise.all([
+    getIdleMonsterFarmFarmSlotAdapterState(folder),
+    getIdleMonsterFarmBackgroundAdapterState(folder),
+    getIdleMonsterFarmPanelAdapterState(folder),
+    getIdleMonsterFarmRewardToastAdapterState(folder),
+    getIdleMonsterFarmButtonAdapterState(folder)
+  ]);
+  return [slotState, backgroundState, panelState, rewardToastState, buttonState].some((state) => state.detection.detected);
+}
+
 async function setupBridge(folder: vscode.WorkspaceFolder, message: SaveMessage, slotLoad: StyleConfigLoadResult, backgroundLoad: BackgroundStyleConfigLoadResult, panelLoad: PanelStyleConfigLoadResult, rewardToastLoad: RewardToastStyleConfigLoadResult, buttonLoad: ButtonStyleConfigLoadResult): Promise<SaveResultMessage> {
   try {
+    if (!(await workspaceSupportsIdleMonsterFarm(folder))) {
+      return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Idle Monster Farm setup is blocked because this active workspace does not contain Idle Monster Farm evidence." };
+    }
     if (message.surfaceType === "background_readability") {
       const result = await setupIdleMonsterFarmBackgroundBridge(folder, buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues));
       return recordTuningAttemptForResult(folder, message, setupResponse("background_readability", backgroundReadabilityStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("background_readability", backgroundLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.background", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles), result.warnings), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability", applyMode: "direct_apply" });
@@ -563,6 +593,9 @@ async function applyAsset(folder: vscode.WorkspaceFolder, message: SaveMessage):
     }
     if (!message.assetTargetId || !message.fileName || !message.dataBase64) {
       return { command: "saveResult", ok: false, surfaceType: "asset_replacement", error: "Choose a PNG/WebP asset before applying." };
+    }
+    if (!(await workspaceSupportsIdleMonsterFarm(folder))) {
+      return { command: "saveResult", ok: false, surfaceType: "asset_replacement", error: "Idle Monster Farm asset apply is blocked because this active workspace does not contain Idle Monster Farm evidence." };
     }
     const result = await applyIdleMonsterFarmReplacementAsset(folder, {
       targetId: message.assetTargetId,
@@ -910,6 +943,9 @@ function visualRecipeChecklist(recipePaths: string[]): string[] {
 
 function renderHtml(input: {
   workspaceRoot: string;
+  workspaceName: string;
+  workspaceMode: "real_workspace" | "fixture_test" | "no_workspace";
+  idleMonsterFarmDetected: boolean;
   slotLoad: StyleConfigLoadResult;
   backgroundLoad: BackgroundStyleConfigLoadResult;
   panelLoad: PanelStyleConfigLoadResult;
@@ -946,6 +982,12 @@ function renderHtml(input: {
     genericPhaser: input.genericPhaserState,
     tuningAttemptIndex: input.tuningAttemptIndex,
     initialState: input.initialState,
+    workspace: {
+      root: input.workspaceRoot,
+      name: input.workspaceName,
+      mode: input.workspaceMode,
+      idleMonsterFarmDetected: input.idleMonsterFarmDetected
+    },
     assetTargets: input.assetTargets
   }).replace(/</g, "\\u003c");
 
@@ -963,7 +1005,7 @@ function renderHtml(input: {
   </style>
 </head>
 <body>
-  <div style="margin-bottom:16px"><h1>Game Polish Lab v0.62: Visual Surface Tuning</h1><p class="meta">Preset library -> preview across frames/states -> save config/assets -> direct apply for supported adapters -> record result.</p></div>
+  <div style="margin-bottom:16px"><h1>Game Polish Lab v0.62: Visual Surface Tuning</h1><p class="meta">Workspace: ${escapeHtml(input.workspaceName)} | ${escapeHtml(input.workspaceMode)}</p><p class="meta">${escapeHtml(input.workspaceRoot)}</p><p class="meta">Preset library -> preview across frames/states -> save config/assets -> direct apply for supported adapters -> record result.</p></div>
   <main>
     <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"></select></div><div><label for="adapterMode">Adapter</label><select id="adapterMode"><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option></select></div><div id="genericFields" style="display:none"><label for="genericTarget">Manual target label</label><input id="genericTarget" type="text" value="Manual visual target"><label for="genericFiles">Selected target files</label><textarea id="genericFiles"></textarea><label for="genericAssetFolder">Asset destination folder</label><input id="genericAssetFolder" type="text" value="src/assets"><label><input id="genericDirect" type="checkbox"> Write generated style module</label></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select><div id="presetDescription" class="preset-description"></div></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary warning-action" id="undoApply" disabled>Undo Last Apply</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="resultPanel" style="display:none;margin-top:12px"><label for="resultNote">Result note</label><textarea id="resultNote" placeholder="What improved, got worse, or did not move?"></textarea><div class="actions"><button class="secondary" data-result="better">Mark Better</button><button class="secondary" data-result="worse">Mark Worse</button><button class="secondary" data-result="same">Mark Same</button><button class="secondary" data-result="mixed">Mark Mixed</button><button data-result="unreviewed">Add Note</button></div></div><div id="status" class="status"></div></section>
     <section><div class="preview-toolbar"><div><label for="frameMode">Preview frame</label><select id="frameMode"><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select></div><label><input id="animationToggle" type="checkbox" checked> Play preview animation</label></div><section class="preview-grid"><div><div class="compare-heading"><h2>Before</h2><span id="beforeLabel" class="frame-label"></span></div><div id="before"></div></div><div><div class="compare-heading"><h2>After</h2><span id="afterLabel" class="frame-label"></span></div><div id="after"></div></div></section><section class="panel" style="margin-top:14px"><h3>State Preview Grid</h3><p id="stateGridLabel" class="meta"></p><div id="stateGrid" class="state-grid"></div></section></section>
@@ -974,7 +1016,7 @@ function renderHtml(input: {
     const recipesBySurface=Object.fromEntries(data.recipes.map(r=>[r.surfaceType,r]));
     const labels={},numeric={},colors={};
     for(const recipe of data.recipes){numeric[recipe.surfaceType]=[];colors[recipe.surfaceType]=[];for(const token of recipe.supportedStyleTokens){labels[token.tokenId]=token.label;if(token.valueType==="number")numeric[recipe.surfaceType].push(token.tokenId);if(token.valueType==="color")colors[recipe.surfaceType].push(token.tokenId);}}
-    let surfaceType=data.initialState.surfaceType&&data.surfaceOrder.includes(data.initialState.surfaceType)?data.initialState.surfaceType:"slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName, values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values), selectedPresetId="", selectedAsset=null, needsSetup=false, adapterId=data.initialState.adapterId||"idle_monster_farm", currentAttemptPath="", frameMode="desktop", animationOn=true;
+    let surfaceType=data.initialState.surfaceType&&data.surfaceOrder.includes(data.initialState.surfaceType)?data.initialState.surfaceType:"slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName, values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values), selectedPresetId="", selectedAsset=null, needsSetup=false, adapterId=data.initialState.adapterId||(data.workspace.idleMonsterFarmDetected?"idle_monster_farm":"generic_phaser"), currentAttemptPath="", frameMode="desktop", animationOn=true;
     const surface=document.getElementById("surface"), preset=document.getElementById("preset"), presetDescription=document.getElementById("presetDescription"), controls=document.getElementById("controls"), status=document.getElementById("status"), adapterMode=document.getElementById("adapterMode"), genericFields=document.getElementById("genericFields"), genericTarget=document.getElementById("genericTarget"), genericFiles=document.getElementById("genericFiles"), genericAssetFolder=document.getElementById("genericAssetFolder"), genericDirect=document.getElementById("genericDirect"), frameModeSelect=document.getElementById("frameMode"), animationToggle=document.getElementById("animationToggle"), beforeLabel=document.getElementById("beforeLabel"), afterLabel=document.getElementById("afterLabel"), stateGrid=document.getElementById("stateGrid"), stateGridLabel=document.getElementById("stateGridLabel"), undoApply=document.getElementById("undoApply");
     genericTarget.value=data.initialState.targetLabel||genericTarget.value;genericFiles.value=(data.genericPhaser.likelySceneFiles||[]).join("\\n");genericAssetFolder.value=(data.genericPhaser.likelyAssetFolders&&data.genericPhaser.likelyAssetFolders[0])||"src/assets";
     for(const id of data.surfaceOrder){const option=document.createElement("option");option.value=id;option.textContent=recipesBySurface[id]?recipesBySurface[id].displayName:id;option.selected=id===surfaceType;surface.append(option);}
@@ -1042,6 +1084,10 @@ function createNonce(): string {
     nonce += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
   }
   return nonce;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
 }
 
 function errorToMessage(error: unknown): string {

@@ -40,7 +40,7 @@ import {
   visualAssetDashboardRelativePath,
   writeVisualAssetFallbackTask
 } from "../core/visualAssetPipeline";
-import { openTextDocument, pathExists, readTextFileIfExists, requireWorkspaceFolder, toWorkspaceRelativePath } from "../core/workspace";
+import { openTextDocument, pathExists, readTextFileIfExists, requireWorkspaceFolder, resolveProductionWorkspaceContext, toWorkspaceRelativePath } from "../core/workspace";
 import { ImportedVisualAssetCandidate, VisualAssetDashboardModel } from "../types/visualAssetPipeline";
 
 interface AssetPipelineMessage {
@@ -89,9 +89,12 @@ export async function openAssetPipelineDashboard(context: vscode.ExtensionContex
 }
 
 export async function buildAssetPipelineDashboardForWorkspace(folder: vscode.WorkspaceFolder): Promise<VisualAssetDashboardModel> {
+  const workspaceContext = resolveProductionWorkspaceContext(folder);
   const files = await readAssetPipelineWorkspaceFiles(folder);
   return buildVisualAssetDashboardModel({
-    workspaceRoot: folder.uri.fsPath,
+    workspaceRoot: workspaceContext.workspaceRoot,
+    workspaceName: workspaceContext.workspaceName,
+    workspaceMode: workspaceContext.mode,
     files
   });
 }
@@ -476,8 +479,9 @@ function renderAssetPipelineDashboardHtml(webview: vscode.Webview, folder: vscod
   </style>
 </head>
 <body>
-  <div class="top"><div><h1>Asset Pipeline Dashboard</h1><p class="meta">${escapeHtml(model.activeAdapterLabel)} | ${escapeHtml(model.activeAdapter)} | ${escapeHtml(visualAssetDashboardRelativePath)}</p></div><div class="toolbar"><button id="refresh">Refresh</button></div></div>
+  <div class="top"><div><h1>Asset Pipeline Dashboard</h1><p class="meta">Workspace: ${escapeHtml(model.workspaceName)} | ${escapeHtml(model.workspaceMode)}</p><p class="meta">${escapeHtml(model.workspaceRoot || "No active workspace folder")}</p><p class="meta">${escapeHtml(model.activeAdapterLabel)} | ${escapeHtml(model.activeAdapter)} | ${escapeHtml(visualAssetDashboardRelativePath)}</p></div><div class="toolbar"><button id="refresh">Refresh</button></div></div>
   <section class="summary">${summaryMetric("Slots", String(model.slots.length))}${summaryMetric("Candidates", String(model.candidates.length))}${summaryMetric("Bounds", String(model.boundsResults.length))}${summaryMetric("Normalized", String(model.normalizationResults.filter((entry) => entry.status === "created").length))}${summaryMetric("Style Guides", String(model.styleGuides.length))}${summaryMetric("Contact Sheets", String(model.contactSheetComparisons.length))}${summaryMetric("Manifest Applies", String(model.manifestApplyResults.filter((entry) => entry.status === "applied").length))}${summaryMetric("Assignments", String(model.assignments.length))}${summaryMetric("Valid", String(model.statusCounts.valid))}${summaryMetric("Warnings", String(model.statusCounts.warning))}${summaryMetric("Invalid", String(model.statusCounts.invalid))}${summaryMetric("Unvalidated", String(model.statusCounts.unvalidated))}</section>
+  <section class="card"><div class="row-head"><h2>Workspace Detection</h2><span class="badge">${escapeHtml(model.activeAdapter)}</span></div><div class="grid"><div><b>Evidence</b><p class="meta">${escapeHtml((model.detectionEvidence.length ? model.detectionEvidence.slice(0, 8) : ["No adapter evidence found in the active workspace."]).join(" | "))}</p></div><div><b>Warnings</b><p class="meta">${escapeHtml((model.detectionWarnings.length ? model.detectionWarnings.slice(0, 8) : ["No detection warnings."]).join(" | "))}</p></div></div></section>
   <div id="surfaces"></div>
   <div id="status" class="status muted">Last refreshed ${escapeHtml(generatedAt)}</div>
   <script nonce="${nonce}">

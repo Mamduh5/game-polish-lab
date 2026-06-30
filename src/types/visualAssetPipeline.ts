@@ -1,6 +1,7 @@
 import type { VisualAssetStyleGuideSummary } from "./visualAssetStyleGuide";
 import type { VisualAssetManifestApplySummary, VisualAssetManifestContract } from "./visualAssetManifestDirectApply";
 import type { VisualAssetComparisonSummary } from "./visualAssetContactSheetComparison";
+import type { ProductionWorkspaceMode } from "../core/workspace";
 
 export type VisualAssetExpectedType = "image" | "spritesheet" | "icon" | "background" | "effect" | "ui-frame" | "unknown";
 export type VisualAssetSafetyStatus = "safe" | "suspicious" | "unsupported" | "unknown";
@@ -203,8 +204,13 @@ export interface VisualAssetDashboardRow {
 
 export interface VisualAssetDashboardModel {
   schemaVersion: "visual-asset-pipeline-dashboard/v1";
+  workspaceRoot: string;
+  workspaceName: string;
+  workspaceMode: ProductionWorkspaceMode;
   activeAdapter: string;
   activeAdapterLabel: string;
+  detectionEvidence: string[];
+  detectionWarnings: string[];
   slots: VisualAssetSlot[];
   candidates: ImportedVisualAssetCandidate[];
   assignments: AssignedVisualAsset[];

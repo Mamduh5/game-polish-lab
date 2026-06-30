@@ -2,9 +2,11 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as path from "path";
 
+import { buildVisualAssetDashboardModel } from "../core/visualAssetPipeline";
 import { buildVisualDirectApplyFallbackTask, buildVisualDirectApplyPlan } from "../core/visualDirectApplyTemplates";
 import { discoverVisualRollbackSnapshots, findLatestVisualRollbackForFile, restoreVisualRollbackSnapshot } from "../core/visualRollback";
 import { checkVisualScopeGuard } from "../core/visualScopeGuard";
+import { buildVisualTuningDashboardModel, DashboardSurfaceInput, selectProductionDashboardSurfaces } from "../core/visualTuningDashboardModel";
 
 const root = process.cwd();
 
@@ -221,6 +223,112 @@ assert.ok(tunerSource.includes("Ctrl+Z"));
 assert.ok(tunerSource.includes("Preview baseline refreshed from saved config."));
 assert.ok(tunerSource.includes("findLatestVisualRollbackForFile"));
 assert.ok(tunerSource.includes("supported Idle Monster Farm visual style configs"));
+assert.ok(visualDashboardSource.includes("selectProductionDashboardSurfaces"));
+assert.ok(visualDashboardSource.includes("workspaceRelativeUri"));
+assert.ok(visualDashboardSource.includes("Workspace Detection"));
+assert.ok(assetDashboardSource.includes("Workspace Detection"));
+assert.ok(tunerSource.includes("idleMonsterFarmDetected"));
+assert.ok(tunerSource.includes("Idle Monster Farm direct apply is blocked"));
+
+const idleSurface = fakeSurface("idle_monster_farm", "Monster Farm Slots", "slot_card");
+const genericSurface = fakeSurface("generic_phaser", "Generic Phaser Slot/Card", "slot_card");
+const cursorSurface = fakeSurface("cursor_arena", "Cursor Hit Feedback", "reward_toast");
+
+const nonMonsterSurfaceSelection = selectProductionDashboardSurfaces({
+  idleDetected: false,
+  sortPuzzleDetected: false,
+  cursorArenaDetected: false,
+  genericDetected: true,
+  idleSurfaces: [idleSurface],
+  sortPuzzleSurfaces: [],
+  cursorArenaSurfaces: [],
+  genericSurfaces: [genericSurface]
+});
+assert.ok(nonMonsterSurfaceSelection.every((row) => row.adapter.adapterId !== "idle_monster_farm"));
+assert.ok(nonMonsterSurfaceSelection.some((row) => row.adapter.adapterId === "generic_phaser"));
+
+const cursorSurfaceSelection = selectProductionDashboardSurfaces({
+  idleDetected: false,
+  sortPuzzleDetected: false,
+  cursorArenaDetected: true,
+  genericDetected: true,
+  idleSurfaces: [idleSurface],
+  sortPuzzleSurfaces: [],
+  cursorArenaSurfaces: [cursorSurface],
+  genericSurfaces: [genericSurface]
+});
+assert.ok(cursorSurfaceSelection.some((row) => row.adapter.adapterId === "cursor_arena"));
+assert.ok(cursorSurfaceSelection.every((row) => row.adapter.adapterId !== "idle_monster_farm"));
+
+const idleSurfaceSelection = selectProductionDashboardSurfaces({
+  idleDetected: true,
+  sortPuzzleDetected: false,
+  cursorArenaDetected: false,
+  genericDetected: true,
+  idleSurfaces: [idleSurface],
+  sortPuzzleSurfaces: [],
+  cursorArenaSurfaces: [],
+  genericSurfaces: [genericSurface]
+});
+assert.ok(idleSurfaceSelection.some((row) => row.adapter.adapterId === "idle_monster_farm"));
+
+const noWorkspaceDashboard = buildVisualTuningDashboardModel({
+  workspaceFolder: "",
+  workspaceName: "No workspace folder",
+  workspaceMode: "no_workspace",
+  phaserDetected: false,
+  detectedAdapter: "unknown",
+  adapterConfidence: "unknown",
+  detectionEvidence: [],
+  detectionWarnings: ["No VS Code workspace folder is open."],
+  surfaces: [],
+  attemptIndex: { schemaVersion: "visual-tuning-attempt-index/v1", updatedAt: "2026-06-30T00:00:00.000Z", attempts: [] }
+});
+assert.strictEqual(noWorkspaceDashboard.summary.workspaceMode, "no_workspace");
+assert.strictEqual(noWorkspaceDashboard.rows.length, 0);
+
+const cursorAssetDashboard = buildVisualAssetDashboardModel({
+  workspaceRoot: path.join(root, "fake-cursor-workspace"),
+  workspaceName: "Do Not Click This Button",
+  workspaceMode: "real_workspace",
+  files: [
+    { relativePath: "package.json", text: "{\"dependencies\":{\"phaser\":\"^3.80.0\"}}" },
+    { relativePath: "arena.html", text: "<div id=\"game\"></div>" },
+    { relativePath: "src/arena/systems/CursorAttackSystem.js", text: "export class CursorAttackSystem {}" },
+    { relativePath: "src/arena/scenes/ArenaScene.js", text: "export class ArenaScene extends Phaser.Scene {}" }
+  ]
+});
+assert.strictEqual(cursorAssetDashboard.workspaceName, "Do Not Click This Button");
+assert.strictEqual(cursorAssetDashboard.workspaceMode, "real_workspace");
+assert.strictEqual(cursorAssetDashboard.activeAdapter, "cursor_arena");
+assert.ok(cursorAssetDashboard.rows.length > 0);
+assert.ok(cursorAssetDashboard.rows.every((row) => row.slot.adapterId !== "idle_monster_farm"));
+
+const genericAssetDashboard = buildVisualAssetDashboardModel({
+  workspaceRoot: path.join(root, "fake-generic-workspace"),
+  workspaceName: "Generic Phaser",
+  workspaceMode: "real_workspace",
+  files: [
+    { relativePath: "package.json", text: "{\"dependencies\":{\"phaser\":\"^3.80.0\"}}" },
+    { relativePath: "src/scenes/PlayScene.ts", text: "export class PlayScene extends Phaser.Scene { create(){ this.add.text(0,0,'start'); } }" }
+  ]
+});
+assert.notStrictEqual(genericAssetDashboard.activeAdapter, "idle_monster_farm");
+assert.ok(genericAssetDashboard.rows.every((row) => row.slot.adapterId !== "idle_monster_farm"));
+
+const idleAssetDashboard = buildVisualAssetDashboardModel({
+  workspaceRoot: path.join(root, "fake-idle-monster-farm-workspace"),
+  workspaceName: "Idle Monster Farm",
+  workspaceMode: "real_workspace",
+  files: [
+    { relativePath: "package.json", text: "{\"dependencies\":{\"phaser\":\"^3.80.0\"}}" },
+    { relativePath: "src/scenes/FarmScene.ts", text: "export class FarmScene extends Phaser.Scene { hatch(){ const monster = 'monster'; } }" },
+    { relativePath: "src/rendering/MonsterRenderer.ts", text: "export function renderMonster(){}" }
+  ]
+});
+assert.strictEqual(idleAssetDashboard.activeAdapter, "idle_monster_farm");
+assert.ok(idleAssetDashboard.rows.some((row) => row.slot.adapterId === "idle_monster_farm"));
+assert.ok(idleAssetDashboard.rows.every((row) => !path.isAbsolute(row.slot.targetConfigPath ?? "")));
 
 for (const dogfoodDocPath of ["docs/beta-dogfooding-v0.95.md", "docs/beta-dogfooding-checklist.md"]) {
   const text = readText(dogfoodDocPath);
@@ -260,4 +368,28 @@ function cleanupTempWorkspace(workspaceRoot: string): void {
   if (workspaceRoot.startsWith(root)) {
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   }
+}
+
+function fakeSurface(adapterId: "idle_monster_farm" | "generic_phaser" | "cursor_arena", displayName: string, surfaceType: "slot_card" | "reward_toast"): DashboardSurfaceInput {
+  const configPath = `.game-polish-lab/styles/${adapterId}-${surfaceType}.json`;
+  return {
+    surfaceType,
+    displayName,
+    adapter: {
+      adapterId,
+      targetId: `${adapterId}_${surfaceType}`,
+      targetLabel: displayName,
+      connectedState: adapterId === "idle_monster_farm" ? "connected" : "not_connected",
+      detected: true,
+      confidence: "high",
+      directApplySupported: adapterId !== "cursor_arena",
+      generatedStyleModulePath: adapterId === "idle_monster_farm" ? "src/config/farmSlotStyle.ts" : undefined,
+      ownerFiles: adapterId === "idle_monster_farm" ? ["src/scenes/FarmScene.ts"] : ["src/scenes/PlayScene.ts"],
+      warnings: []
+    },
+    config: { status: "missing", path: configPath, exists: false },
+    recipeFile: { status: "missing", path: ".game-polish-lab/visual-recipes/fake.json", exists: false },
+    fallbackTaskCount: 0,
+    scopeFiles: [configPath]
+  };
 }

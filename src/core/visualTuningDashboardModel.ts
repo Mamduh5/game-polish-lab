@@ -58,10 +58,14 @@ export interface DashboardSurfaceInput {
 
 export interface BuildDashboardInput {
   workspaceFolder: string;
+  workspaceName?: string;
+  workspaceMode?: "real_workspace" | "fixture_test" | "no_workspace";
   generatedAt?: Date;
   phaserDetected: boolean;
   detectedAdapter: DashboardAdapterId | "unknown";
   adapterConfidence: "high" | "medium" | "low" | "unknown";
+  detectionEvidence?: string[];
+  detectionWarnings?: string[];
   surfaces: DashboardSurfaceInput[];
   attemptIndex: VisualTuningAttemptIndex;
   assetContracts?: {
@@ -104,6 +108,17 @@ export interface DashboardAdapterFilterOption {
   label: string;
 }
 
+export interface ProductionDashboardSurfaceSelectionInput {
+  idleDetected: boolean;
+  sortPuzzleDetected: boolean;
+  cursorArenaDetected: boolean;
+  genericDetected: boolean;
+  idleSurfaces: DashboardSurfaceInput[];
+  sortPuzzleSurfaces: DashboardSurfaceInput[];
+  cursorArenaSurfaces: DashboardSurfaceInput[];
+  genericSurfaces: DashboardSurfaceInput[];
+}
+
 export function buildVisualTuningDashboardModel(input: BuildDashboardInput): VisualTuningDashboardModel {
   const rows = input.surfaces.map((surface) => buildDashboardRow(surface, input.attemptIndex));
   const fieldNotes = buildFieldNoteSummary(rows);
@@ -112,9 +127,13 @@ export function buildVisualTuningDashboardModel(input: BuildDashboardInput): Vis
     generatedAt: (input.generatedAt ?? new Date()).toISOString(),
     summary: {
       workspaceFolder: input.workspaceFolder,
+      workspaceName: input.workspaceName ?? (basename(input.workspaceFolder) || "No workspace folder"),
+      workspaceMode: input.workspaceMode ?? "real_workspace",
       detectedAdapter: input.detectedAdapter,
       adapterConfidence: input.adapterConfidence,
       phaserDetected: input.phaserDetected,
+      detectionEvidence: unique(input.detectionEvidence ?? []).slice(0, 24),
+      detectionWarnings: unique(input.detectionWarnings ?? []).slice(0, 24),
       totalSurfaces: rows.length,
       appliedCount: rows.filter((row) => row.appliedStatus === "applied").length,
       configOnlyCount: rows.filter((row) => row.appliedStatus === "config_only").length,
@@ -139,6 +158,23 @@ export function buildVisualTuningDashboardModel(input: BuildDashboardInput): Vis
     rows,
     manualChecklist: dashboardManualChecklist()
   };
+}
+
+export function selectProductionDashboardSurfaces(input: ProductionDashboardSurfaceSelectionInput): DashboardSurfaceInput[] {
+  const surfaces: DashboardSurfaceInput[] = [];
+  if (input.idleDetected) {
+    surfaces.push(...input.idleSurfaces);
+  }
+  if (input.sortPuzzleDetected) {
+    surfaces.push(...input.sortPuzzleSurfaces);
+  }
+  if (input.cursorArenaDetected) {
+    surfaces.push(...input.cursorArenaSurfaces);
+  }
+  if (input.genericDetected || surfaces.length === 0) {
+    surfaces.push(...input.genericSurfaces);
+  }
+  return surfaces;
 }
 
 export function dashboardAdapterFilterOptions(): DashboardAdapterFilterOption[] {

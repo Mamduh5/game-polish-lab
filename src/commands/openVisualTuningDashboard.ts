@@ -36,7 +36,8 @@ import {
   DashboardConfigInfo,
   DashboardRecipeInfo,
   DashboardSurfaceInput,
-  recipeFileStatus
+  recipeFileStatus,
+  selectProductionDashboardSurfaces
 } from "../core/visualTuningDashboardModel";
 import {
   backgroundReadabilityStyleConfigRelativePath,
@@ -56,7 +57,7 @@ import {
   rewardToastStyleConfigRelativePath
 } from "../core/visualSurfaceConfig";
 import { getVisualSurfaceRecipe, getVisualSurfaceRecipes, validateVisualSurfaceRecipe, visualRecipeRelativePath, visualSurfacePickerOrder } from "../core/visualRecipeRegistry";
-import { ensureDirectory, labUri, openTextDocument, pathExists, readTextFileIfExists, requireWorkspaceFolder, writeJsonFile } from "../core/workspace";
+import { ensureDirectory, labUri, openTextDocument, pathExists, readTextFileIfExists, resolveProductionWorkspaceContext, workspaceRelativeUri, writeJsonFile } from "../core/workspace";
 import { VisualSurfaceType } from "../types/visualSurface";
 import { VisualTuningDashboardModel, VisualTuningDashboardRow } from "../types/visualTuningDashboard";
 import { openAssetContactSheet } from "./openAssetContactSheet";
@@ -73,10 +74,17 @@ interface DashboardMessage {
 }
 
 export async function openVisualTuningDashboard(context: vscode.ExtensionContext): Promise<void> {
-  const folder = requireWorkspaceFolder();
-  if (!folder) {
+  const workspaceContext = resolveProductionWorkspaceContext();
+  if (!workspaceContext.folder) {
+    const panel = vscode.window.createWebviewPanel("gamePolishLab.visualTuningDashboard", "Visual Tuning Dashboard", vscode.ViewColumn.One, {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [context.extensionUri]
+    });
+    panel.webview.html = renderDashboardHtml(buildNoWorkspaceDashboardModel());
     return;
   }
+  const folder = workspaceContext.folder;
   logCommandStart("gamePolishLab.openVisualTuningDashboard", folder.uri.fsPath);
 
   try {
@@ -110,6 +118,7 @@ export async function openVisualTuningDashboard(context: vscode.ExtensionContext
 }
 
 export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder): Promise<VisualTuningDashboardModel> {
+  const workspaceContext = resolveProductionWorkspaceContext(folder);
   const [
     slotState,
     backgroundState,
@@ -151,38 +160,64 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
     cursorArenaConfidence: cursorArenaState.detection.confidence,
     genericDetected: genericState.detected
   });
-  const surfaces: DashboardSurfaceInput[] = [
-    ...visualSurfacePickerOrder.map((surfaceType) => buildIdleSurfaceInput(surfaceType, configStatuses, recipeFileStatuses, fallbackCounts, {
+  const idleSurfaces = visualSurfacePickerOrder.map((surfaceType) => buildIdleSurfaceInput(surfaceType, configStatuses, recipeFileStatuses, fallbackCounts, {
       slot_card: slotState,
       background_readability: backgroundState,
       panel: panelState,
       reward_toast: rewardToastState,
       button: buttonState
-    }, assetTargets)),
-    ...(sortPuzzleState.detection.detected ? buildSortPuzzleDashboardSurfaceInputs({
+    }, assetTargets));
+  const sortPuzzleSurfaces = sortPuzzleState.detection.detected ? buildSortPuzzleDashboardSurfaceInputs({
       detection: sortPuzzleState.detection,
       configs: configStatuses,
       recipeFiles: recipeFileStatuses,
       fallbackCounts,
       ownerFiles: sortPuzzleState.ownerFiles
-    }) : []),
-    ...(cursorArenaState.detection.detected ? buildCursorArenaDashboardSurfaceInputs({
+    }) : [];
+  const cursorArenaSurfaces = cursorArenaState.detection.detected ? buildCursorArenaDashboardSurfaceInputs({
       detection: cursorArenaState.detection,
       configs: configStatuses,
       recipeFiles: recipeFileStatuses,
       fallbackCounts,
       ownerFiles: cursorArenaState.ownerFiles
-    }) : []),
-    ...buildGenericPhaserDashboardSurfaceInputs({
+    }) : [];
+  const genericSurfaces = buildGenericPhaserDashboardSurfaceInputs({
       detection: genericState,
       configs: configStatuses,
       recipeFiles: recipeFileStatuses,
       fallbackCounts
-    })
+    });
+  const surfaces = selectProductionDashboardSurfaces({
+    idleDetected: idleAdapterDetected,
+    sortPuzzleDetected: sortPuzzleState.detection.detected,
+    cursorArenaDetected: cursorArenaState.detection.detected,
+    genericDetected: genericState.detected,
+    idleSurfaces,
+    sortPuzzleSurfaces,
+    cursorArenaSurfaces,
+    genericSurfaces
+  });
+  const detectionEvidence = [
+    ...workspaceContext.warnings,
+    ...[slotState, backgroundState, panelState, rewardToastState, buttonState].flatMap((state) => state.detection.detected
+      ? [`${state.target}: ${state.detection.ownerFiles.join(", ") || "detected"}`, ...state.detection.reasons]
+      : []),
+    ...sortPuzzleState.detection.evidence.map((entry) => `sort_puzzle: ${entry}`),
+    ...cursorArenaState.detection.evidence.map((entry) => `cursor_arena: ${entry}`),
+    ...genericState.evidence.map((entry) => `generic_phaser: ${entry}`)
+  ];
+  const detectionWarnings = [
+    ...workspaceContext.warnings,
+    ...[slotState, backgroundState, panelState, rewardToastState, buttonState].flatMap((state) => state.detection.warnings),
+    ...sortPuzzleState.detection.warnings,
+    ...cursorArenaState.detection.warnings,
+    ...genericState.warnings
   ];
 
   return buildVisualTuningDashboardModel({
-    workspaceFolder: folder.uri.fsPath,
+    workspaceFolder: workspaceContext.workspaceRoot,
+    workspaceName: workspaceContext.workspaceName,
+    workspaceMode: workspaceContext.mode,
     phaserDetected: genericState.detected || idleAdapterDetected || sortPuzzleState.detection.detected || cursorArenaState.detection.detected,
     detectedAdapter,
     adapterConfidence: detectedAdapter === "idle_monster_farm" ? idleConfidence
@@ -190,6 +225,8 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
       : detectedAdapter === "cursor_arena" ? cursorArenaState.detection.confidence
       : detectedAdapter === "generic_phaser" ? genericState.confidence
       : "unknown",
+    detectionEvidence,
+    detectionWarnings,
     surfaces,
     attemptIndex,
     assetContracts: {
@@ -199,6 +236,22 @@ export async function buildDashboardForWorkspace(folder: vscode.WorkspaceFolder)
       warningCount: assetContractLoad.warnings.length + assetContractLoad.file.contracts.reduce((sum, contract) => sum + contract.slots.reduce((slotSum, slot) => slotSum + slot.validation.warnings.length + slot.validation.errors.length, 0), 0)
     },
     devOverlay
+  });
+}
+
+function buildNoWorkspaceDashboardModel(): VisualTuningDashboardModel {
+  const context = resolveProductionWorkspaceContext(undefined);
+  return buildVisualTuningDashboardModel({
+    workspaceFolder: context.workspaceRoot,
+    workspaceName: context.workspaceName,
+    workspaceMode: context.mode,
+    phaserDetected: false,
+    detectedAdapter: "unknown",
+    adapterConfidence: "unknown",
+    detectionEvidence: [],
+    detectionWarnings: context.warnings,
+    surfaces: [],
+    attemptIndex: { schemaVersion: "visual-tuning-attempt-index/v1", attempts: [], updatedAt: new Date().toISOString() }
   });
 }
 
@@ -351,7 +404,10 @@ async function handleDashboardMessage(context: vscode.ExtensionContext, folder: 
     if (!row.configPath) {
       return { ok: false, message: "This row has no config path. Open the tuner to create config safely." };
     }
-    const uri = vscode.Uri.joinPath(folder.uri, ...row.configPath.split("/"));
+    const uri = workspaceRelativeUri(folder, row.configPath);
+    if (!uri) {
+      return { ok: false, message: `Config path is outside the active workspace or unsafe: ${row.configPath}` };
+    }
     if (!(await pathExists(uri))) {
       const choice = await vscode.window.showInformationMessage("Config is missing. Open the tuner to create it safely?", "Open Tuner");
       if (choice === "Open Tuner") {
@@ -416,7 +472,11 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   if (row.adapterId !== "idle_monster_farm" && row.adapterId !== "sort_puzzle" && row.adapterId !== "cursor_arena" && row.adapterId !== "generic_phaser") {
     return { ok: false, message: "Dashboard direct apply is available only for connected Idle Monster Farm style surfaces and generated config writes for Sort Puzzle, Cursor Arena, or Generic Phaser." };
   }
-  const configText = row.configPath ? await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, ...row.configPath.split("/"))) : undefined;
+  const configUri = row.configPath ? workspaceRelativeUri(folder, row.configPath) : undefined;
+  const configText = configUri ? await readTextFileIfExists(configUri) : undefined;
+  if (row.configPath && !configUri) {
+    return { ok: false, message: `Config path is outside the active workspace or unsafe: ${row.configPath}` };
+  }
   if (!configText) {
     return { ok: false, message: "A valid config is required before direct apply." };
   }
@@ -924,12 +984,13 @@ function renderDashboardHtml(model: VisualTuningDashboardModel): string {
   <title>Visual Tuning Dashboard</title>
   <style nonce="${nonce}">
     :root{color-scheme:light dark;--panel:var(--vscode-editorWidget-background);--border:var(--vscode-panel-border);--text:var(--vscode-foreground);--muted:var(--vscode-descriptionForeground);--button:var(--vscode-button-background);--button-text:var(--vscode-button-foreground);--focus:var(--vscode-focusBorder);--warn:var(--vscode-editorWarning-foreground);--error:var(--vscode-editorError-foreground)}
-    *{box-sizing:border-box}body{margin:0;padding:18px;color:var(--text);font-family:var(--vscode-font-family);background:var(--vscode-editor-background)}h1,h2,h3,p{margin:0}h1{font-size:21px}h2{font-size:15px}.top{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;margin-bottom:14px}.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}.metric,.card,.notes{border:1px solid color-mix(in srgb,var(--border) 72%,transparent);background:var(--panel);border-radius:8px;padding:12px}.metric b{display:block;font-size:17px}.muted,.meta{color:var(--muted);font-size:12px;line-height:1.45}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rows{display:grid;gap:10px}.card{display:grid;gap:10px}.row-head{display:grid;grid-template-columns:1fr auto;gap:12px}.badges{display:flex;flex-wrap:wrap;gap:6px}.badge{border:1px solid color-mix(in srgb,var(--border) 68%,transparent);border-radius:999px;padding:3px 8px;font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--panel) 82%,var(--vscode-editor-background))}.applied{color:var(--vscode-testing-iconPassed)}.invalid,.worse,.unsupported{color:var(--error);border-color:color-mix(in srgb,var(--error) 45%,transparent)}.config_only,.same,.fallback_ready{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}.mixed{color:var(--vscode-charts-blue)}.actions{display:flex;flex-wrap:wrap;gap:7px}button{min-height:28px;color:var(--button-text);background:var(--button);border:1px solid transparent;border-radius:4px;padding:3px 10px;transition:background-color .12s ease,border-color .12s ease,transform .08s ease,opacity .12s ease}button:hover:not(:disabled){background:var(--vscode-button-hoverBackground);border-color:color-mix(in srgb,var(--focus) 45%,transparent)}button:focus-visible{outline:1px solid var(--focus);outline-offset:2px}button:active:not(:disabled){transform:translateY(1px)}button:disabled{opacity:.52;cursor:not-allowed}.secondary{color:var(--vscode-button-secondaryForeground);background:var(--vscode-button-secondaryBackground)}.secondary:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground)}select{color:var(--vscode-input-foreground);background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,var(--border));min-height:28px;border-radius:4px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px}.status{white-space:pre-wrap;margin-top:12px}.notes{margin:12px 0}.notes ul{margin:6px 0 0;padding-left:18px}@media(max-width:720px){.top,.row-head{grid-template-columns:1fr}}
+    *{box-sizing:border-box}body{margin:0;padding:18px;color:var(--text);font-family:var(--vscode-font-family);background:var(--vscode-editor-background)}h1,h2,h3,p{margin:0}h1{font-size:21px}h2{font-size:15px}.top{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;margin-bottom:14px}.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}.metric,.card,.notes,.context{border:1px solid color-mix(in srgb,var(--border) 72%,transparent);background:var(--panel);border-radius:8px;padding:12px}.metric b{display:block;font-size:17px}.muted,.meta{color:var(--muted);font-size:12px;line-height:1.45}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rows{display:grid;gap:10px}.card{display:grid;gap:10px}.row-head{display:grid;grid-template-columns:1fr auto;gap:12px}.badges{display:flex;flex-wrap:wrap;gap:6px}.badge{border:1px solid color-mix(in srgb,var(--border) 68%,transparent);border-radius:999px;padding:3px 8px;font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--panel) 82%,var(--vscode-editor-background))}.applied{color:var(--vscode-testing-iconPassed)}.invalid,.worse,.unsupported{color:var(--error);border-color:color-mix(in srgb,var(--error) 45%,transparent)}.config_only,.same,.fallback_ready{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}.mixed{color:var(--vscode-charts-blue)}.actions{display:flex;flex-wrap:wrap;gap:7px}button{min-height:28px;color:var(--button-text);background:var(--button);border:1px solid transparent;border-radius:4px;padding:3px 10px;transition:background-color .12s ease,border-color .12s ease,transform .08s ease,opacity .12s ease}button:hover:not(:disabled){background:var(--vscode-button-hoverBackground);border-color:color-mix(in srgb,var(--focus) 45%,transparent)}button:focus-visible{outline:1px solid var(--focus);outline-offset:2px}button:active:not(:disabled){transform:translateY(1px)}button:disabled{opacity:.52;cursor:not-allowed}.secondary{color:var(--vscode-button-secondaryForeground);background:var(--vscode-button-secondaryBackground)}.secondary:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground)}select{color:var(--vscode-input-foreground);background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,var(--border));min-height:28px;border-radius:4px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px}.status{white-space:pre-wrap;margin-top:12px}.notes,.context{margin:12px 0}.notes ul,.context ul{margin:6px 0 0;padding-left:18px}@media(max-width:720px){.top,.row-head{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-  <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">${escapeHtml(model.summary.workspaceFolder)}</p></div><div class="toolbar"><select id="adapterFilter">${dashboardAdapterFilterOptions().map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("")}</select><button id="openRollbackHistory" class="secondary">Rollback History</button><button id="openAssetContactSheet" class="secondary" ${model.summary.assetContactSheetAvailable ? "" : "disabled"} title="${model.summary.assetContactSheetAvailable ? "Open asset contact sheet" : "Refresh asset contracts first"}">View Asset Contact Sheet</button><button id="refreshAssetContracts" class="secondary">Refresh Asset Contracts</button><button id="refresh">Refresh</button></div></div>
-  <section class="summary">${summaryMetric("Adapter", `${model.summary.detectedAdapter} (${model.summary.adapterConfidence})`)}${summaryMetric("Phaser", model.summary.phaserDetected ? "yes" : "no")}${summaryMetric("Surfaces", String(model.summary.totalSurfaces))}${summaryMetric("Applied", String(model.summary.appliedCount))}${summaryMetric("Config Only", String(model.summary.configOnlyCount))}${summaryMetric("Warnings", String(model.summary.warningCount))}${summaryMetric("Worse/Same", String(model.summary.recentWorseOrSameCount))}${summaryMetric("Asset Contracts", `${model.summary.assetContractStatus}: ${model.summary.assetContractStatusCounts.valid}/${model.summary.assetContractStatusCounts.total} valid`)}${summaryMetric("Asset Issues", `${model.summary.assetContractStatusCounts.missing} missing, ${model.summary.assetContractStatusCounts.invalid} invalid, ${model.summary.assetContractStatusCounts.unknown} unknown`)}${summaryMetric("Dev Overlay", devOverlaySummary(model))}${summaryMetric("Adapter Contracts", adapterContractSummary(model))}</section>
+  <div class="top"><div><h1>Visual Tuning Dashboard</h1><p class="meta">Workspace: ${escapeHtml(model.summary.workspaceName)} | ${escapeHtml(model.summary.workspaceMode)}</p><p class="meta">${escapeHtml(model.summary.workspaceFolder || "No active workspace folder")}</p></div><div class="toolbar"><select id="adapterFilter">${dashboardAdapterFilterOptions().map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("")}</select><button id="openRollbackHistory" class="secondary">Rollback History</button><button id="openAssetContactSheet" class="secondary" ${model.summary.assetContactSheetAvailable ? "" : "disabled"} title="${model.summary.assetContactSheetAvailable ? "Open asset contact sheet" : "Refresh asset contracts first"}">View Asset Contact Sheet</button><button id="refreshAssetContracts" class="secondary">Refresh Asset Contracts</button><button id="refresh">Refresh</button></div></div>
+  <section class="summary">${summaryMetric("Adapter", `${model.summary.detectedAdapter} (${model.summary.adapterConfidence})`)}${summaryMetric("Mode", model.summary.workspaceMode)}${summaryMetric("Phaser", model.summary.phaserDetected ? "yes" : "no")}${summaryMetric("Surfaces", String(model.summary.totalSurfaces))}${summaryMetric("Applied", String(model.summary.appliedCount))}${summaryMetric("Config Only", String(model.summary.configOnlyCount))}${summaryMetric("Warnings", String(model.summary.warningCount))}${summaryMetric("Worse/Same", String(model.summary.recentWorseOrSameCount))}${summaryMetric("Asset Contracts", `${model.summary.assetContractStatus}: ${model.summary.assetContractStatusCounts.valid}/${model.summary.assetContractStatusCounts.total} valid`)}${summaryMetric("Asset Issues", `${model.summary.assetContractStatusCounts.missing} missing, ${model.summary.assetContractStatusCounts.invalid} invalid, ${model.summary.assetContractStatusCounts.unknown} unknown`)}${summaryMetric("Dev Overlay", devOverlaySummary(model))}${summaryMetric("Adapter Contracts", adapterContractSummary(model))}</section>
+  <section class="context"><div class="row-head"><h2>Workspace Detection</h2><span class="badge">${escapeHtml(model.summary.detectedAdapter)}</span></div><div class="grid"><div><b>Evidence</b><ul>${renderContextList(model.summary.detectionEvidence, "No adapter evidence found in the active workspace.")}</ul></div><div><b>Warnings</b><ul>${renderContextList(model.summary.detectionWarnings, "No detection warnings.")}</ul></div></div></section>
   <section class="notes"><div class="row-head"><h2>Field Notes</h2><button class="secondary" data-global="openFieldNotes">Open Field Notes</button></div><div class="grid"><div><b>Known Good</b><ul id="good"></ul></div><div><b>Known Bad</b><ul id="bad"></ul></div><div><b>Mixed</b><ul id="mixed"></ul></div></div></section>
   <section class="rows" id="rows"></section>
   <div id="status" class="status muted">Last refreshed ${escapeHtml(new Date(model.generatedAt).toLocaleString())}</div>
@@ -950,6 +1011,11 @@ function renderDashboardHtml(model: VisualTuningDashboardModel): string {
 
 function summaryMetric(label: string, value: string): string {
   return `<div class="metric"><span class="muted">${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`;
+}
+
+function renderContextList(values: string[], emptyMessage: string): string {
+  const items = values.length > 0 ? values.slice(0, 8) : [emptyMessage];
+  return items.map((value) => `<li class="meta">${escapeHtml(value)}</li>`).join("");
 }
 
 function devOverlaySummary(model: VisualTuningDashboardModel): string {

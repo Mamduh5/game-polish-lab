@@ -3,6 +3,7 @@ import { VisualTuningResultStatus } from "./visualTuningAttempt";
 import { VisualAssetContractStatusCounts } from "./visualAssetContract";
 import { VisualGameAdapterContractSummary } from "./visualGameAdapter";
 import { VisualScopeClassificationCounts, VisualScopeRecommendedAction } from "./visualScopeGuard";
+import type { ProductionWorkspaceMode } from "../core/workspace";
 
 export type DashboardAdapterId = "idle_monster_farm" | "generic_phaser" | "sort_puzzle" | "cursor_arena";
 export type DashboardAppliedStatus = "applied" | "config_only" | "fallback_ready" | "unapplied" | "unsupported" | "invalid" | "unknown";
@@ -81,9 +82,13 @@ export interface VisualTuningDashboardRow {
 
 export interface VisualTuningProjectSummary {
   workspaceFolder: string;
+  workspaceName: string;
+  workspaceMode: ProductionWorkspaceMode;
   detectedAdapter: DashboardAdapterId | "unknown";
   adapterConfidence: "high" | "medium" | "low" | "unknown";
   phaserDetected: boolean;
+  detectionEvidence: string[];
+  detectionWarnings: string[];
   totalSurfaces: number;
   appliedCount: number;
   configOnlyCount: number;

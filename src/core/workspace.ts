@@ -9,6 +9,17 @@ export const labFolderName = ".game-polish-lab";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8");
 
+export type ProductionWorkspaceMode = "real_workspace" | "fixture_test" | "no_workspace";
+
+export interface ProductionWorkspaceContext {
+  mode: ProductionWorkspaceMode;
+  folder?: vscode.WorkspaceFolder;
+  workspaceRoot: string;
+  workspaceName: string;
+  isFixtureWorkspace: boolean;
+  warnings: string[];
+}
+
 export function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   const activeUri = vscode.window.activeTextEditor?.document.uri;
   if (activeUri) {
@@ -19,6 +30,28 @@ export function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   }
 
   return vscode.workspace.workspaceFolders?.[0];
+}
+
+export function resolveProductionWorkspaceContext(folder = getActiveWorkspaceFolder()): ProductionWorkspaceContext {
+  if (!folder) {
+    return {
+      mode: "no_workspace",
+      workspaceRoot: "",
+      workspaceName: "No workspace folder",
+      isFixtureWorkspace: false,
+      warnings: ["No VS Code workspace folder is open. Game Polish Lab will not use fixture or demo data as a fallback."]
+    };
+  }
+  const workspaceRoot = path.resolve(folder.uri.fsPath);
+  const isFixtureWorkspace = /(^|[\\/])fixtures([\\/]|$)/i.test(workspaceRoot);
+  return {
+    mode: isFixtureWorkspace ? "fixture_test" : "real_workspace",
+    folder,
+    workspaceRoot,
+    workspaceName: folder.name || path.basename(workspaceRoot),
+    isFixtureWorkspace,
+    warnings: isFixtureWorkspace ? ["Fixture workspace mode is active because the opened workspace path is under fixtures/."] : []
+  };
 }
 
 export function requireWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
@@ -130,4 +163,19 @@ export async function openTextDocument(uri: vscode.Uri): Promise<void> {
 
 export function normalizeWorkspacePath(value: string): string {
   return value.replace(/\\/g, "/").replace(/^\.?\//, "");
+}
+
+export function isWorkspaceRelativeSafePath(relativePath: string): boolean {
+  if (!relativePath || path.isAbsolute(relativePath)) {
+    return false;
+  }
+  const normalized = normalizeWorkspacePath(relativePath);
+  return normalized.length > 0 && !normalized.split("/").includes("..");
+}
+
+export function workspaceRelativeUri(folder: vscode.WorkspaceFolder, relativePath: string): vscode.Uri | undefined {
+  if (!isWorkspaceRelativeSafePath(relativePath)) {
+    return undefined;
+  }
+  return vscode.Uri.joinPath(folder.uri, ...normalizeWorkspacePath(relativePath).split("/"));
 }
