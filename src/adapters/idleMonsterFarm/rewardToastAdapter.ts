@@ -4,16 +4,23 @@ import * as vscode from "vscode";
 import {
   analyzeRewardToastDetection,
   analyzeRewardToastStyleConnection,
-  detectRewardToastConnectionType,
+  analyzePatchedRewardToastSetupConnection,
   RewardToastAdapterDetection,
   RewardToastAdapterState,
   RewardToastFileInspection,
   RewardToastStyleConnection
 } from "../../core/rewardToastAdapterAnalysis";
+import {
+  missingRewardToastRuntimeProofProperties,
+  renderRewardToastStyleModule,
+  rewardToastRuntimeProofIncludesSetupMinimum
+} from "../../core/rewardToastRuntimeStyle";
+import { connectRewardToastOwnerFileToStyleModule } from "../../core/rewardToastStyleBridgePatch";
 import { checkV05VisualScope, isForbiddenV05Path } from "../../core/v05VisualScopeGuard";
 import { buildRollbackSnapshotName } from "../../core/visualSurfaceConfig";
+import { runtimeProofAllowsDirectApply } from "../../core/visualRuntimeConnectionProof";
 import { ensureDirectory, labUri, normalizeWorkspacePath, pathExists, readTextFile, readTextFileIfExists, toWorkspaceRelativePath, writeTextFile } from "../../core/workspace";
-import { RewardToastStyleConfig, RewardToastStyleValues } from "../../types/visualSurface";
+import { RewardToastStyleConfig } from "../../types/visualSurface";
 
 export interface RewardToastApplyResult {
   applied: boolean;
@@ -66,14 +73,31 @@ export async function applyIdleMonsterFarmRewardToastStyle(folder: vscode.Worksp
   const styleModuleExists = await pathExists(styleUri);
   const scope = checkV05VisualScope(changedFiles, { throughAdapter: true });
   const warnings = [...detection.warnings, ...scope.warnings];
+  const setupTarget = await pickSetupTarget(folder, detection);
 
-  if (detection.ownerFiles.length === 0 && !styleModuleExists) {
+  if (!setupTarget && !styleModuleExists) {
     return blockedResult(detection, connection, warnings, "Direct apply skipped because no safe Idle Monster Farm reward feedback target was detected.");
   }
-  if (!connection.connected) {
+  if (!runtimeProofAllowsDirectApply(connection.runtimeProof)) {
+    const setupResult = await setupIdleMonsterFarmRewardToastBridge(folder, config);
+    if (!rewardToastRuntimeProofIncludesSetupMinimum(setupResult.connection.runtimeProof)) {
+      return {
+        ...blockedResult(setupResult.detection, setupResult.connection, [...warnings, ...setupResult.warnings], "Direct apply could not install the reward toast connector. Runtime value usage proof is still missing."),
+        setupOffered: true,
+        rollbackPaths: setupResult.rollbackPaths,
+        blockedFiles: setupResult.blockedFiles
+      };
+    }
     return {
-      ...blockedResult(detection, connection, warnings, "Direct apply skipped because reward feedback rendering is not connected to the generated reward toast style module/config yet. Use the one-time adapter setup path."),
-      setupOffered: true
+      applied: true,
+      setupRequired: false,
+      setupOffered: false,
+      changedFiles: setupResult.changedFiles,
+      rollbackPaths: setupResult.rollbackPaths,
+      warnings: [...warnings, ...setupResult.warnings, "One-time reward toast connector was installed before applying runtime style."],
+      blockedFiles: setupResult.blockedFiles,
+      detection: setupResult.detection,
+      connection: setupResult.connection
     };
   }
   if (!scope.ok) {
@@ -85,8 +109,25 @@ export async function applyIdleMonsterFarmRewardToastStyle(folder: vscode.Worksp
   }
 
   await ensureDirectory(vscode.Uri.file(path.dirname(styleUri.fsPath)));
+  const existingStyleText = await readTextFileIfExists(styleUri);
   const rollbackPaths = await createRollbackSnapshots(folder, [detection.supportedStyleModulePath]);
   await writeTextFile(styleUri, renderRewardToastStyleModule(config.values));
+  const updatedState = await getIdleMonsterFarmRewardToastAdapterState(folder);
+  if (!runtimeProofAllowsDirectApply(updatedState.connection.runtimeProof)) {
+    await restoreRewardToastStyleSource(styleUri, existingStyleText);
+    const restoredState = await getIdleMonsterFarmRewardToastAdapterState(folder);
+    return {
+      applied: false,
+      setupRequired: true,
+      setupOffered: true,
+      changedFiles: [],
+      rollbackPaths,
+      warnings: [...warnings, "Direct apply post-write verification failed; generated reward toast style source was restored before returning."],
+      blockedFiles: [],
+      detection: restoredState.detection,
+      connection: restoredState.connection
+    };
+  }
   return {
     applied: true,
     setupRequired: false,
@@ -95,20 +136,20 @@ export async function applyIdleMonsterFarmRewardToastStyle(folder: vscode.Worksp
     rollbackPaths,
     warnings,
     blockedFiles: [],
-    detection,
-    connection
+    detection: updatedState.detection,
+    connection: updatedState.connection
   };
 }
 
 export async function setupIdleMonsterFarmRewardToastBridge(folder: vscode.WorkspaceFolder, config: RewardToastStyleConfig): Promise<RewardToastSetupResult> {
   const state = await getIdleMonsterFarmRewardToastAdapterState(folder);
   const { detection, connection } = state;
-  const setupTarget = pickSetupTarget(detection);
+  const setupTarget = await pickSetupTarget(folder, detection);
   const intendedFiles = setupTarget ? [detection.supportedStyleModulePath, setupTarget] : [detection.supportedStyleModulePath];
   const scope = checkV05VisualScope(intendedFiles, { throughAdapter: true });
   const warnings = [...detection.warnings, ...scope.warnings];
 
-  if (connection.connected) {
+  if (rewardToastRuntimeProofIncludesSetupMinimum(connection.runtimeProof)) {
     return {
       setupApplied: false,
       intendedFiles,
@@ -162,11 +203,57 @@ export async function setupIdleMonsterFarmRewardToastBridge(folder: vscode.Works
   }
 
   const styleUri = vscode.Uri.joinPath(folder.uri, ...detection.supportedStyleModulePath.split("/"));
+  const existingStyleText = await readTextFileIfExists(styleUri);
+  const generatedStyleText = renderRewardToastStyleModule(config.values);
+  const previewConnection = analyzePatchedRewardToastSetupConnection({
+    files: await readLikelyRewardToastFiles(folder),
+    setupTarget,
+    patchedTargetText,
+    supportedStyleModulePath: detection.supportedStyleModulePath,
+    generatedStyleText
+  });
+  if (!rewardToastRuntimeProofIncludesSetupMinimum(previewConnection.runtimeProof)) {
+    const missingProperties = missingRewardToastRuntimeProofProperties(previewConnection.runtimeProof);
+    return {
+      setupApplied: false,
+      intendedFiles,
+      changedFiles: [],
+      rollbackPaths: [],
+      warnings: [
+        ...warnings,
+        "One-time setup was not written because in-memory reward toast runtime value usage proof was not established.",
+        missingProperties.length > 0 ? `Missing runtime proof properties: ${missingProperties.join(", ")}` : ""
+      ].filter(Boolean),
+      blockedFiles: [],
+      detection,
+      connection: previewConnection
+    };
+  }
+
   await ensureDirectory(vscode.Uri.file(path.dirname(styleUri.fsPath)));
   const rollbackPaths = await createRollbackSnapshots(folder, intendedFiles);
-  await writeTextFile(styleUri, renderRewardToastStyleModule(config.values));
+  await writeTextFile(styleUri, generatedStyleText);
   await writeTextFile(targetUri, patchedTargetText);
   const updatedState = await getIdleMonsterFarmRewardToastAdapterState(folder);
+  if (!rewardToastRuntimeProofIncludesSetupMinimum(updatedState.connection.runtimeProof)) {
+    const missingProperties = missingRewardToastRuntimeProofProperties(updatedState.connection.runtimeProof);
+    await restoreRewardToastSetupSources(targetUri, existingTargetText, styleUri, existingStyleText);
+    const restoredState = await getIdleMonsterFarmRewardToastAdapterState(folder);
+    return {
+      setupApplied: false,
+      intendedFiles,
+      changedFiles: [],
+      rollbackPaths,
+      warnings: [
+        ...warnings,
+        "One-time setup post-write verification failed; source files were restored before returning.",
+        missingProperties.length > 0 ? `Missing runtime proof properties: ${missingProperties.join(", ")}` : ""
+      ].filter(Boolean),
+      blockedFiles: [],
+      detection: restoredState.detection,
+      connection: restoredState.connection
+    };
+  }
   return {
     setupApplied: true,
     intendedFiles,
@@ -262,61 +349,38 @@ function blockedResult(detection: RewardToastAdapterDetection, connection: Rewar
   };
 }
 
-function pickSetupTarget(detection: RewardToastAdapterDetection): string | undefined {
-  return detection.ownerFiles.find((file) => /Toast|RewardFeedback|Floating|CoinFeedback|FarmScene/.test(file));
+async function pickSetupTarget(folder: vscode.WorkspaceFolder, detection: RewardToastAdapterDetection): Promise<string | undefined> {
+  for (const relativePath of orderRewardToastSetupTargetCandidates(detection.ownerFiles)) {
+    const text = await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, ...relativePath.split("/")));
+    if (text !== undefined && connectOwnerFileToStyleModule(text, relativePath, detection.supportedStyleModulePath)) {
+      return relativePath;
+    }
+  }
+  return undefined;
 }
 
 function connectOwnerFileToStyleModule(text: string, ownerPath: string, styleModulePath: string): string | undefined {
-  if (detectRewardToastConnectionType(text, styleModulePath) !== "none") {
-    return text;
-  }
-  if (!/\.(ts|tsx)$/.test(ownerPath)) {
-    return undefined;
-  }
-  const importLine = `import { REWARD_TOAST_STYLE } from "${relativeImportPath(ownerPath, styleModulePath)}";`;
-  const lines = text.split(/\r?\n/);
-  const lastImportIndex = lines.reduce((latest, line, index) => line.startsWith("import ") ? index : latest, -1);
-  if (lastImportIndex < 0) {
-    return undefined;
-  }
-  lines.splice(lastImportIndex + 1, 0, importLine, "// Game Polish Lab v0.55 bridge: renderer should read REWARD_TOAST_STYLE for visual-only reward feedback values.");
-  return lines.join("\n");
+  return connectRewardToastOwnerFileToStyleModule(text, ownerPath, styleModulePath);
 }
 
-function relativeImportPath(fromPath: string, toPath: string): string {
-  const fromDir = path.posix.dirname(fromPath.replace(/\\/g, "/"));
-  const target = toPath.replace(/\\/g, "/").replace(/\.ts$/, "");
-  let relativePath = path.posix.relative(fromDir, target);
-  if (!relativePath.startsWith(".")) {
-    relativePath = `./${relativePath}`;
+function orderRewardToastSetupTargetCandidates(ownerFiles: string[]): string[] {
+  const score = (file: string): number => /Toast|RewardFeedback|Floating|CoinFeedback/.test(file) ? 0 : file.includes("FarmScene") ? 1 : 2;
+  return [...ownerFiles].sort((left, right) => score(left) - score(right) || left.localeCompare(right));
+}
+
+async function restoreRewardToastSetupSources(targetUri: vscode.Uri, existingTargetText: string, styleUri: vscode.Uri, existingStyleText: string | undefined): Promise<void> {
+  await writeTextFile(targetUri, existingTargetText);
+  await restoreRewardToastStyleSource(styleUri, existingStyleText);
+}
+
+async function restoreRewardToastStyleSource(styleUri: vscode.Uri, existingStyleText: string | undefined): Promise<void> {
+  if (existingStyleText === undefined) {
+    try {
+      await vscode.workspace.fs.delete(styleUri, { useTrash: false });
+    } catch {
+      // Missing generated style files are already restored to the pre-setup state.
+    }
+    return;
   }
-  return relativePath;
-}
-
-function renderRewardToastStyleModule(values: RewardToastStyleValues): string {
-  return `// Generated by Game Polish Lab v0.55. Visual style values only.
-export interface RewardToastStyle {
-  durationMs: number;
-  riseDistance: number;
-  startScale: number;
-  peakScale: number;
-  endScale: number;
-  bounceStrength: number;
-  fadeInMs: number;
-  fadeOutMs: number;
-  sparkleCount: number;
-  sparkleScale: number;
-  textSize: number;
-  iconScale: number;
-  toastFillColor: string;
-  toastFillOpacity: number;
-  toastBorderColor: string;
-  toastBorderWidth: number;
-  cornerRadius: number;
-  shadowStrength: number;
-  glowStrength: number;
-}
-
-export const REWARD_TOAST_STYLE: RewardToastStyle = ${JSON.stringify(values, null, 2)};
-`;
+  await writeTextFile(styleUri, existingStyleText);
 }

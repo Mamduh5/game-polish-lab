@@ -1,6 +1,7 @@
 import { FarmSlotStyleConnectionType } from "./farmSlotAdapterAnalysis";
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
 import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
+import { panelRuntimeStylePropertyNames } from "./panelRuntimeStyle";
 
 export type MonsterFarmPanelTarget = "navigation_panel" | "hatch_panel" | "quest_panel";
 
@@ -64,7 +65,7 @@ export function analyzePanelStyleConnection(files: PanelFileInspection[], suppor
     files,
     supportedStyleModulePath,
     styleIdentifier: "PANEL_STYLE",
-    styleProperties: panelStyleProperties,
+    styleProperties: [...panelRuntimeStylePropertyNames],
     styleConfigPath: ".game-polish-lab/styles/panel-style.json",
     importNameHints: ["PANEL_STYLE", "panelStyle", "panel_style"],
     commentMarkers: ["panel style bridge", "gamepolishlabpanelstyle", "renderer should read PANEL_STYLE"],
@@ -82,6 +83,22 @@ export function analyzePanelStyleConnection(files: PanelFileInspection[], suppor
     missingPieces: runtimeProof.connected ? [] : runtimeProof.missingPieces,
     runtimeProof
   };
+}
+
+export function analyzePatchedPanelSetupConnection(input: {
+  files: PanelFileInspection[];
+  setupTarget: string;
+  patchedTargetText: string;
+  supportedStyleModulePath: string;
+  generatedStyleText: string;
+}): PanelStyleConnection {
+  const mergedFiles = new Map(input.files.map((file) => [file.relativePath, file.text]));
+  mergedFiles.set(input.setupTarget, input.patchedTargetText);
+  mergedFiles.set(input.supportedStyleModulePath, input.generatedStyleText);
+  return analyzePanelStyleConnection(
+    Array.from(mergedFiles.entries()).map(([relativePath, text]) => ({ relativePath, text })),
+    input.supportedStyleModulePath
+  );
 }
 
 export function detectPanelConnectionType(text: string, supportedStyleModulePath: string): FarmSlotStyleConnectionType {
@@ -195,23 +212,3 @@ function resolveConnectionType(files: PanelFileInspection[], supportedStyleModul
   }
   return "none";
 }
-
-const panelStyleProperties = [
-  "fillColor",
-  "fillOpacity",
-  "borderColor",
-  "borderWidth",
-  "cornerRadius",
-  "headerAccentColor",
-  "headerAccentHeight",
-  "padding",
-  "contentGap",
-  "dividerColor",
-  "dividerOpacity",
-  "dividerThickness",
-  "shadowStrength",
-  "glowStrength",
-  "titleTextSize",
-  "bodyTextSize",
-  "disabledOpacity"
-];

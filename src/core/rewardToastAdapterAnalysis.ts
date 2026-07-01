@@ -1,6 +1,7 @@
 import { FarmSlotStyleConnectionType } from "./farmSlotAdapterAnalysis";
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
 import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
+import { rewardToastRuntimeStylePropertyNames } from "./rewardToastRuntimeStyle";
 
 export type MonsterFarmRewardFeedbackTarget = "reward_toast" | "coin_reward_feedback" | "floating_reward_text" | "reward_icon_feedback";
 
@@ -64,7 +65,7 @@ export function analyzeRewardToastStyleConnection(files: RewardToastFileInspecti
     files,
     supportedStyleModulePath,
     styleIdentifier: "REWARD_TOAST_STYLE",
-    styleProperties: rewardToastStyleProperties,
+    styleProperties: [...rewardToastRuntimeStylePropertyNames],
     styleConfigPath: ".game-polish-lab/styles/reward-toast-style.json",
     importNameHints: ["REWARD_TOAST_STYLE", "rewardToastStyle", "reward_toast_style"],
     commentMarkers: ["reward toast bridge", "gamepolishlabrewardtoast", "renderer should read REWARD_TOAST_STYLE"],
@@ -82,6 +83,22 @@ export function analyzeRewardToastStyleConnection(files: RewardToastFileInspecti
     missingPieces: runtimeProof.connected ? [] : runtimeProof.missingPieces,
     runtimeProof
   };
+}
+
+export function analyzePatchedRewardToastSetupConnection(input: {
+  files: RewardToastFileInspection[];
+  setupTarget: string;
+  patchedTargetText: string;
+  supportedStyleModulePath: string;
+  generatedStyleText: string;
+}): RewardToastStyleConnection {
+  const mergedFiles = new Map(input.files.map((file) => [file.relativePath, file.text]));
+  mergedFiles.set(input.setupTarget, input.patchedTargetText);
+  mergedFiles.set(input.supportedStyleModulePath, input.generatedStyleText);
+  return analyzeRewardToastStyleConnection(
+    Array.from(mergedFiles.entries()).map(([relativePath, text]) => ({ relativePath, text })),
+    input.supportedStyleModulePath
+  );
 }
 
 export function detectRewardToastConnectionType(text: string, supportedStyleModulePath: string): FarmSlotStyleConnectionType {
@@ -191,25 +208,3 @@ function resolveConnectionType(files: RewardToastFileInspection[], supportedStyl
   }
   return "none";
 }
-
-const rewardToastStyleProperties = [
-  "durationMs",
-  "riseDistance",
-  "startScale",
-  "peakScale",
-  "endScale",
-  "bounceStrength",
-  "fadeInMs",
-  "fadeOutMs",
-  "sparkleCount",
-  "sparkleScale",
-  "textSize",
-  "iconScale",
-  "toastFillColor",
-  "toastFillOpacity",
-  "toastBorderColor",
-  "toastBorderWidth",
-  "cornerRadius",
-  "shadowStrength",
-  "glowStrength"
-];

@@ -11,17 +11,17 @@ export function detectMonsterFarmAssetTargets(): MonsterFarmAssetTargetDetection
     adapterId: "idle_monster_farm.assets",
     targets: monsterFarmAssetTargets(),
     warnings: [
-      "Reward icon assignment is manual-required until a reward/toast asset manifest is adapter-supported.",
-      "No loader files will be patched by v0.53."
+      "Asset copy is supported, but runtime loader/renderer manifest consumption is not proven yet.",
+      "No asset target is advertised as direct apply until a real loader/assignment path is connected."
     ]
   };
 }
 
 export function monsterFarmAssetTargets(): AssetReplacementTarget[] {
   return [
-    buildTarget("monster_art", "Monster art", ["monster", "creature", "transparent sprite"], "src/assets/monsters", "manifest", true, true, 128, 128),
-    buildTarget("slot_frame", "Slot frame", ["ui frame", "transparent frame"], "src/assets/ui", "manifest", true, true, 128, 128),
-    buildTarget("background_image", "Background image", ["background", "farm backdrop"], "src/assets/backgrounds", "manifest", false, true, 960, 540),
+    buildTarget("monster_art", "Monster art", ["monster", "creature", "transparent sprite"], "src/assets/monsters", "manual_required", true, false, 128, 128),
+    buildTarget("slot_frame", "Slot frame", ["ui frame", "transparent frame"], "src/assets/ui", "manual_required", true, false, 128, 128),
+    buildTarget("background_image", "Background image", ["background", "farm backdrop"], "src/assets/backgrounds", "manual_required", false, false, 960, 540),
     buildTarget("reward_icon", "Reward icon", ["reward icon", "toast icon"], "src/assets/rewards", "manual_required", true, false, 64, 64)
   ];
 }
@@ -49,6 +49,6 @@ function buildTarget(
     destinationFolder,
     assignmentMode,
     directApplySupported,
-    warnings: directApplySupported ? [] : ["Assignment is manual_required; the asset can be copied safely but no loader/manifest patch will be made."]
+    warnings: directApplySupported ? [] : ["Assignment is manual_required; the asset can be copied safely but no loader/manifest patch will be made or claimed."]
   };
 }

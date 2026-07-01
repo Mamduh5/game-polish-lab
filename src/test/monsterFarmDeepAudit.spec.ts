@@ -19,7 +19,9 @@ import {
   requiredBackgroundRuntimeProofProperties
 } from "../core/backgroundRuntimeStyle";
 import { connectBackgroundOwnerFileToStyleModule } from "../core/backgroundStyleBridgePatch";
-import { analyzeButtonDetection, analyzeButtonStyleConnection } from "../core/buttonAdapterAnalysis";
+import { analyzeButtonDetection, analyzeButtonStyleConnection, analyzePatchedButtonSetupConnection } from "../core/buttonAdapterAnalysis";
+import { buttonRuntimeProofIncludesSetupMinimum, renderButtonStyleModule } from "../core/buttonRuntimeStyle";
+import { connectButtonOwnerFileToStyleModule } from "../core/buttonStyleBridgePatch";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection, analyzePatchedFarmSlotSetupConnection, orderFarmSlotSetupTargetCandidates } from "../core/farmSlotAdapterAnalysis";
 import {
   farmSlotRuntimeProofIncludesSetupMinimum,
@@ -27,8 +29,12 @@ import {
   requiredFarmSlotRuntimeProofProperties
 } from "../core/farmSlotRuntimeStyle";
 import { connectFarmSlotOwnerFileToStyleModule } from "../core/farmSlotStyleBridgePatch";
-import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/panelAdapterAnalysis";
-import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
+import { analyzePanelDetection, analyzePanelStyleConnection, analyzePatchedPanelSetupConnection } from "../core/panelAdapterAnalysis";
+import { panelRuntimeProofIncludesSetupMinimum, renderPanelStyleModule } from "../core/panelRuntimeStyle";
+import { connectPanelOwnerFileToStyleModule } from "../core/panelStyleBridgePatch";
+import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection, analyzePatchedRewardToastSetupConnection } from "../core/rewardToastAdapterAnalysis";
+import { renderRewardToastStyleModule, rewardToastRuntimeProofIncludesSetupMinimum } from "../core/rewardToastRuntimeStyle";
+import { connectRewardToastOwnerFileToStyleModule } from "../core/rewardToastStyleBridgePatch";
 import { checkV05VisualScope, isForbiddenV05Path } from "../core/v05VisualScopeGuard";
 import {
   checkVisualScopeGuard,
@@ -2038,13 +2044,15 @@ const monsterArtTarget = monsterFarmTargets.find((target) => target.targetId ===
 const rewardIconTarget = monsterFarmTargets.find((target) => target.targetId === "reward_icon");
 assert.ok(monsterArtTarget, "monster_art target missing");
 assert.ok(rewardIconTarget, "reward_icon target missing");
-assert.strictEqual(monsterArtTarget.directApplySupported, true);
-assert.strictEqual(monsterArtTarget.assignmentMode, "manifest");
+assert.strictEqual(monsterArtTarget.directApplySupported, false);
+assert.strictEqual(monsterArtTarget.assignmentMode, "manual_required");
 assert.strictEqual(rewardIconTarget.directApplySupported, false);
 assert.strictEqual(rewardIconTarget.assignmentMode, "manual_required");
 const targetDetection = detectMonsterFarmAssetTargets();
 assert.strictEqual(targetDetection.adapterId, "idle_monster_farm.assets");
 assert.ok(targetDetection.targets.length >= 4);
+assert.ok(targetDetection.targets.every((target) => target.directApplySupported === false));
+assert.ok(targetDetection.warnings.some((warning) => warning.includes("runtime loader/renderer manifest consumption is not proven")));
 
 const opaquePng = makeTestRgbaPng(4, 4, () => 255);
 const transparentPng = makeTestRgbaPng(4, 4, () => 0);
@@ -2375,6 +2383,33 @@ assert.strictEqual(disconnectedPanel.connectionType, "json_config");
 assert.strictEqual(disconnectedPanel.runtimeProof.status, "config_only");
 assert.ok(disconnectedPanel.missingPieces.some((piece) => piece.includes("Panel owner/rendering files")));
 
+const realPanelChromeSource = `import {
+  THEME,
+  UI_DEPTH
+} from './theme';
+export function addPanelBackground(scene, x, y, width, height) {
+  const padding = 12;
+  const panel = scene.add.rectangle(x, y, width, height, THEME.panel)
+    .setStrokeStyle(2, THEME.panelBorder);
+  scene.add.text(x + padding, y + padding, 'Title', { fontSize: '18px' });
+  return panel;
+}`;
+const realPanelChromePatch = connectPanelOwnerFileToStyleModule(realPanelChromeSource, "src/ui/PanelChrome.ts", "src/config/panelStyle.ts");
+assert.ok(realPanelChromePatch);
+assert.ok(realPanelChromePatch!.includes("import { PANEL_STYLE } from '../config/panelStyle';"));
+assert.ok(!realPanelChromePatch!.includes("import { PANEL_STYLE } from '../config/panelStyle';\n  THEME"));
+const previewPanelConnection = analyzePatchedPanelSetupConnection({
+  files: [{ relativePath: "src/ui/PanelChrome.ts", text: realPanelChromeSource }],
+  setupTarget: "src/ui/PanelChrome.ts",
+  patchedTargetText: realPanelChromePatch!,
+  supportedStyleModulePath: "src/config/panelStyle.ts",
+  generatedStyleText: renderPanelStyleModule(validPanelConfig.values)
+});
+assert.strictEqual(previewPanelConnection.runtimeProof.status, "connected");
+assert.strictEqual(previewPanelConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.strictEqual(panelRuntimeProofIncludesSetupMinimum(previewPanelConnection.runtimeProof), true);
+assert.strictEqual(connectPanelOwnerFileToStyleModule("import { X } from './x';\nexport function addPanelBackground() { return 'panel'; }", "src/ui/PanelChrome.ts", "src/config/panelStyle.ts"), undefined);
+
 const connectedPanelFiles = [
   {
     relativePath: "src/ui/PanelChrome.ts",
@@ -2497,6 +2532,32 @@ assert.strictEqual(disconnectedRewardToast.connected, false);
 assert.strictEqual(disconnectedRewardToast.connectionType, "json_config");
 assert.strictEqual(disconnectedRewardToast.runtimeProof.status, "config_only");
 assert.ok(disconnectedRewardToast.missingPieces.some((piece) => piece.includes("Reward feedback owner/rendering files")));
+
+const realToastViewSource = `import {
+  THEME,
+  UI_DEPTH
+} from './theme';
+export class ToastView {
+  showReward(scene, x, y, label) {
+    const text = scene.add.text(x, y, label, { fontSize: '18px' });
+    scene.tweens.add({ targets: text, y: y - 30, duration: 800, scale: 1.1, alpha: 0 });
+  }
+}`;
+const realToastViewPatch = connectRewardToastOwnerFileToStyleModule(realToastViewSource, "src/ui/ToastView.ts", "src/config/rewardToastStyle.ts");
+assert.ok(realToastViewPatch);
+assert.ok(realToastViewPatch!.includes("import { REWARD_TOAST_STYLE } from '../config/rewardToastStyle';"));
+assert.ok(!realToastViewPatch!.includes("import { REWARD_TOAST_STYLE } from '../config/rewardToastStyle';\n  THEME"));
+const previewRewardToastConnection = analyzePatchedRewardToastSetupConnection({
+  files: [{ relativePath: "src/ui/ToastView.ts", text: realToastViewSource }],
+  setupTarget: "src/ui/ToastView.ts",
+  patchedTargetText: realToastViewPatch!,
+  supportedStyleModulePath: "src/config/rewardToastStyle.ts",
+  generatedStyleText: renderRewardToastStyleModule(validRewardToastConfig.values)
+});
+assert.strictEqual(previewRewardToastConnection.runtimeProof.status, "connected");
+assert.strictEqual(previewRewardToastConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.strictEqual(rewardToastRuntimeProofIncludesSetupMinimum(previewRewardToastConnection.runtimeProof), true);
+assert.strictEqual(connectRewardToastOwnerFileToStyleModule("import { X } from './x';\nexport class ToastView { showReward() { return 'toast'; } }", "src/ui/ToastView.ts", "src/config/rewardToastStyle.ts"), undefined);
 
 const connectedRewardToastFiles = [
   {
@@ -2634,6 +2695,34 @@ assert.strictEqual(disconnectedButton.connected, false);
 assert.strictEqual(disconnectedButton.connectionType, "json_config");
 assert.strictEqual(disconnectedButton.runtimeProof.status, "config_only");
 assert.ok(disconnectedButton.missingPieces.some((piece) => piece.includes("Button/action-bar owner/rendering files")));
+
+const realActionBarSource = `import {
+  THEME,
+  UI_DEPTH
+} from './theme';
+export class GameplayActionBarView {
+  drawActionBarButton(scene, x, y, label) {
+    const button = scene.add.rectangle(x, y, 126, 44, THEME.button)
+      .setStrokeStyle(2, THEME.buttonBorder);
+    scene.add.text(x, y, label, { fontSize: '16px', fill: '#ffffff' });
+    return button;
+  }
+}`;
+const realActionBarPatch = connectButtonOwnerFileToStyleModule(realActionBarSource, "src/ui/GameplayActionBarView.ts", "src/config/buttonStyle.ts");
+assert.ok(realActionBarPatch);
+assert.ok(realActionBarPatch!.includes("import { BUTTON_STYLE } from '../config/buttonStyle';"));
+assert.ok(!realActionBarPatch!.includes("import { BUTTON_STYLE } from '../config/buttonStyle';\n  THEME"));
+const previewButtonConnection = analyzePatchedButtonSetupConnection({
+  files: [{ relativePath: "src/ui/GameplayActionBarView.ts", text: realActionBarSource }],
+  setupTarget: "src/ui/GameplayActionBarView.ts",
+  patchedTargetText: realActionBarPatch!,
+  supportedStyleModulePath: "src/config/buttonStyle.ts",
+  generatedStyleText: renderButtonStyleModule(validButtonConfig.values)
+});
+assert.strictEqual(previewButtonConnection.runtimeProof.status, "connected");
+assert.strictEqual(previewButtonConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.strictEqual(buttonRuntimeProofIncludesSetupMinimum(previewButtonConnection.runtimeProof), true);
+assert.strictEqual(connectButtonOwnerFileToStyleModule("import { X } from './x';\nexport class GameplayActionBarView { draw() { return 'button'; } }", "src/ui/GameplayActionBarView.ts", "src/config/buttonStyle.ts"), undefined);
 
 const connectedButtonFiles = [
   {
@@ -3378,6 +3467,63 @@ assert.strictEqual(missingConfigDisconnectedBackgroundRow.connectedState, "not_c
 assert.strictEqual(missingConfigDisconnectedBackgroundRow.actions.directApply.enabled, true);
 assert.strictEqual(missingConfigDisconnectedBackgroundRow.actions.directApply.label, "Create Config & Connect");
 assert.ok(missingConfigDisconnectedBackgroundRow.actions.directApply.reason?.includes("install the supported runtime bridge"));
+
+for (const surface of [
+  {
+    surfaceType: "panel" as const,
+    displayName: "Panel",
+    targetId: "panels",
+    targetLabel: "Monster Farm panels",
+    configPath: panelStyleConfigRelativePath,
+    modulePath: "src/config/panelStyle.ts",
+    recipeId: "panel",
+    proof: disconnectedPanel.runtimeProof
+  },
+  {
+    surfaceType: "reward_toast" as const,
+    displayName: "Reward Toast",
+    targetId: "reward_toast",
+    targetLabel: "Monster Farm reward toast",
+    configPath: rewardToastStyleConfigRelativePath,
+    modulePath: "src/config/rewardToastStyle.ts",
+    recipeId: "reward-toast",
+    proof: disconnectedRewardToast.runtimeProof
+  },
+  {
+    surfaceType: "button" as const,
+    displayName: "Button / Action Bar",
+    targetId: "buttons",
+    targetLabel: "Monster Farm buttons",
+    configPath: buttonStyleConfigRelativePath,
+    modulePath: "src/config/buttonStyle.ts",
+    recipeId: "button",
+    proof: disconnectedButton.runtimeProof
+  }
+]) {
+  const row = buildDashboardRow({
+    ...connectedIdleSlotSurface,
+    surfaceType: surface.surfaceType,
+    displayName: surface.displayName,
+    adapter: {
+      ...connectedIdleSlotSurface.adapter,
+      targetId: surface.targetId,
+      targetLabel: surface.targetLabel,
+      connectedState: "not_connected" as const,
+      generatedStyleModulePath: surface.modulePath,
+      runtimeConnectionProof: surface.proof,
+      ownerFiles: ["src/ui/PanelChrome.ts"]
+    },
+    recipe: getVisualSurfaceRecipe(surface.surfaceType)!,
+    config: { status: "missing" as const, path: surface.configPath, exists: false },
+    recipeFile: recipeFileStatus(getVisualSurfaceRecipe(surface.surfaceType)!, false),
+    fallbackTaskCount: 0,
+    scopeFiles: [surface.configPath, surface.modulePath, visualRecipeRelativePath(surface.recipeId)]
+  }, attemptIndex);
+  assert.strictEqual(row.appliedStatus, "unapplied");
+  assert.notStrictEqual(row.appliedStatus, "fallback_ready");
+  assert.strictEqual(row.actions.directApply.enabled, true);
+  assert.strictEqual(row.actions.directApply.label, "Create Config & Connect");
+}
 
 const invalidButtonSurface = {
   ...genericButtonSurface,
@@ -4267,6 +4413,7 @@ const v080IdleSlots = discoverVisualAssetSlots(v078IdleFixture);
 assert.ok(v080IdleSlots.some((slot) => slot.slotId === "idle_monster_farm.monster_art" && slot.expectedAssetType === "image"));
 assert.ok(v080IdleSlots.some((slot) => slot.slotId === "idle_monster_farm.slot_frame" && slot.expectedAssetType === "ui-frame"));
 assert.ok(v080IdleSlots.some((slot) => slot.slotId === "idle_monster_farm.reward_icon" && slot.directApplyCapability === "fallback_required"));
+assert.ok(v080IdleSlots.every((slot) => slot.directApplyCapability === "fallback_required"));
 assert.ok(v080IdleSlots.every((slot) => slot.expectedFileExtensions.includes(".png") && slot.expectedFileExtensions.includes(".webp")));
 
 const v080SortSlots = discoverVisualAssetSlots(v078SortFixture);
@@ -4348,7 +4495,7 @@ try {
   });
   assert.notStrictEqual(assigned.result.status, "blocked");
   assert.strictEqual(assigned.assignment.runtimeApplied, false);
-  assert.strictEqual(assigned.assignment.fallbackRequired, false);
+  assert.strictEqual(assigned.assignment.fallbackRequired, true);
   assert.ok(assigned.result.changedFiles.includes(`${visualAssetAssignmentsRelativeDir}/idle-monster-farm-monster_art.json`));
   assert.strictEqual(fs.existsSync(path.join(v080AssetWorkspace, ...visualAssetDashboardRelativePath.split("/"))), true);
 

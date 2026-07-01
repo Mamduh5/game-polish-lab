@@ -599,6 +599,15 @@ function defaultIdleStyleConfigForDashboard(row: VisualTuningDashboardRow): obje
   if (row.surfaceType === "background_readability" && row.configPath === backgroundReadabilityStyleConfigRelativePath) {
     return loadBackgroundReadabilityStyleConfigFromText(undefined).config;
   }
+  if (row.surfaceType === "panel" && row.configPath === panelStyleConfigRelativePath) {
+    return loadPanelStyleConfigFromText(undefined).config;
+  }
+  if (row.surfaceType === "reward_toast" && row.configPath === rewardToastStyleConfigRelativePath) {
+    return loadRewardToastStyleConfigFromText(undefined).config;
+  }
+  if (row.surfaceType === "button" && row.configPath === buttonStyleConfigRelativePath) {
+    return loadButtonStyleConfigFromText(undefined).config;
+  }
   return undefined;
 }
 

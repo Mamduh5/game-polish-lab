@@ -1,6 +1,7 @@
 import { FarmSlotStyleConnectionType } from "./farmSlotAdapterAnalysis";
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
 import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
+import { buttonRuntimeStylePropertyNames } from "./buttonRuntimeStyle";
 
 export type MonsterFarmButtonTarget = "action_bar_button" | "hatch_button" | "upgrade_button" | "disabled_locked_button";
 
@@ -64,7 +65,7 @@ export function analyzeButtonStyleConnection(files: ButtonFileInspection[], supp
     files,
     supportedStyleModulePath,
     styleIdentifier: "BUTTON_STYLE",
-    styleProperties: buttonStyleProperties,
+    styleProperties: [...buttonRuntimeStylePropertyNames],
     styleConfigPath: ".game-polish-lab/styles/button-style.json",
     importNameHints: ["BUTTON_STYLE", "buttonStyle", "button_style"],
     commentMarkers: ["button style bridge", "gamepolishlabbuttonstyle", "renderer should read BUTTON_STYLE"],
@@ -82,6 +83,22 @@ export function analyzeButtonStyleConnection(files: ButtonFileInspection[], supp
     missingPieces: runtimeProof.connected ? [] : runtimeProof.missingPieces,
     runtimeProof
   };
+}
+
+export function analyzePatchedButtonSetupConnection(input: {
+  files: ButtonFileInspection[];
+  setupTarget: string;
+  patchedTargetText: string;
+  supportedStyleModulePath: string;
+  generatedStyleText: string;
+}): ButtonStyleConnection {
+  const mergedFiles = new Map(input.files.map((file) => [file.relativePath, file.text]));
+  mergedFiles.set(input.setupTarget, input.patchedTargetText);
+  mergedFiles.set(input.supportedStyleModulePath, input.generatedStyleText);
+  return analyzeButtonStyleConnection(
+    Array.from(mergedFiles.entries()).map(([relativePath, text]) => ({ relativePath, text })),
+    input.supportedStyleModulePath
+  );
 }
 
 export function detectButtonConnectionType(text: string, supportedStyleModulePath: string): FarmSlotStyleConnectionType {
@@ -198,29 +215,3 @@ function resolveConnectionType(files: ButtonFileInspection[], supportedStyleModu
   }
   return "none";
 }
-
-const buttonStyleProperties = [
-  "width",
-  "height",
-  "fillColor",
-  "fillOpacity",
-  "borderColor",
-  "borderWidth",
-  "cornerRadius",
-  "labelColor",
-  "labelTextSize",
-  "iconScale",
-  "labelScale",
-  "contentGap",
-  "paddingX",
-  "paddingY",
-  "hoverGlowStrength",
-  "hoverLift",
-  "activePressScale",
-  "activePressDurationMs",
-  "activeDarkenOpacity",
-  "disabledOpacity",
-  "disabledSaturation",
-  "shadowStrength",
-  "glowStrength"
-];
