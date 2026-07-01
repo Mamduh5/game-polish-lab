@@ -6,29 +6,111 @@ export function connectFarmSlotOwnerFileToStyleModule(text: string, ownerPath: s
   if (!/\.(ts|tsx)$/.test(ownerPath)) {
     return undefined;
   }
+
   const importPath = relativeImportPath(ownerPath, styleModulePath);
   const importLine = `import { FARM_SLOT_STYLE } from '${importPath}';`;
   const lines = text.split(/\r?\n/);
-  let patched = text.includes("FARM_SLOT_STYLE") ? text : insertImportLine(lines, importLine);
+
+  let patched = hasFarmSlotStyleImport(text) ? text : insertImportLine(lines, importLine);
   if (!patched) {
     return undefined;
   }
+
+  if (hasImportInsertedInsideMultilineImport(patched)) {
+    return undefined;
+  }
+
   patched = patchFarmSlotVisualExpressions(patched);
-  const missingRequiredProperties = requiredFarmSlotRuntimeProofProperties.filter((property) => !new RegExp(`\\bFARM_SLOT_STYLE\\s*\\.\\s*${property}\\b`).test(patched));
+
+  if (hasImportInsertedInsideMultilineImport(patched)) {
+    return undefined;
+  }
+
+  const missingRequiredProperties = requiredFarmSlotRuntimeProofProperties.filter(
+    (property) => !new RegExp(`\\bFARM_SLOT_STYLE\\s*\\.\\s*${property}\\b`).test(patched)
+  );
+
   if (missingRequiredProperties.length > 0) {
     return undefined;
   }
+
   return patched === text ? undefined : patched;
 }
 
+function hasFarmSlotStyleImport(text: string): boolean {
+  return /import\s*\{\s*FARM_SLOT_STYLE\s*\}\s*from\s*['"][^'"]*farmSlotStyle['"]\s*;/.test(text);
+}
+
 function insertImportLine(lines: string[], importLine: string): string | undefined {
-  const lastImportIndex = lines.reduce((latest, line, index) => line.startsWith("import ") ? index : latest, -1);
-  if (lastImportIndex < 0) {
+  const insertAfterLine = findLastCompleteTopLevelImportLine(lines);
+
+  if (insertAfterLine < 0) {
     return undefined;
   }
+
   const nextLines = [...lines];
-  nextLines.splice(lastImportIndex + 1, 0, importLine);
+  nextLines.splice(insertAfterLine + 1, 0, importLine);
   return nextLines.join("\n");
+}
+
+function findLastCompleteTopLevelImportLine(lines: string[]): number {
+  let inImportBlock = false;
+  let lastCompleteImportLine = -1;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+
+    if (!inImportBlock) {
+      if (trimmed.length === 0 || trimmed.startsWith("//")) {
+        continue;
+      }
+
+      if (!trimmed.startsWith("import ")) {
+        continue;
+      }
+
+      if (trimmed.endsWith(";")) {
+        lastCompleteImportLine = index;
+        continue;
+      }
+
+      inImportBlock = true;
+      continue;
+    }
+
+    if (trimmed.endsWith(";")) {
+      lastCompleteImportLine = index;
+      inImportBlock = false;
+    }
+  }
+
+  return lastCompleteImportLine;
+}
+
+function hasImportInsertedInsideMultilineImport(text: string): boolean {
+  const lines = text.split(/\r?\n/);
+  let inImportBlock = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!inImportBlock) {
+      if (trimmed.startsWith("import ") && !trimmed.endsWith(";")) {
+        inImportBlock = true;
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith("import ")) {
+      return true;
+    }
+
+    if (trimmed.endsWith(";")) {
+      inImportBlock = false;
+    }
+  }
+
+  return false;
 }
 
 function patchFarmSlotVisualExpressions(text: string): string {
