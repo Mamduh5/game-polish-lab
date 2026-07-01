@@ -2,11 +2,11 @@ import * as http from "http";
 import * as vscode from "vscode";
 
 import { applyIdleMonsterFarmReplacementAsset, getIdleMonsterFarmAssetTargets } from "../adapters/idleMonsterFarm/assetReplacementAdapter";
-import { applyIdleMonsterFarmBackgroundStyle, getIdleMonsterFarmBackgroundAdapterState, setupIdleMonsterFarmBackgroundBridge, summarizeBackgroundApplyResult } from "../adapters/idleMonsterFarm/backgroundAdapter";
-import { applyIdleMonsterFarmButtonStyle, getIdleMonsterFarmButtonAdapterState, setupIdleMonsterFarmButtonBridge, summarizeButtonApplyResult } from "../adapters/idleMonsterFarm/buttonAdapter";
+import { getIdleMonsterFarmBackgroundAdapterState, setupIdleMonsterFarmBackgroundBridge } from "../adapters/idleMonsterFarm/backgroundAdapter";
+import { getIdleMonsterFarmButtonAdapterState, setupIdleMonsterFarmButtonBridge } from "../adapters/idleMonsterFarm/buttonAdapter";
 import { getIdleMonsterFarmFarmSlotAdapterState, setupIdleMonsterFarmFarmSlotBridge } from "../adapters/idleMonsterFarm/farmSlotAdapter";
-import { applyIdleMonsterFarmPanelStyle, getIdleMonsterFarmPanelAdapterState, setupIdleMonsterFarmPanelBridge, summarizePanelApplyResult } from "../adapters/idleMonsterFarm/panelAdapter";
-import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdapterState, setupIdleMonsterFarmRewardToastBridge, summarizeRewardToastApplyResult } from "../adapters/idleMonsterFarm/rewardToastAdapter";
+import { getIdleMonsterFarmPanelAdapterState, setupIdleMonsterFarmPanelBridge } from "../adapters/idleMonsterFarm/panelAdapter";
+import { getIdleMonsterFarmRewardToastAdapterState, setupIdleMonsterFarmRewardToastBridge } from "../adapters/idleMonsterFarm/rewardToastAdapter";
 import { logCommandEnd, logCommandStart, logError, logInfo, logWarn } from "../core/output";
 import { applyGenericPhaserAsset, applyGenericPhaserStyle, getGenericPhaserAdapterState, GenericPhaserDetection, GenericPhaserSurfaceType } from "../core/genericPhaserAdapter";
 import { genericStyleConfigRelativePath } from "../core/genericPhaserAdapterModel";
@@ -17,7 +17,11 @@ import { buildVisualPreviewRenderRequest } from "../core/visualPreviewModel";
 import { ensureVisualRecipeFiles } from "../core/visualRecipeFiles";
 import { getVisualSurfaceRecipe, getVisualSurfaceRecipes, visualSurfacePickerOrder } from "../core/visualRecipeRegistry";
 import { findLatestVisualRollbackForFile, restoreVisualRollbackSnapshot } from "../core/visualRollback";
+import { renderBackgroundReadabilityStyleModule } from "../core/backgroundRuntimeStyle";
+import { renderButtonStyleModule } from "../core/buttonRuntimeStyle";
 import { extractFarmSlotStyleValuesFromModuleIfPresent, extractFarmSlotStyleValuesFromSourceText, renderFarmSlotStyleModule } from "../core/farmSlotRuntimeStyle";
+import { renderPanelStyleModule } from "../core/panelRuntimeStyle";
+import { renderRewardToastStyleModule } from "../core/rewardToastRuntimeStyle";
 import {
   backgroundReadabilityStyleConfigRelativePath,
   BackgroundStyleConfigLoadResult,
@@ -26,6 +30,7 @@ import {
   buildPanelStyleConfig,
   buildRewardToastStyleConfig,
   buildSlotCardStyleConfig,
+  backgroundReadabilityLiveStyleRelativePath,
   farmSlotLiveStyleRelativePath,
   farmSlotStyleConfigRelativePath,
   loadBackgroundReadabilityStyleConfigFromText,
@@ -34,10 +39,13 @@ import {
   loadRewardToastStyleConfigFromText,
   loadSlotCardStyleConfigFromText,
   panelStyleConfigRelativePath,
+  panelLiveStyleRelativePath,
   PanelStyleConfigLoadResult,
   buttonStyleConfigRelativePath,
+  buttonLiveStyleRelativePath,
   ButtonStyleConfigLoadResult,
   rewardToastStyleConfigRelativePath,
+  rewardToastLiveStyleRelativePath,
   RewardToastStyleConfigLoadResult,
   StyleConfigLoadResult
 } from "../core/visualSurfaceConfig";
@@ -49,11 +57,30 @@ import { defaultPanelStyle, panelStyleBounds, panelStylePresets } from "../prese
 import { defaultRewardToastStyle, rewardToastPresets, rewardToastStyleBounds } from "../presets/rewardToastPresets";
 import { defaultSlotCardStyle, slotCardPresets, slotCardStyleBounds } from "../presets/slotCardPresets";
 import { visualPresetLibrary } from "../presets/visualStylePresetLibrary";
-import { AssetReplacementTargetId, BackgroundReadabilityStyleValues, ButtonStyleValues, PanelStyleValues, RewardToastStyleValues, SlotCardStyleValues, VisualSurfaceType } from "../types/visualSurface";
+import { AssetReplacementTargetId, BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues, ButtonStyleConfig, ButtonStyleValues, PanelStyleConfig, PanelStyleValues, RewardToastStyleConfig, RewardToastStyleValues, SlotCardStyleConfig, SlotCardStyleValues, VisualSurfaceType } from "../types/visualSurface";
 import { DashboardAdapterId } from "../types/visualTuningDashboard";
 import { VisualTuningApplyMode, VisualTuningAttemptIndex, VisualTuningConnectionState, VisualTuningResultStatus } from "../types/visualTuningAttempt";
 
 type SurfaceValues = SlotCardStyleValues | BackgroundReadabilityStyleValues | PanelStyleValues | RewardToastStyleValues | ButtonStyleValues | Record<string, never>;
+type RuntimeSurfaceType = Exclude<VisualSurfaceType, "asset_replacement">;
+type RuntimeStyleValues = SlotCardStyleValues | BackgroundReadabilityStyleValues | PanelStyleValues | RewardToastStyleValues | ButtonStyleValues;
+type RuntimeStyleConfig = SlotCardStyleConfig | BackgroundReadabilityStyleConfig | PanelStyleConfig | RewardToastStyleConfig | ButtonStyleConfig;
+type RuntimeStyleConfigLoadResult = StyleConfigLoadResult | BackgroundStyleConfigLoadResult | PanelStyleConfigLoadResult | RewardToastStyleConfigLoadResult | ButtonStyleConfigLoadResult;
+type RuntimeSetupResult = {
+  setupApplied: boolean;
+  intendedFiles: string[];
+  changedFiles: string[];
+  rollbackPaths: string[];
+  warnings: string[];
+  blockedFiles: string[];
+  detection: { supportedStyleModulePath: string };
+  connection: {
+    connected: boolean;
+    connectionType: string;
+    missingPieces: string[];
+    runtimeProof: VisualRuntimeConnectionProof;
+  };
+};
 
 export interface TuneVisualSurfaceInitialState {
   surfaceType?: VisualSurfaceType;
@@ -147,11 +174,11 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
   logCommandStart("gamePolishLab.tuneVisualSurface", folder.uri.fsPath);
 
   try {
-    const slotLoad = await loadFarmSlotRuntimeEditorConfig(folder);
-    const backgroundLoad = loadBackgroundReadabilityStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "background-readability-style.json")));
-    const panelLoad = loadPanelStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "panel-style.json")));
-    const rewardToastLoad = loadRewardToastStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "reward-toast-style.json")));
-    const buttonLoad = loadButtonStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "button-style.json")));
+    const slotLoad = await loadRuntimeEditorConfig(folder, "slot_card") as StyleConfigLoadResult;
+    const backgroundLoad = await loadRuntimeEditorConfig(folder, "background_readability") as BackgroundStyleConfigLoadResult;
+    const panelLoad = await loadRuntimeEditorConfig(folder, "panel") as PanelStyleConfigLoadResult;
+    const rewardToastLoad = await loadRuntimeEditorConfig(folder, "reward_toast") as RewardToastStyleConfigLoadResult;
+    const buttonLoad = await loadRuntimeEditorConfig(folder, "button") as ButtonStyleConfigLoadResult;
     const recipeWriteResults = await ensureVisualRecipeFiles(folder);
     const writtenRecipes = recipeWriteResults.filter((result) => result.written);
     if (writtenRecipes.length > 0) {
@@ -225,17 +252,17 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
         : message.command === "undoLastApply"
         ? await undoLastApply(folder, message)
         : message.command === "writeLiveStyle"
-        ? await writeFarmSlotLiveStyle(folder, message)
+        ? await writeRuntimeLiveStyle(folder, message)
         : message.command === "openLiveGame"
-        ? await openFarmSlotLiveGame(message)
+        ? await openRuntimeLiveGame(message)
         : message.command === "checkRuntimeConnection"
-        ? await checkFarmSlotRuntimeConnection(folder, message)
+        ? await checkRuntimeConnection(folder, message)
         : message.command === "installRuntimeBridge"
-        ? await installFarmSlotRuntimeBridge(folder, message, slotLoad)
+        ? await installRuntimeBridge(folder, message, runtimeLoadForMessage(message, slotLoad, backgroundLoad, panelLoad, rewardToastLoad, buttonLoad))
         : message.command === "createBaselineConfig"
-        ? await createFarmSlotBaselineConfig(folder, message)
+        ? await createBaselineConfig(folder, message)
         : message.command === "saveStyle"
-        ? await saveFarmSlotRuntimeStyle(folder, message)
+        ? await saveRuntimeStyle(folder, message)
         : message.command === "setupBridge"
         ? await setupBridge(folder, message, slotLoad, backgroundLoad, panelLoad, rewardToastLoad, buttonLoad)
         : await saveAndApply(folder, message, slotLoad, backgroundLoad, panelLoad, rewardToastLoad, buttonLoad);
@@ -247,6 +274,284 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
   } finally {
     logCommandEnd("gamePolishLab.tuneVisualSurface");
   }
+}
+
+function runtimeLoadForMessage(message: SaveMessage, slotLoad: StyleConfigLoadResult, backgroundLoad: BackgroundStyleConfigLoadResult, panelLoad: PanelStyleConfigLoadResult, rewardToastLoad: RewardToastStyleConfigLoadResult, buttonLoad: ButtonStyleConfigLoadResult): RuntimeStyleConfigLoadResult {
+  if (message.surfaceType === "background_readability") {
+    return backgroundLoad;
+  }
+  if (message.surfaceType === "panel") {
+    return panelLoad;
+  }
+  if (message.surfaceType === "reward_toast") {
+    return rewardToastLoad;
+  }
+  if (message.surfaceType === "button") {
+    return buttonLoad;
+  }
+  return slotLoad;
+}
+
+function isRuntimeEditorSurface(surfaceType: VisualSurfaceType): surfaceType is RuntimeSurfaceType {
+  return surfaceType !== "asset_replacement";
+}
+
+async function checkRuntimeConnection(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  if (!isRuntimeEditorSurface(message.surfaceType) || message.adapterId !== "idle_monster_farm") {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Runtime connection check is only available for Idle Monster Farm visual style surfaces." };
+  }
+  const meta = runtimeSurfaceMeta(message.surfaceType);
+  const before = await snapshotFarmSlotConnectReadOnlyFiles(folder);
+  const state = await meta.getState(folder);
+  const runtimeState = await resolveRuntimeEditorState(folder, message.surfaceType, message.devServerUrl);
+  const after = await snapshotFarmSlotConnectReadOnlyFiles(folder);
+  const changedFiles = diffFarmSlotConnectSnapshots(before, after);
+  if (changedFiles.length > 0) {
+    return {
+      command: "saveResult",
+      ok: false,
+      surfaceType: message.surfaceType,
+      error: `Check Connection must be read-only, but files changed: ${changedFiles.join(", ")}`,
+      changedFiles,
+      runtimeConnectionProof: state.connection.runtimeProof,
+      runtimeEditorState: "error"
+    };
+  }
+
+  const bridgeInstalled = state.connection.connected && state.connection.runtimeProof.proofLevel === "runtime_value_usage";
+  return {
+    command: "saveResult",
+    ok: true,
+    surfaceType: message.surfaceType,
+    savedConfigOnly: true,
+    runtimeConnectionProof: state.connection.runtimeProof,
+    runtimeEditorState: bridgeInstalled ? runtimeState : "runtime_bridge_missing",
+    applySummary: [
+      bridgeInstalled ? "Runtime bridge installed" : "Runtime bridge not installed",
+      `Connection proof: ${state.connection.runtimeProof.status} / ${state.connection.runtimeProof.proofLevel}`,
+      "Check Connection read-only audit: zero changed files"
+    ],
+    changedFiles: []
+  };
+}
+
+async function installRuntimeBridge(folder: vscode.WorkspaceFolder, message: SaveMessage, load: RuntimeStyleConfigLoadResult): Promise<SaveResultMessage> {
+  if (!isRuntimeEditorSurface(message.surfaceType) || message.adapterId !== "idle_monster_farm") {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Runtime bridge install is only available for Idle Monster Farm visual style surfaces." };
+  }
+  if (!(await workspaceSupportsIdleMonsterFarm(folder))) {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Idle Monster Farm setup is blocked because this active workspace does not contain Idle Monster Farm evidence." };
+  }
+
+  const meta = runtimeSurfaceMeta(message.surfaceType);
+  const beforeSnapshot = await snapshotFarmSlotConnectReadOnlyFiles(folder);
+  const beforeBaseline = await resolveCurrentRuntimeBaselineValues(folder, message.surfaceType);
+  if (!beforeBaseline) {
+    return {
+      command: "saveResult",
+      ok: false,
+      surfaceType: message.surfaceType,
+      error: `Install Runtime Bridge could not read current ${meta.displayName} project values; no bridge files were written.`,
+      changedFiles: [],
+      runtimeEditorState: "error"
+    };
+  }
+  const baselineConfig = buildRuntimeStyleConfig(message.surfaceType, `Current project ${meta.displayName} baseline`, beforeBaseline);
+  const result = await meta.setupBridge(folder, baselineConfig);
+  const afterBaseline = await resolveCurrentRuntimeBaselineValues(folder, message.surfaceType);
+  const changedFiles = diffFarmSlotConnectSnapshots(beforeSnapshot, await snapshotFarmSlotConnectReadOnlyFiles(folder));
+  const forbiddenFiles = changedFiles.filter((file) => !isAllowedRuntimeInstallChange(file, result));
+  const valueGuardError = runtimeBaselineGuardError(message.surfaceType, beforeBaseline, afterBaseline);
+  if (forbiddenFiles.length > 0 || valueGuardError) {
+    return {
+      command: "saveResult",
+      ok: false,
+      surfaceType: message.surfaceType,
+      error: [
+        forbiddenFiles.length > 0 ? `Install Runtime Bridge changed forbidden files: ${forbiddenFiles.join(", ")}` : "",
+        valueGuardError ?? ""
+      ].filter(Boolean).join(" "),
+      changedFiles,
+      runtimeConnectionProof: result.connection.runtimeProof,
+      runtimeEditorState: "error"
+    };
+  }
+  return setupResponse(
+    message.surfaceType,
+    meta.configPath,
+    result.blockedFiles,
+    result.rollbackPaths,
+    checklistFor(message.surfaceType, load, result.rollbackPaths.length > 0, []),
+    summarizeSetup(meta.adapterSummaryId, result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof),
+    result.warnings,
+    result.connection.runtimeProof
+  );
+}
+
+async function createBaselineConfig(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  if (!isRuntimeEditorSurface(message.surfaceType) || message.adapterId !== "idle_monster_farm") {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Create Baseline Config is only available for Idle Monster Farm visual style surfaces." };
+  }
+  const meta = runtimeSurfaceMeta(message.surfaceType);
+  const values = await resolveCurrentRuntimeBaselineValues(folder, message.surfaceType);
+  if (!values) {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: `Current ${meta.displayName} project values could not be extracted; baseline config was not written.` };
+  }
+  if (message.surfaceType === "slot_card" && farmSlotValuesContainForbiddenBrownDefaults(values as SlotCardStyleValues)) {
+    return { command: "saveResult", ok: false, surfaceType: "slot_card", error: "Current Farm Slot values resolved to forbidden brown defaults; baseline config was not written." };
+  }
+
+  const before = await snapshotFarmSlotConnectReadOnlyFiles(folder);
+  const config = buildRuntimeStyleConfig(message.surfaceType, `Current project ${meta.displayName} baseline`, values);
+  await ensureDirectory(labUri(folder, "styles"));
+  await writeTextFile(workspaceRelativeUri(folder, meta.configPath), `${JSON.stringify(config, null, 2)}\n`);
+  const changedFiles = diffFarmSlotConnectSnapshots(before, await snapshotFarmSlotConnectReadOnlyFiles(folder));
+  const forbiddenFiles = changedFiles.filter((file) => file !== meta.configPath);
+  if (forbiddenFiles.length > 0) {
+    return {
+      command: "saveResult",
+      ok: false,
+      surfaceType: message.surfaceType,
+      error: `Create Baseline Config changed forbidden files: ${forbiddenFiles.join(", ")}`,
+      changedFiles,
+      runtimeEditorState: "error"
+    };
+  }
+
+  const state = await meta.getState(folder);
+  return {
+    command: "saveResult",
+    ok: true,
+    surfaceType: message.surfaceType,
+    savedConfigOnly: true,
+    configPath: meta.configPath,
+    changedFiles,
+    runtimeConnectionProof: state.connection.runtimeProof,
+    runtimeEditorState: state.connection.connected ? "connected" : "runtime_bridge_missing",
+    applySummary: [
+      `Create Baseline Config wrote current project ${meta.displayName} values.`,
+      `changed files: ${changedFiles.join(", ")}`
+    ],
+    surfaceUpdate: buildTunerSurfaceUpdate(folder.uri.fsPath, message.surfaceType, config, false, "real_project_current_config")
+  };
+}
+
+async function saveRuntimeStyle(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  if (!isRuntimeEditorSurface(message.surfaceType) || message.adapterId !== "idle_monster_farm") {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Save Style is only available for Idle Monster Farm visual style surfaces." };
+  }
+  const meta = runtimeSurfaceMeta(message.surfaceType);
+  const before = await snapshotFarmSlotConnectReadOnlyFiles(folder);
+  const config = buildRuntimeStyleConfig(message.surfaceType, message.presetName, message.values as RuntimeStyleValues);
+  await ensureDirectory(labUri(folder, "styles"));
+  await writeTextFile(workspaceRelativeUri(folder, meta.configPath), `${JSON.stringify(config, null, 2)}\n`);
+
+  const state = await meta.getState(folder);
+  if (state.connection.connected && state.connection.runtimeProof.proofLevel === "runtime_value_usage") {
+    const styleUri = vscode.Uri.joinPath(folder.uri, ...state.detection.supportedStyleModulePath.split("/"));
+    if (await pathExists(styleUri)) {
+      await writeTextFile(styleUri, meta.renderModule(config.values));
+    }
+  }
+
+  const updatedState = await meta.getState(folder);
+  const changedFiles = diffFarmSlotConnectSnapshots(before, await snapshotFarmSlotConnectReadOnlyFiles(folder));
+  const allowedFiles = new Set([meta.configPath, state.detection.supportedStyleModulePath]);
+  const forbiddenFiles = changedFiles.filter((file) => !allowedFiles.has(file));
+  if (forbiddenFiles.length > 0) {
+    return {
+      command: "saveResult",
+      ok: false,
+      surfaceType: message.surfaceType,
+      error: `Save Style changed forbidden files: ${forbiddenFiles.join(", ")}`,
+      changedFiles,
+      runtimeConnectionProof: updatedState.connection.runtimeProof,
+      runtimeEditorState: "error"
+    };
+  }
+  return {
+    command: "saveResult",
+    ok: true,
+    surfaceType: message.surfaceType,
+    appliedToRuntime: changedFiles.some((file) => file === state.detection.supportedStyleModulePath),
+    savedConfigOnly: !changedFiles.some((file) => file === state.detection.supportedStyleModulePath),
+    configPath: meta.configPath,
+    changedFiles,
+    runtimeConnectionProof: updatedState.connection.runtimeProof,
+    runtimeEditorState: updatedState.connection.connected ? "connected" : "runtime_bridge_missing",
+    applySummary: [
+      `Save Style persisted ${meta.displayName} values.`,
+      `changed files: ${changedFiles.join(", ")}`,
+      changedFiles.some((file) => file === state.detection.supportedStyleModulePath) ? "Runtime style module updated because the bridge is already installed." : "Runtime style module was not written because no installed bridge module was available."
+    ],
+    surfaceUpdate: buildTunerSurfaceUpdate(folder.uri.fsPath, message.surfaceType, config, false, "real_project_current_config")
+  };
+}
+
+async function openRuntimeLiveGame(message: SaveMessage): Promise<SaveResultMessage> {
+  const url = normalizeLocalDevServerUrl(message.devServerUrl);
+  if (!url) {
+    return {
+      command: "saveResult",
+      ok: false,
+      surfaceType: message.surfaceType,
+      error: "Open Live Game is restricted to http://127.0.0.1:* or http://localhost:* URLs."
+    };
+  }
+  await vscode.env.openExternal(vscode.Uri.parse(url));
+  return {
+    command: "saveResult",
+    ok: true,
+    surfaceType: message.surfaceType,
+    savedConfigOnly: true,
+    runtimeEditorState: "connected",
+    applySummary: [`opened live game: ${url}`]
+  };
+}
+
+async function writeRuntimeLiveStyle(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  if (!isRuntimeEditorSurface(message.surfaceType) || message.adapterId !== "idle_monster_farm") {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Runtime live style is only available for Idle Monster Farm visual style surfaces." };
+  }
+
+  const meta = runtimeSurfaceMeta(message.surfaceType);
+  const before = await snapshotFarmSlotConnectReadOnlyFiles(folder);
+  await ensureDirectory(labUri(folder, "live-style"));
+  await writeTextFile(workspaceRelativeUri(folder, meta.livePath), `${JSON.stringify({
+    schemaVersion: 1,
+    surfaceType: message.surfaceType,
+    adapterTarget: meta.adapterTarget,
+    sessionActive: true,
+    updatedAt: new Date().toISOString(),
+    values: liveStyleValuesForSurface(message.surfaceType, message.values as RuntimeStyleValues)
+  }, null, 2)}\n`);
+  const changedFiles = diffFarmSlotConnectSnapshots(before, await snapshotFarmSlotConnectReadOnlyFiles(folder));
+  const forbiddenFiles = changedFiles.filter((file) => file !== meta.livePath);
+  if (forbiddenFiles.length > 0) {
+    return {
+      command: "saveResult",
+      ok: false,
+      surfaceType: message.surfaceType,
+      error: `Live Edit changed forbidden files: ${forbiddenFiles.join(", ")}`,
+      changedFiles,
+      runtimeEditorState: "error"
+    };
+  }
+  const state = await resolveRuntimeEditorState(folder, message.surfaceType, message.devServerUrl);
+  return {
+    command: "saveResult",
+    ok: true,
+    surfaceType: message.surfaceType,
+    configPath: meta.livePath,
+    changedFiles,
+    savedConfigOnly: true,
+    runtimeEditorState: state,
+    applySummary: [
+      `runtime editor: ${state}`,
+      `live style file: ${meta.livePath}`,
+      "visual source of truth: running Idle Monster Farm browser game"
+    ]
+  };
 }
 
 async function checkFarmSlotRuntimeConnection(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
@@ -562,8 +867,13 @@ function farmSlotLiveStyleValues(values: SlotCardStyleValues): Record<string, st
 }
 
 async function resolveFarmSlotRuntimeEditorState(folder: vscode.WorkspaceFolder, devServerUrl?: string): Promise<FarmSlotRuntimeEditorState> {
+  return resolveRuntimeEditorState(folder, "slot_card", devServerUrl);
+}
+
+async function resolveRuntimeEditorState(folder: vscode.WorkspaceFolder, surfaceType: RuntimeSurfaceType, devServerUrl?: string): Promise<FarmSlotRuntimeEditorState> {
   try {
-    const state = await getIdleMonsterFarmFarmSlotAdapterState(folder);
+    const meta = runtimeSurfaceMeta(surfaceType);
+    const state = await meta.getState(folder);
     if (!state.connection.connected) {
       return "live_file_waiting";
     }
@@ -571,16 +881,16 @@ async function resolveFarmSlotRuntimeEditorState(folder: vscode.WorkspaceFolder,
     if (!url) {
       return "game_url_not_configured";
     }
-    const served = await canReadLiveStyleFromDevServer(url);
+    const served = await canReadLiveStyleFromDevServer(url, meta.livePath);
     return served ? "style_applied" : "game_not_running";
   } catch {
     return "error";
   }
 }
 
-function canReadLiveStyleFromDevServer(devServerUrl: string): Promise<boolean> {
+function canReadLiveStyleFromDevServer(devServerUrl: string, livePath: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const request = http.get(`${devServerUrl.replace(/\/$/, "")}/.game-polish-lab/live-style/farm-slot.json`, (response) => {
+    const request = http.get(`${devServerUrl.replace(/\/$/, "")}/${livePath.replace(/^\//, "")}`, (response) => {
       response.resume();
       resolve(response.statusCode === 200);
     });
@@ -694,6 +1004,209 @@ function farmSlotValuesContainForbiddenBrownDefaults(values: SlotCardStyleValues
   return [values.fillColor, values.innerFillColor, values.borderColor].some((value) => forbidden.has(value.toLowerCase()));
 }
 
+function workspaceRelativeUri(folder: vscode.WorkspaceFolder, relativePath: string): vscode.Uri {
+  return vscode.Uri.joinPath(folder.uri, ...relativePath.split("/"));
+}
+
+function runtimeSurfaceMeta(surfaceType: RuntimeSurfaceType): {
+  displayName: string;
+  adapterTarget: string;
+  adapterSummaryId: string;
+  configPath: string;
+  livePath: string;
+  moduleCandidates: string[];
+  loadConfig: (text: string | undefined) => RuntimeStyleConfigLoadResult;
+  getState: (folder: vscode.WorkspaceFolder) => Promise<{ detection: { supportedStyleModulePath: string }; connection: { connected: boolean; connectionType: string; missingPieces: string[]; runtimeProof: VisualRuntimeConnectionProof } }>;
+  setupBridge: (folder: vscode.WorkspaceFolder, config: RuntimeStyleConfig) => Promise<RuntimeSetupResult>;
+  renderModule: (values: RuntimeStyleValues) => string;
+} {
+  if (surfaceType === "background_readability") {
+    return {
+      displayName: "Background Readability",
+      adapterTarget: "idle_monster_farm.background",
+      adapterSummaryId: "idle_monster_farm.background",
+      configPath: backgroundReadabilityStyleConfigRelativePath,
+      livePath: backgroundReadabilityLiveStyleRelativePath,
+      moduleCandidates: ["src/config/backgroundReadabilityStyle.ts"],
+      loadConfig: loadBackgroundReadabilityStyleConfigFromText,
+      getState: getIdleMonsterFarmBackgroundAdapterState,
+      setupBridge: (folder, config) => setupIdleMonsterFarmBackgroundBridge(folder, config as BackgroundReadabilityStyleConfig) as Promise<RuntimeSetupResult>,
+      renderModule: (values) => renderBackgroundReadabilityStyleModule(values as BackgroundReadabilityStyleValues)
+    };
+  }
+  if (surfaceType === "panel") {
+    return {
+      displayName: "Panel",
+      adapterTarget: "idle_monster_farm.panels",
+      adapterSummaryId: "idle_monster_farm.panels",
+      configPath: panelStyleConfigRelativePath,
+      livePath: panelLiveStyleRelativePath,
+      moduleCandidates: ["src/config/panelStyle.ts"],
+      loadConfig: loadPanelStyleConfigFromText,
+      getState: getIdleMonsterFarmPanelAdapterState,
+      setupBridge: (folder, config) => setupIdleMonsterFarmPanelBridge(folder, config as PanelStyleConfig) as Promise<RuntimeSetupResult>,
+      renderModule: (values) => renderPanelStyleModule(values as PanelStyleValues)
+    };
+  }
+  if (surfaceType === "reward_toast") {
+    return {
+      displayName: "Reward Toast",
+      adapterTarget: "idle_monster_farm.reward_toast",
+      adapterSummaryId: "idle_monster_farm.reward_toast",
+      configPath: rewardToastStyleConfigRelativePath,
+      livePath: rewardToastLiveStyleRelativePath,
+      moduleCandidates: ["src/config/rewardToastStyle.ts"],
+      loadConfig: loadRewardToastStyleConfigFromText,
+      getState: getIdleMonsterFarmRewardToastAdapterState,
+      setupBridge: (folder, config) => setupIdleMonsterFarmRewardToastBridge(folder, config as RewardToastStyleConfig) as Promise<RuntimeSetupResult>,
+      renderModule: (values) => renderRewardToastStyleModule(values as RewardToastStyleValues)
+    };
+  }
+  if (surfaceType === "button") {
+    return {
+      displayName: "Button",
+      adapterTarget: "idle_monster_farm.buttons",
+      adapterSummaryId: "idle_monster_farm.buttons",
+      configPath: buttonStyleConfigRelativePath,
+      livePath: buttonLiveStyleRelativePath,
+      moduleCandidates: ["src/config/buttonStyle.ts"],
+      loadConfig: loadButtonStyleConfigFromText,
+      getState: getIdleMonsterFarmButtonAdapterState,
+      setupBridge: (folder, config) => setupIdleMonsterFarmButtonBridge(folder, config as ButtonStyleConfig) as Promise<RuntimeSetupResult>,
+      renderModule: (values) => renderButtonStyleModule(values as ButtonStyleValues)
+    };
+  }
+  return {
+    displayName: "Farm Slot",
+    adapterTarget: "idle_monster_farm.farm_slots",
+    adapterSummaryId: "idle_monster_farm.farm_slots",
+    configPath: farmSlotStyleConfigRelativePath,
+    livePath: farmSlotLiveStyleRelativePath,
+    moduleCandidates: ["src/config/farmSlotStyle.ts", "src/config/farmSlotVisualStyle.ts"],
+    loadConfig: loadSlotCardStyleConfigFromText,
+    getState: getIdleMonsterFarmFarmSlotAdapterState,
+    setupBridge: (folder, config) => setupIdleMonsterFarmFarmSlotBridge(folder, config as SlotCardStyleConfig, { writeFallbackTask: false }) as Promise<RuntimeSetupResult>,
+    renderModule: (values) => renderFarmSlotStyleModule(values as SlotCardStyleValues)
+  };
+}
+
+function buildRuntimeStyleConfig(surfaceType: RuntimeSurfaceType, presetName: string, values: RuntimeStyleValues): RuntimeStyleConfig {
+  if (surfaceType === "background_readability") {
+    return buildBackgroundReadabilityStyleConfig(presetName, values as BackgroundReadabilityStyleValues);
+  }
+  if (surfaceType === "panel") {
+    return buildPanelStyleConfig(presetName, values as PanelStyleValues);
+  }
+  if (surfaceType === "reward_toast") {
+    return buildRewardToastStyleConfig(presetName, values as RewardToastStyleValues);
+  }
+  if (surfaceType === "button") {
+    return buildButtonStyleConfig(presetName, values as ButtonStyleValues);
+  }
+  return buildSlotCardStyleConfig(presetName, values as SlotCardStyleValues);
+}
+
+async function loadRuntimeEditorConfig(folder: vscode.WorkspaceFolder, surfaceType: RuntimeSurfaceType): Promise<RuntimeStyleConfigLoadResult> {
+  const meta = runtimeSurfaceMeta(surfaceType);
+  const configLoad = meta.loadConfig(await readTextFileIfExists(workspaceRelativeUri(folder, meta.configPath)));
+  if (configLoad.status === "valid") {
+    return configLoad;
+  }
+  const values = await resolveCurrentRuntimeModuleValues(folder, surfaceType);
+  if (values) {
+    return runtimeBaselineLoadResultForSurface(surfaceType, `Current project ${meta.displayName} style`, values, configLoad.warning);
+  }
+  return configLoad;
+}
+
+async function resolveCurrentRuntimeBaselineValues(folder: vscode.WorkspaceFolder, surfaceType: RuntimeSurfaceType): Promise<RuntimeStyleValues | undefined> {
+  const meta = runtimeSurfaceMeta(surfaceType);
+  const configLoad = meta.loadConfig(await readTextFileIfExists(workspaceRelativeUri(folder, meta.configPath)));
+  if (configLoad.status === "valid") {
+    return configLoad.config.values as RuntimeStyleValues;
+  }
+  if (surfaceType === "slot_card") {
+    return resolveCurrentFarmSlotBaselineValues(folder);
+  }
+  return resolveCurrentRuntimeModuleValues(folder, surfaceType);
+}
+
+async function resolveCurrentRuntimeModuleValues(folder: vscode.WorkspaceFolder, surfaceType: RuntimeSurfaceType): Promise<RuntimeStyleValues | undefined> {
+  if (surfaceType === "slot_card") {
+    for (const candidate of runtimeSurfaceMeta(surfaceType).moduleCandidates) {
+      const values = extractFarmSlotStyleValuesFromModuleIfPresent(await readTextFileIfExists(workspaceRelativeUri(folder, candidate)));
+      if (values) {
+        return values;
+      }
+    }
+    return undefined;
+  }
+  const meta = runtimeSurfaceMeta(surfaceType);
+  for (const candidate of meta.moduleCandidates) {
+    const values = extractRuntimeValuesFromGeneratedModule(await readTextFileIfExists(workspaceRelativeUri(folder, candidate)), surfaceType);
+    if (values) {
+      return values;
+    }
+  }
+  return undefined;
+}
+
+function extractRuntimeValuesFromGeneratedModule(text: string | undefined, surfaceType: RuntimeSurfaceType): RuntimeStyleValues | undefined {
+  if (!text) {
+    return undefined;
+  }
+  const exportName = surfaceType === "background_readability"
+    ? "BACKGROUND_READABILITY_STYLE"
+    : surfaceType === "panel"
+      ? "PANEL_STYLE"
+      : surfaceType === "reward_toast"
+        ? "REWARD_TOAST_STYLE"
+        : surfaceType === "button"
+          ? "BUTTON_STYLE"
+          : "FARM_SLOT_STYLE";
+  const match = text.match(new RegExp(`${exportName}\\s*:[^=]+?=\\s*(\\{[\\s\\S]*?\\})\\s*;`));
+  if (!match) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(match[1]) as RuntimeStyleValues;
+    return buildRuntimeStyleConfig(surfaceType, "Current project generated style", parsed).values as RuntimeStyleValues;
+  } catch {
+    return undefined;
+  }
+}
+
+function runtimeBaselineLoadResultForSurface(surfaceType: RuntimeSurfaceType, presetName: string, values: RuntimeStyleValues, priorWarning?: string): RuntimeStyleConfigLoadResult {
+  return {
+    status: "valid",
+    config: buildRuntimeStyleConfig(surfaceType, presetName, values) as never,
+    existingConfigDetected: false,
+    initializedFromExistingConfig: true,
+    warning: priorWarning
+  };
+}
+
+function isAllowedRuntimeInstallChange(relativePath: string, result: RuntimeSetupResult): boolean {
+  return result.intendedFiles.includes(relativePath)
+    || relativePath.startsWith(".game-polish-lab/rollback/");
+}
+
+function runtimeBaselineGuardError(surfaceType: RuntimeSurfaceType, before: RuntimeStyleValues | undefined, after: RuntimeStyleValues | undefined): string | undefined {
+  if (!before || !after) {
+    return before || after ? `Install Runtime Bridge changed ${runtimeSurfaceMeta(surfaceType).displayName} baseline detectability.` : undefined;
+  }
+  return JSON.stringify(before) === JSON.stringify(after)
+    ? undefined
+    : `Install Runtime Bridge changed ${runtimeSurfaceMeta(surfaceType).displayName} visual baseline values.`;
+}
+
+function liveStyleValuesForSurface(surfaceType: RuntimeSurfaceType, values: RuntimeStyleValues): Record<string, string | number> {
+  if (surfaceType === "slot_card") {
+    return farmSlotLiveStyleValues(values as SlotCardStyleValues);
+  }
+  return { ...(buildRuntimeStyleConfig(surfaceType, "Live Edit", values).values as unknown as Record<string, string | number>) };
+}
+
 async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage, slotLoad: StyleConfigLoadResult, backgroundLoad: BackgroundStyleConfigLoadResult, panelLoad: PanelStyleConfigLoadResult, rewardToastLoad: RewardToastStyleConfigLoadResult, buttonLoad: ButtonStyleConfigLoadResult): Promise<SaveResultMessage> {
   try {
     if (message.adapterId === "generic_phaser") {
@@ -739,54 +1252,7 @@ async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage
     if (!(await workspaceSupportsIdleMonsterFarm(folder))) {
       return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Idle Monster Farm direct apply is blocked because this active workspace does not contain Idle Monster Farm evidence." };
     }
-    if (message.surfaceType === "slot_card") {
-      return { command: "saveResult", ok: false, surfaceType: "slot_card", error: "Farm Slot runtime editor uses separate Check Connection, Install Runtime Bridge, Create Baseline Config, Save Style, and Live Edit actions." };
-    }
-    if (message.surfaceType === "background_readability") {
-      const config = buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues);
-      const result = await saveConfigAndApply(folder, "background_readability", backgroundReadabilityStyleConfigRelativePath, backgroundLoad, config, async () => {
-        const applyResult = await applyIdleMonsterFarmBackgroundStyle(folder, config);
-        return adapterOutcomeFromResult(summarizeBackgroundApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
-      });
-      if (!result.ok) {
-        return result;
-      }
-      return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability" });
-    }
-    if (message.surfaceType === "panel") {
-      const config = buildPanelStyleConfig(message.presetName, message.values as PanelStyleValues);
-      const result = await saveConfigAndApply(folder, "panel", panelStyleConfigRelativePath, panelLoad, config, async () => {
-        const applyResult = await applyIdleMonsterFarmPanelStyle(folder, config);
-        return adapterOutcomeFromResult(summarizePanelApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
-      });
-      if (!result.ok) {
-        return result;
-      }
-      return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm panels" });
-    }
-    if (message.surfaceType === "reward_toast") {
-      const config = buildRewardToastStyleConfig(message.presetName, message.values as RewardToastStyleValues);
-      const result = await saveConfigAndApply(folder, "reward_toast", rewardToastStyleConfigRelativePath, rewardToastLoad, config, async () => {
-        const applyResult = await applyIdleMonsterFarmRewardToastStyle(folder, config);
-        return adapterOutcomeFromResult(summarizeRewardToastApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
-      });
-      if (!result.ok) {
-        return result;
-      }
-      return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm reward toast" });
-    }
-    if (message.surfaceType === "button") {
-      const config = buildButtonStyleConfig(message.presetName, message.values as ButtonStyleValues);
-      const result = await saveConfigAndApply(folder, "button", buttonStyleConfigRelativePath, buttonLoad, config, async () => {
-        const applyResult = await applyIdleMonsterFarmButtonStyle(folder, config);
-        return adapterOutcomeFromResult(summarizeButtonApplyResult(folder, applyResult), applyResult, applyResult.detection.supportedStyleModulePath);
-      });
-      if (!result.ok) {
-        return result;
-      }
-      return recordTuningAttemptForResult(folder, message, result, { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons" });
-    }
-    return { command: "saveResult", ok: false, surfaceType: "slot_card", error: "Farm Slot runtime editor uses separate Check Connection, Install Runtime Bridge, Create Baseline Config, Save Style, and Live Edit actions." };
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Idle Monster Farm runtime editor uses separate Check Connection, Install Runtime Bridge, Create Baseline Config, Save Style, and Live Edit actions." };
   } catch (error) {
     logError("save/apply visual surface failed:", error);
     return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: errorToMessage(error) };
@@ -1065,26 +1531,7 @@ async function setupBridge(folder: vscode.WorkspaceFolder, message: SaveMessage,
     if (!(await workspaceSupportsIdleMonsterFarm(folder))) {
       return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Idle Monster Farm setup is blocked because this active workspace does not contain Idle Monster Farm evidence." };
     }
-    if (message.surfaceType === "slot_card") {
-      return { command: "saveResult", ok: false, surfaceType: "slot_card", error: "Farm Slot runtime bridge install is only available through the explicit Install Runtime Bridge action." };
-    }
-    if (message.surfaceType === "background_readability") {
-      const result = await setupIdleMonsterFarmBackgroundBridge(folder, buildBackgroundReadabilityStyleConfig(message.presetName, message.values as BackgroundReadabilityStyleValues));
-      return recordTuningAttemptForResult(folder, message, setupResponse("background_readability", backgroundReadabilityStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("background_readability", backgroundLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.background", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings, result.connection.runtimeProof), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm background readability", applyMode: "direct_apply" });
-    }
-    if (message.surfaceType === "panel") {
-      const result = await setupIdleMonsterFarmPanelBridge(folder, buildPanelStyleConfig(message.presetName, message.values as PanelStyleValues));
-      return recordTuningAttemptForResult(folder, message, setupResponse("panel", panelStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("panel", panelLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.panels", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings, result.connection.runtimeProof), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm panels", applyMode: "direct_apply" });
-    }
-    if (message.surfaceType === "reward_toast") {
-      const result = await setupIdleMonsterFarmRewardToastBridge(folder, buildRewardToastStyleConfig(message.presetName, message.values as RewardToastStyleValues));
-      return recordTuningAttemptForResult(folder, message, setupResponse("reward_toast", rewardToastStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("reward_toast", rewardToastLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.reward_toast", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings, result.connection.runtimeProof), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm reward toast", applyMode: "direct_apply" });
-    }
-    if (message.surfaceType === "button") {
-      const result = await setupIdleMonsterFarmButtonBridge(folder, buildButtonStyleConfig(message.presetName, message.values as ButtonStyleValues));
-      return recordTuningAttemptForResult(folder, message, setupResponse("button", buttonStyleConfigRelativePath, result.blockedFiles, result.rollbackPaths, checklistFor("button", buttonLoad, result.rollbackPaths.length > 0, []), summarizeSetup("idle_monster_farm.buttons", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof), result.warnings, result.connection.runtimeProof), { adapterId: "idle_monster_farm", targetLabel: "Monster Farm buttons", applyMode: "direct_apply" });
-    }
-    return { command: "saveResult", ok: false, surfaceType: "slot_card", error: "Farm Slot runtime bridge install is only available through the explicit Install Runtime Bridge action." };
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Idle Monster Farm runtime bridge install is only available through the explicit Install Runtime Bridge action." };
   } catch (error) {
     logError("setup visual bridge failed:", error);
     return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: errorToMessage(error) };
@@ -1585,7 +2032,8 @@ function renderHtml(input: {
     for(const recipe of data.recipes){numeric[recipe.surfaceType]=[];colors[recipe.surfaceType]=[];for(const token of recipe.supportedStyleTokens){labels[token.tokenId]=token.label;if(token.valueType==="number")numeric[recipe.surfaceType].push(token.tokenId);if(token.valueType==="color")colors[recipe.surfaceType].push(token.tokenId);}}
     labels.innerFillColor=labels.innerFillColor||"Inner fill color";
     const farmSlotRuntimeNumeric=["borderWidth","emptySlotOpacity","lockedOverlayOpacity","monsterDisplayScale","monsterVerticalOffset","mergeCandidatePulseScale"], farmSlotRuntimeColors=["fillColor","innerFillColor","borderColor"];
-    let surfaceType=data.initialState.surfaceType&&data.surfaceOrder.includes(data.initialState.surfaceType)?data.initialState.surfaceType:"slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName, values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values), selectedPresetId="", selectedAsset=null, needsSetup=false, adapterId=data.initialState.adapterId||(data.workspace.idleMonsterFarmDetected?"idle_monster_farm":"generic_phaser"), currentAttemptPath="", frameMode="desktop", animationOn=true, liveWriteTimer=0, liveGameUrl="http://127.0.0.1:5173", liveGameStatusText="game not loaded";
+    const persistedState=vscode.getState?vscode.getState()||{}:{};
+    let surfaceType=data.initialState.surfaceType&&data.surfaceOrder.includes(data.initialState.surfaceType)?data.initialState.surfaceType:"slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName, values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values), selectedPresetId="", selectedAsset=null, needsSetup=false, adapterId=data.initialState.adapterId||(data.workspace.idleMonsterFarmDetected?"idle_monster_farm":"generic_phaser"), currentAttemptPath="", frameMode="desktop", animationOn=true, liveWriteTimer=0, liveGameUrl=persistedState.liveGameUrl||"http://127.0.0.1:5173", liveGameStatusText="game not loaded", liveGameSize=persistedState.liveGameSize||"fit", liveGameScale=persistedState.liveGameScale||"fit-width";
     const surface=document.getElementById("surface"), preset=document.getElementById("preset"), presetDescription=document.getElementById("presetDescription"), controls=document.getElementById("controls"), status=document.getElementById("status"), adapterMode=document.getElementById("adapterMode"), genericFields=document.getElementById("genericFields"), genericTarget=document.getElementById("genericTarget"), genericFiles=document.getElementById("genericFiles"), genericAssetFolder=document.getElementById("genericAssetFolder"), genericDirect=document.getElementById("genericDirect"), frameModeSelect=document.getElementById("frameMode"), animationToggle=document.getElementById("animationToggle"), beforeLabel=document.getElementById("beforeLabel"), afterLabel=document.getElementById("afterLabel"), previewSourceLabel=document.getElementById("previewSourceLabel"), stateGrid=document.getElementById("stateGrid"), stateGridLabel=document.getElementById("stateGridLabel"), undoApply=document.getElementById("undoApply"), saveButton=document.getElementById("save"), setupButton=document.getElementById("setup"), checkConnectionButton=document.getElementById("checkConnection"), installBridgeButton=document.getElementById("installBridge"), createBaselineButton=document.getElementById("createBaseline");
     genericTarget.value=data.initialState.targetLabel||genericTarget.value;genericFiles.value=(data.genericPhaser.likelySceneFiles||[]).join("\\n");genericAssetFolder.value=(data.genericPhaser.likelyAssetFolders&&data.genericPhaser.likelyAssetFolders[0])||"src/assets";
     for(const id of data.surfaceOrder){const option=document.createElement("option");option.value=id;option.textContent=recipesBySurface[id]?recipesBySurface[id].displayName:id;option.selected=id===surfaceType;surface.append(option);}
@@ -1608,15 +2056,16 @@ function renderHtml(input: {
     function readAsset(file){if(!["image/png","image/webp"].includes(file.type)&&!/\\.(png|webp)$/i.test(file.name)){status.textContent="Unsupported file type. Choose PNG or WebP.";selectedAsset=null;render();return;}const reader=new FileReader();reader.onload=()=>{const dataUrl=String(reader.result);selectedAsset={name:file.name,dataUrl,dataBase64:dataUrl.split(",")[1]||""};status.textContent="Asset loaded for preview: "+file.name;render();};reader.readAsDataURL(file);}
     function runtimeProof(){return surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection&&surfaceData.adapterState.connection.runtimeProof;}
     function isRuntimeSlotMode(){return adapterId==="idle_monster_farm"&&surfaceType==="slot_card";}
+    function isRuntimeEditorMode(){return adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement";}
     function directApplyConnected(){const proof=runtimeProof();return adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement"&&proof&&proof.connected&&proof.status==="connected"&&proof.proofLevel==="runtime_value_usage";}
-    function updateActionLabels(){const connected=directApplyConnected();const canConnect=adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement";const runtime=isRuntimeSlotMode();saveButton.textContent=surfaceType==="asset_replacement"?"Save Asset Metadata":runtime?"Save Style":connected?"Save":canConnect?"Save & Connect":"Save Config";saveButton.title=runtime?"Save Style writes persistent Farm Slot values. It does not install the bridge.":connected?"Connected direct apply will update the real workspace style path.":canConnect?"Save writes the lab config, then attempts supported runtime setup/connect before returning.":"Saved config only. Direct apply is not connected for this workspace.";checkConnectionButton.style.display=runtime?"inline-block":"none";installBridgeButton.style.display=runtime?"inline-block":"none";createBaselineButton.style.display=runtime?"inline-block":"none";installBridgeButton.disabled=connected;installBridgeButton.title=connected?"Runtime bridge is already installed.":"Explicit write action: installs only the Farm Slot runtime bridge.";createBaselineButton.title="Creates only .game-polish-lab/styles/farm-slot-style.json from current project values.";const showSetup=canConnect&&!connected&&!runtime;setupButton.textContent="One-Time Setup";setupButton.style.display=showSetup||needsSetup?"inline-block":"none";}
+    function updateActionLabels(){const connected=directApplyConnected();const canConnect=adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement";const runtime=isRuntimeEditorMode();saveButton.textContent=surfaceType==="asset_replacement"?"Save Asset Metadata":runtime?"Save Style":connected?"Save":"Save Config";saveButton.title=runtime?"Save Style writes persistent runtime style values. It does not install the bridge.":connected?"Connected direct apply will update the real workspace style path.":"Saved config only. Direct apply is not connected for this workspace.";checkConnectionButton.style.display=runtime?"inline-block":"none";installBridgeButton.style.display=runtime?"inline-block":"none";createBaselineButton.style.display=runtime?"inline-block":"none";installBridgeButton.disabled=connected;installBridgeButton.title=connected?"Runtime bridge is already installed.":"Explicit write action: installs only the runtime bridge.";createBaselineButton.title="Creates only this surface's .game-polish-lab/styles JSON from current project values.";const showSetup=canConnect&&!connected&&!runtime;setupButton.textContent="One-Time Setup";setupButton.style.display=showSetup||needsSetup?"inline-block":"none";}
     function previewSourceText(){const source=(surfaceData&&surfaceData.previewSource)||"real_project_generated_default";if(source==="real_project_current_config")return"Preview source: real_project_current_config. Before/current uses the real Game Polish Lab config in this workspace.";if(source==="real_project_generated_default")return"Preview source: real_project_generated_default. No existing config was found; this is a generated default preview for this workspace.";if(source==="example_preview_not_connected")return"Preview source: example_preview_not_connected. Example preview - not read from your game yet. Direct apply is not connected.";if(source==="fixture_test_preview")return"Preview source: fixture_test_preview. Fixture/test preview because the opened workspace is under fixtures/.";return"Preview source: no_workspace.";}
-    function initialStatusText(){const lines=[previewSourceText()];if(surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning)lines.push(surfaceData.configLoad.warning);if(isRuntimeSlotMode()){const proof=runtimeProof();lines.push("Farm Slot Runtime Editor: the running Idle Monster Farm browser game is the preview.");lines.push("Live edits write .game-polish-lab/live-style/farm-slot.json only; Save writes the persistent style config/module.");lines.push(directApplyConnected()?"Runtime bridge connected. Move a slider, then judge the browser game.":"Runtime bridge not connected yet. Use Check Connection before judging live edits.");if(proof){lines.push("Proof: "+proof.status+" / "+proof.proofLevel+" / "+proof.styleSource);(proof.missingPieces||[]).slice(0,3).forEach(p=>lines.push("Missing: "+p));}}else if(adapterId==="idle_monster_farm"){const proof=runtimeProof();lines.push(directApplyConnected()?"Direct apply connected: runtime value usage proven.":"Direct apply not connected. Save & Connect writes JSON first, then attempts supported runtime setup before returning.");if(proof){lines.push("Proof: "+proof.status+" / "+proof.proofLevel+" / "+proof.styleSource);(proof.missingPieces||[]).slice(0,3).forEach(p=>lines.push("Missing: "+p));}}else{lines.push("Generic Phaser mode writes config/fallback metadata only unless explicitly configured; runtime source integration remains fallback-only.");}return lines.join("\\n");}
+    function initialStatusText(){const lines=[previewSourceText()];if(surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning)lines.push(surfaceData.configLoad.warning);if(isRuntimeEditorMode()){const proof=runtimeProof();lines.push("Runtime Editor: the running Idle Monster Farm browser game is the preview.");lines.push("Live edits write only the matching .game-polish-lab/live-style JSON; Save writes the persistent style config/module.");lines.push(directApplyConnected()?"Runtime bridge connected. Move a slider, then judge the browser game.":"Runtime bridge not connected yet. Use Check Connection before judging live edits.");if(proof){lines.push("Proof: "+proof.status+" / "+proof.proofLevel+" / "+proof.styleSource);(proof.missingPieces||[]).slice(0,3).forEach(p=>lines.push("Missing: "+p));}}else if(adapterId==="idle_monster_farm"){const proof=runtimeProof();lines.push(directApplyConnected()?"Direct apply connected: runtime value usage proven.":"Direct apply not connected. Use explicit runtime editor actions for setup and persistence.");if(proof){lines.push("Proof: "+proof.status+" / "+proof.proofLevel+" / "+proof.styleSource);(proof.missingPieces||[]).slice(0,3).forEach(p=>lines.push("Missing: "+p));}}else{lines.push("Generic Phaser mode writes config/fallback metadata only unless explicitly configured; runtime source integration remains fallback-only.");}return lines.join("\\n");}
     function setNumber(key,raw,num,range){const b=surfaceData.bounds[key],next=Math.min(b.max,Math.max(b.min,Number(raw)));values[key]=next;num.value=next;range.value=next;render();scheduleLiveStyleWrite();}
-    function scheduleLiveStyleWrite(){if(!isRuntimeSlotMode())return;clearTimeout(liveWriteTimer);liveWriteTimer=setTimeout(()=>{vscode.postMessage({command:"writeLiveStyle",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl});},120);}
+    function scheduleLiveStyleWrite(){if(!isRuntimeEditorMode())return;clearTimeout(liveWriteTimer);liveWriteTimer=setTimeout(()=>{vscode.postMessage({command:"writeLiveStyle",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl});},120);}
     preset.addEventListener("change",()=>{const p=selectedPresetOption();if(!p)return;selectedPresetId=p.id;presetName=p.name;values=structuredClone(p.values);buildControls();render();buildPreset();scheduleLiveStyleWrite();});
     document.getElementById("reset").addEventListener("click",()=>{if(surfaceType==="asset_replacement"){selectedAsset=null;render();return;}const p=selectedPresetOption();if(!p)return;selectedPresetId=p.id;presetName=p.name;values=structuredClone(p.values);buildControls();render();buildPreset();scheduleLiveStyleWrite();});
-    saveButton.addEventListener("click",()=>{if(surfaceType==="asset_replacement"){if(!selectedAsset){status.textContent="Choose a PNG/WebP asset before applying.";return;}if(adapterId==="generic_phaser"){vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64,assetDestinationFolder:genericAssetFolder.value});return;}vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,assetTargetId:document.getElementById("assetTarget").value,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64});return;}if(isRuntimeSlotMode()){vscode.postMessage({command:"saveStyle",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl});return;}vscode.postMessage({command:"saveAndApply",surfaceType,presetName,values,adapterId,targetLabel:genericTarget.value,selectedFiles:genericSelectedFiles(),directApplyAllowed:genericDirect.checked});});
+    saveButton.addEventListener("click",()=>{if(surfaceType==="asset_replacement"){if(!selectedAsset){status.textContent="Choose a PNG/WebP asset before applying.";return;}if(adapterId==="generic_phaser"){vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64,assetDestinationFolder:genericAssetFolder.value});return;}vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,assetTargetId:document.getElementById("assetTarget").value,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64});return;}if(isRuntimeEditorMode()){vscode.postMessage({command:"saveStyle",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl});return;}vscode.postMessage({command:"saveAndApply",surfaceType,presetName,values,adapterId,targetLabel:genericTarget.value,selectedFiles:genericSelectedFiles(),directApplyAllowed:genericDirect.checked});});
     undoApply.addEventListener("click",()=>requestUndoLastApply("button"));
     window.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&!event.shiftKey&&event.key.toLowerCase()==="z"){if(requestUndoLastApply("keyboard"))event.preventDefault();}});
     function updateUndoState(){const handle=surfaceType!=="asset_replacement"&&adapterId==="idle_monster_farm"?surfaceData.latestRollback:undefined;undoApply.disabled=!handle;undoApply.title=handle?"Restore latest safe rollback snapshot for this visual config. Shortcut: Ctrl+Z":"No safe rollback snapshot exists for this visual config.";}
@@ -1628,10 +2077,12 @@ function renderHtml(input: {
     document.querySelectorAll("[data-result]").forEach(button=>button.addEventListener("click",()=>{if(!currentAttemptPath){status.textContent+="\\nNo saved tuning attempt is available to mark.";return;}vscode.postMessage({command:"markResult",surfaceType,presetName,values,attemptPath:currentAttemptPath,resultStatus:button.dataset.result,resultNote:document.getElementById("resultNote").value});}));
     window.addEventListener("message",event=>{const m=event.data;if(m.command==="resultMarked"){if(!m.ok){status.textContent+="\\nResult update failed: "+m.error;return;}status.textContent+="\\nResult marked "+m.resultStatus+". Field notes appended.";document.getElementById("resultNote").value="";return;}if(m.runtimeEditorState&&m.surfaceType===surfaceType){if(m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection){surfaceData.adapterState.connection.runtimeProof=m.runtimeConnectionProof;surfaceData.adapterState.connection.connected=m.runtimeConnectionProof.connected;}if(m.surfaceUpdate)applySurfaceUpdate(m.surfaceUpdate,m.latestRollback);liveGameStatusText=runtimeEditorStatusText(m.runtimeEditorState);status.textContent=["Runtime editor state: "+m.runtimeEditorState,"Live file: "+(m.configPath||".game-polish-lab/live-style/farm-slot.json"),liveGameStatusText,...(m.changedFiles&&m.changedFiles.length?["Changed files: "+m.changedFiles.join(", ")]:[]),...(m.applySummary||[])].join("\\n");renderRuntimeStatus();renderAdapter();updateActionLabels();return;}if((m.command==="saveResult"||m.command==="undoResult")&&m.surfaceType===surfaceType){if(!m.ok){status.textContent=(m.command==="undoResult"?"Undo failed: ":"Save/apply failed: ")+m.error;updateUndoState();return;}if(m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection){surfaceData.adapterState.connection.runtimeProof=m.runtimeConnectionProof;surfaceData.adapterState.connection.connected=m.runtimeConnectionProof.connected;}if(m.surfaceUpdate)applySurfaceUpdate(m.surfaceUpdate,m.latestRollback);if(m.command==="undoResult"){currentAttemptPath="";document.getElementById("resultPanel").style.display="none";status.textContent=["Undo Last Apply restored: "+(m.configPath||surfaceType),m.rollbackPaths&&m.rollbackPaths.length?"Pre-restore backup: "+m.rollbackPaths.join(", "):"Undo consumed the latest visible rollback action.",...(m.warnings||[]).map(w=>"Rollback warning: "+w),...(m.applySummary||[])].filter(Boolean).join("\\n");return;}currentAttemptPath=m.attemptPath||"";document.getElementById("resultPanel").style.display=currentAttemptPath?"block":"none";needsSetup=(m.applySummary||[]).some(line=>line.includes("setup offered: yes")||line.includes("one-time setup: blocked"));updateActionLabels();const applied=Boolean(m.appliedToRuntime);status.textContent=[(applied?"Applied to real workspace: ":"Saved config only: ")+(m.configPath||""),applied?"Real workspace direct apply path updated.":"Direct apply is not connected for this workspace.",m.savedConfigOnly?"Setup/fallback is required before the game consumes this config.":"", "Preview baseline refreshed from saved config.",currentAttemptPath?"Attempt: "+currentAttemptPath+" ("+(m.resultStatus||"unreviewed")+")":"Attempt: none",m.rollbackPaths&&m.rollbackPaths.length?"Rollback: "+m.rollbackPaths.join(", "):"Rollback: no existing target overwritten",(m.warnings&&m.warnings.length)?"":"",...(m.warnings||[]).map(w=>"Field note warning: "+w),"","Adapter:",...(m.applySummary||[]),"","Manual checklist:",...(m.checklist||[]).map(i=>"- "+i)].filter(line=>line!==undefined).join("\\n");}});
     function applySurfaceUpdate(update,latestRollback){if(!update||!data.surfaces[update.surfaceType])return;const current=data.surfaces[update.surfaceType];data.surfaces[update.surfaceType]={...current,initialConfig:update.initialConfig,configLoad:update.configLoad,beforeValues:structuredClone(update.beforeValues),preview:update.preview,previewSource:update.previewSource||current.previewSource,latestRollback:latestRollback||update.latestRollback};if(update.surfaceType===surfaceType){surfaceData=data.surfaces[surfaceType];presetName=surfaceData.initialConfig.presetName||presetName;values=structuredClone(surfaceData.initialConfig.values||values);selectedPresetId="";buildControls();buildPreset();render();renderAdapter();updateActionLabels();updateUndoState();}}
-    function render(){const preview=(surfaceData&&surfaceData.preview)||{};const previewSource=(surfaceData&&surfaceData.previewSource)||"real_project_generated_default";setRuntimePreviewLayout(isRuntimeSlotMode());previewSourceLabel.textContent=isRuntimeSlotMode()?"Runtime preview source: local Idle Monster Farm dev server. The embedded game or Open Live Game fallback is the preview.":previewSourceText();const beforeBase=previewSource==="real_project_current_config"?(preview.comparison?preview.comparison.beforeLabel:"Before: real config"):previewSource==="fixture_test_preview"?"Before: fixture test preview":previewSource==="example_preview_not_connected"?"Before: example preview - not read from your game yet":previewSource==="no_workspace"?"Before: no workspace":"Before: generated default preview";beforeLabel.textContent=isRuntimeSlotMode()?"http://127.0.0.1:5173 default":beforeBase;afterLabel.textContent=isRuntimeSlotMode()?"":(preview.comparison?preview.comparison.afterLabel:"After: draft style")+", "+frameMode+" frame";animationToggle.disabled=isRuntimeSlotMode()||!preview.animations||preview.animations.length===0;if(isRuntimeSlotMode()){renderRuntimeGame(document.getElementById("before"));renderStateGrid({states:[],animations:[]});return;}if(surfaceType==="asset_replacement"){renderAsset(document.getElementById("before"),null);renderAsset(document.getElementById("after"),selectedAsset);renderStateGrid({states:[],animations:[]});return;}if(surfaceType==="button"){renderButton(document.getElementById("before"),surfaceData.beforeValues);renderButton(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="reward_toast"){renderRewardToast(document.getElementById("before"),surfaceData.beforeValues);renderRewardToast(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="panel"){renderPanel(document.getElementById("before"),surfaceData.beforeValues);renderPanel(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="background_readability"){renderBackground(document.getElementById("before"),surfaceData.beforeValues);renderBackground(document.getElementById("after"),values);renderStateGrid(preview);return;}renderSlot(document.getElementById("before"),surfaceData.beforeValues);renderSlot(document.getElementById("after"),values);renderStateGrid(preview);}
+    function render(){const preview=(surfaceData&&surfaceData.preview)||{};const previewSource=(surfaceData&&surfaceData.previewSource)||"real_project_generated_default";setRuntimePreviewLayout(isRuntimeEditorMode());previewSourceLabel.textContent=isRuntimeEditorMode()?"Runtime preview source: local Idle Monster Farm dev server. The embedded game or Open Live Game fallback is the preview.":previewSourceText();const beforeBase=previewSource==="real_project_current_config"?(preview.comparison?preview.comparison.beforeLabel:"Before: real config"):previewSource==="fixture_test_preview"?"Before: fixture test preview":previewSource==="example_preview_not_connected"?"Before: example preview - not read from your game yet":previewSource==="no_workspace"?"Before: no workspace":"Before: generated default preview";beforeLabel.textContent=isRuntimeEditorMode()?"http://127.0.0.1:5173 default":beforeBase;afterLabel.textContent=isRuntimeEditorMode()?"":(preview.comparison?preview.comparison.afterLabel:"After: draft style")+", "+frameMode+" frame";animationToggle.disabled=isRuntimeEditorMode()||!preview.animations||preview.animations.length===0;if(isRuntimeEditorMode()){renderRuntimeGame(document.getElementById("before"));renderStateGrid({states:[],animations:[]});return;}if(surfaceType==="asset_replacement"){renderAsset(document.getElementById("before"),null);renderAsset(document.getElementById("after"),selectedAsset);renderStateGrid({states:[],animations:[]});return;}if(surfaceType==="button"){renderButton(document.getElementById("before"),surfaceData.beforeValues);renderButton(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="reward_toast"){renderRewardToast(document.getElementById("before"),surfaceData.beforeValues);renderRewardToast(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="panel"){renderPanel(document.getElementById("before"),surfaceData.beforeValues);renderPanel(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="background_readability"){renderBackground(document.getElementById("before"),surfaceData.beforeValues);renderBackground(document.getElementById("after"),values);renderStateGrid(preview);return;}renderSlot(document.getElementById("before"),surfaceData.beforeValues);renderSlot(document.getElementById("after"),values);renderStateGrid(preview);}
     function baseBoard(container){container.className="board "+frameMode;container.textContent="";}
     function setRuntimePreviewLayout(runtime){const grid=document.querySelector(".preview-grid"),columns=document.querySelectorAll(".preview-grid>div"),headings=document.querySelectorAll(".preview-grid h2"),statePanel=stateGrid&&stateGrid.parentElement;if(grid)grid.classList.toggle("runtime",runtime);if(columns[1])columns[1].style.display=runtime?"none":"";if(statePanel)statePanel.style.display=runtime?"none":"";if(headings[0])headings[0].textContent=runtime?"Live Gameplay":"Before";if(headings[1])headings[1].textContent="After";}
-    function renderRuntimeGame(container){container.className="runtime-game-panel";container.textContent="";const toolbar=document.createElement("div");toolbar.className="runtime-game-toolbar";const field=document.createElement("div"),label=document.createElement("label"),input=document.createElement("input");label.textContent="Game URL";input.type="text";input.value=liveGameUrl;input.addEventListener("change",()=>{liveGameUrl=input.value.trim();liveGameStatusText=allowedLocalGameUrl(liveGameUrl)?"game not loaded":"game URL not configured";render();});field.append(label,input);const reload=document.createElement("button");reload.className="secondary";reload.textContent="Reload Game";const open=document.createElement("button");open.textContent="Open Live Game";toolbar.append(field,reload,open);const state=document.createElement("p");state.id="liveGameStatus";state.className="meta";const fallback=document.createElement("div");fallback.className="runtime-fallback";const iframe=document.createElement("iframe");iframe.className="runtime-game-frame";iframe.title="Running Idle Monster Farm dev server";iframe.setAttribute("sandbox","allow-scripts allow-same-origin allow-forms allow-pointer-lock");function loadFrame(){if(!allowedLocalGameUrl(liveGameUrl)){iframe.removeAttribute("src");liveGameStatusText="game URL not configured";renderRuntimeStatus();return;}liveGameStatusText="game not reachable";iframe.src=liveGameUrl;}iframe.addEventListener("load",()=>{liveGameStatusText=directApplyConnected()?"game loaded; live style connected":"game loaded; live style waiting for bridge";renderRuntimeStatus();});iframe.addEventListener("error",()=>{liveGameStatusText="game not reachable";renderRuntimeStatus();});reload.addEventListener("click",loadFrame);open.addEventListener("click",()=>vscode.postMessage({command:"openLiveGame",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl}));fallback.append(state,iframe);container.append(toolbar,fallback);loadFrame();}
+    function renderRuntimeGame(container){container.className="runtime-game-panel";container.textContent="";const toolbar=document.createElement("div");toolbar.className="runtime-game-toolbar";const field=document.createElement("div"),label=document.createElement("label"),input=document.createElement("input");label.textContent="Game URL";input.type="text";input.value=liveGameUrl;input.addEventListener("change",()=>{liveGameUrl=input.value.trim();persistRuntimePanelState();liveGameStatusText=allowedLocalGameUrl(liveGameUrl)?"game not loaded":"game URL not configured";render();});field.append(label,input);const sizeField=document.createElement("div"),sizeLabel=document.createElement("label"),sizeSelect=document.createElement("select");sizeLabel.textContent="Size";[["fit","Fit Panel"],["390x844","390x844 mobile portrait"],["430x932","430x932 large mobile"],["768x1024","768x1024 tablet"],["1280x720","1280x720 desktop"],["custom","Custom"]].forEach(option=>{const item=document.createElement("option");item.value=option[0];item.textContent=option[1];sizeSelect.append(item);});sizeSelect.value=liveGameSize;sizeSelect.addEventListener("change",()=>{liveGameSize=sizeSelect.value;persistRuntimePanelState();applyRuntimeFrameLayout(iframe);});sizeField.append(sizeLabel,sizeSelect);const scaleField=document.createElement("div"),scaleLabel=document.createElement("label"),scaleSelect=document.createElement("select");scaleLabel.textContent="Scale";[["50","50%"],["75","75%"],["100","100%"],["125","125%"],["fit-width","Fit Width"]].forEach(option=>{const item=document.createElement("option");item.value=option[0];item.textContent=option[1];scaleSelect.append(item);});scaleSelect.value=liveGameScale;scaleSelect.addEventListener("change",()=>{liveGameScale=scaleSelect.value;persistRuntimePanelState();applyRuntimeFrameLayout(iframe);});scaleField.append(scaleLabel,scaleSelect);const reload=document.createElement("button");reload.className="secondary";reload.textContent="Reload Game";const open=document.createElement("button");open.textContent="Open Live Game";toolbar.append(field,sizeField,scaleField,reload,open);const state=document.createElement("p");state.id="liveGameStatus";state.className="meta";const fallback=document.createElement("div");fallback.className="runtime-fallback";const iframe=document.createElement("iframe");iframe.className="runtime-game-frame";iframe.title="Running Idle Monster Farm dev server";iframe.setAttribute("sandbox","allow-scripts allow-same-origin allow-forms allow-pointer-lock");function loadFrame(){if(!allowedLocalGameUrl(liveGameUrl)){iframe.removeAttribute("src");liveGameStatusText="game URL not configured";renderRuntimeStatus();return;}liveGameStatusText="game not reachable";iframe.src=liveGameUrl;}iframe.addEventListener("load",()=>{liveGameStatusText=directApplyConnected()?"game loaded; live style connected":"game loaded; live style waiting for bridge";renderRuntimeStatus();});iframe.addEventListener("error",()=>{liveGameStatusText="game not reachable";renderRuntimeStatus();});reload.addEventListener("click",loadFrame);open.addEventListener("click",()=>vscode.postMessage({command:"openLiveGame",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl}));fallback.append(state,iframe);container.append(toolbar,fallback);applyRuntimeFrameLayout(iframe);loadFrame();}
+    function persistRuntimePanelState(){if(vscode.setState)vscode.setState({...persistedState,liveGameUrl,liveGameSize,liveGameScale});}
+    function applyRuntimeFrameLayout(iframe){const sizes={fit:[0,460],"390x844":[390,844],"430x932":[430,932],"768x1024":[768,1024],"1280x720":[1280,720],custom:[0,560]},size=sizes[liveGameSize]||sizes.fit;iframe.style.width=size[0]?size[0]+"px":"100%";iframe.style.maxWidth="100%";iframe.style.height=size[1]+"px";iframe.style.transformOrigin="top left";iframe.style.transform=liveGameScale==="fit-width"?"none":"scale("+(Number(liveGameScale)/100)+")";}
     function allowedLocalGameUrl(value){try{const url=new URL(value);return url.protocol==="http:"&&(url.hostname==="127.0.0.1"||url.hostname==="localhost");}catch{return false;}}
     function renderRuntimeStatus(){const target=document.getElementById("liveGameStatus");if(target)target.textContent=liveGameStatusText;}
     function runtimeEditorStatusText(state){if(state==="style_applied")return"live style connected";if(state==="game_url_not_configured")return"game URL not configured";if(state==="game_not_running")return"game not reachable";if(state==="runtime_bridge_missing")return"Runtime bridge not installed";if(state==="error")return"live style error";if(state==="connected")return"game loaded";return"live style waiting for bridge";}

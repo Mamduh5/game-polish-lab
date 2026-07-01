@@ -3440,9 +3440,9 @@ const disconnectedIdlePanelSurface = {
 const disconnectedPanelRow = buildDashboardRow(disconnectedIdlePanelSurface, attemptIndex);
 assert.strictEqual(disconnectedPanelRow.appliedStatus, "config_only");
 assert.strictEqual(disconnectedPanelRow.actions.directApply.enabled, true);
-assert.strictEqual(disconnectedPanelRow.actions.directApply.label, "Save & Connect");
+assert.strictEqual(disconnectedPanelRow.actions.directApply.label, "Open Runtime Editor");
 assert.strictEqual(disconnectedPanelRow.actions.generateFallbackTask.enabled, true);
-assert.ok(disconnectedPanelRow.actions.directApply.reason?.includes("connect runtime usage"));
+assert.ok(disconnectedPanelRow.actions.directApply.reason?.includes("separate Check Connection"));
 assert.notStrictEqual(disconnectedPanelRow.appliedStatus, "fallback_ready");
 
 const missingConfigDisconnectedIdleSlotSurface = {
@@ -3493,8 +3493,8 @@ assert.notStrictEqual(missingConfigDisconnectedBackgroundRow.appliedStatus, "fal
 assert.strictEqual(missingConfigDisconnectedBackgroundRow.configStatus, "missing");
 assert.strictEqual(missingConfigDisconnectedBackgroundRow.connectedState, "not_connected");
 assert.strictEqual(missingConfigDisconnectedBackgroundRow.actions.directApply.enabled, true);
-assert.strictEqual(missingConfigDisconnectedBackgroundRow.actions.directApply.label, "Create Config & Connect");
-assert.ok(missingConfigDisconnectedBackgroundRow.actions.directApply.reason?.includes("install the supported runtime bridge"));
+assert.strictEqual(missingConfigDisconnectedBackgroundRow.actions.directApply.label, "Open Runtime Editor");
+assert.ok(missingConfigDisconnectedBackgroundRow.actions.directApply.reason?.includes("separate Check Connection"));
 
 for (const surface of [
   {
@@ -3550,7 +3550,8 @@ for (const surface of [
   assert.strictEqual(row.appliedStatus, "unapplied");
   assert.notStrictEqual(row.appliedStatus, "fallback_ready");
   assert.strictEqual(row.actions.directApply.enabled, true);
-  assert.strictEqual(row.actions.directApply.label, "Create Config & Connect");
+  assert.strictEqual(row.actions.directApply.label, "Open Runtime Editor");
+  assert.ok(row.actions.directApply.reason?.includes("separate Check Connection"));
 }
 
 const invalidButtonSurface = {

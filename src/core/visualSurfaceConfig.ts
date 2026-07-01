@@ -20,9 +20,13 @@ export interface StyleConfigLoadResult {
 export const farmSlotStyleConfigRelativePath = ".game-polish-lab/styles/farm-slot-style.json";
 export const farmSlotLiveStyleRelativePath = ".game-polish-lab/live-style/farm-slot.json";
 export const backgroundReadabilityStyleConfigRelativePath = ".game-polish-lab/styles/background-readability-style.json";
+export const backgroundReadabilityLiveStyleRelativePath = ".game-polish-lab/live-style/background-readability.json";
 export const panelStyleConfigRelativePath = ".game-polish-lab/styles/panel-style.json";
+export const panelLiveStyleRelativePath = ".game-polish-lab/live-style/panel.json";
 export const rewardToastStyleConfigRelativePath = ".game-polish-lab/styles/reward-toast-style.json";
+export const rewardToastLiveStyleRelativePath = ".game-polish-lab/live-style/reward-toast.json";
 export const buttonStyleConfigRelativePath = ".game-polish-lab/styles/button-style.json";
+export const buttonLiveStyleRelativePath = ".game-polish-lab/live-style/button.json";
 
 export function loadSlotCardStyleConfigFromText(text: string | undefined): StyleConfigLoadResult {
   if (text === undefined) {

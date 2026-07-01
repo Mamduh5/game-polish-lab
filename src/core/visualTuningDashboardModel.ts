@@ -517,19 +517,7 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
     return { enabled: true, label: "Save Config", reason: "Config-only write; runtime source integration remains fallback-only." };
   }
   if (surface.adapter.adapterId === "idle_monster_farm") {
-    if (surface.surfaceType === "slot_card") {
-      return { enabled: true, label: "Open Runtime Editor", reason: "Farm Slot uses separate Check Connection, Install Runtime Bridge, Create Baseline Config, Save Style, and Live Edit actions." };
-    }
-    if (surface.config.status === "missing") {
-      return { enabled: true, label: "Create Config & Connect", reason: `Create the default ${surface.displayName} config, install the supported runtime bridge, and apply runtime style values.` };
-    }
-    if (surface.config.status !== "valid") {
-      return { enabled: false, label: "Open Tuner", reason: "A valid generated style config is required before setup/apply." };
-    }
-    if (surface.adapter.connectedState !== "connected" || !proofAllowsDirectApply(surface.adapter.runtimeConnectionProof)) {
-      const proof = surface.adapter.runtimeConnectionProof;
-      return { enabled: true, label: "Save & Connect", reason: proof ? `Runtime proof is ${proof.status}/${proof.proofLevel}; run setup/apply to connect runtime usage.` : "Runtime value usage proof is missing; run setup/apply to connect runtime usage." };
-    }
+    return { enabled: true, label: "Open Runtime Editor", reason: "Idle Monster Farm runtime style surfaces use separate Check Connection, Install Runtime Bridge, Create Baseline Config, Save Style, and Live Edit actions." };
   }
   if (surface.adapter.connectedState !== "connected") {
     const proof = surface.adapter.runtimeConnectionProof;
