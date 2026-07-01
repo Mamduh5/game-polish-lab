@@ -104,20 +104,45 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
   }
 
   if (!runtimeProofAllowsDirectApply(connection.runtimeProof)) {
+    const setupResult = await setupIdleMonsterFarmFarmSlotBridge(folder, config);
+    const setupConnected =
+      setupResult.setupApplied === true &&
+      farmSlotRuntimeProofIncludesSetupMinimum(setupResult.connection.runtimeProof);
+
+    if (!setupConnected) {
+      return {
+        applied: false,
+        setupRequired: true,
+        setupOffered: true,
+        changedFiles: [],
+        rollbackPaths: setupResult.rollbackPaths,
+        warnings: [
+          ...warnings,
+          ...setupResult.warnings,
+          "Direct apply could not install the farm slot connector. Real FarmScene runtime proof is still missing."
+        ],
+        blockedFiles: setupResult.blockedFiles,
+        detection: setupResult.detection,
+        connection: setupResult.connection,
+        runtimeConnectionProof: setupResult.connection.runtimeProof
+      };
+    }
+
     return {
-      applied: false,
-      setupRequired: true,
-      setupOffered: true,
-      changedFiles: [],
-      rollbackPaths: [],
+      applied: true,
+      setupRequired: false,
+      setupOffered: false,
+      changedFiles: setupResult.changedFiles,
+      rollbackPaths: setupResult.rollbackPaths,
       warnings: [
         ...warnings,
-        "Direct apply skipped because farm slot rendering is not connected to the generated style module/config yet. Use the one-time adapter setup path."
+        ...setupResult.warnings,
+        "One-time farm slot connector was installed before applying runtime style."
       ],
-      blockedFiles: [],
-      detection,
-      connection,
-      runtimeConnectionProof: connection.runtimeProof
+      blockedFiles: setupResult.blockedFiles,
+      detection: setupResult.detection,
+      connection: setupResult.connection,
+      runtimeConnectionProof: setupResult.connection.runtimeProof
     };
   }
 
