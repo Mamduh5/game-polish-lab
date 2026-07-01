@@ -15,6 +15,11 @@ import {
 import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
 import { analyzeButtonDetection, analyzeButtonStyleConnection } from "../core/buttonAdapterAnalysis";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection, analyzePatchedFarmSlotSetupConnection } from "../core/farmSlotAdapterAnalysis";
+import {
+  farmSlotRuntimeProofIncludesSetupMinimum,
+  renderFarmSlotStyleModule,
+  requiredFarmSlotRuntimeProofProperties
+} from "../core/farmSlotRuntimeStyle";
 import { connectFarmSlotOwnerFileToStyleModule } from "../core/farmSlotStyleBridgePatch";
 import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/panelAdapterAnalysis";
 import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
@@ -1636,6 +1641,7 @@ const realFarmScenePatchSource = `import { MonsterRenderer } from '../rendering/
 export class FarmScene extends Phaser.Scene {
   private cellSize = CELL_SIZE;
   private addUnlockedSlotTile(container, x, y, slotId) {
+    const shadow = this.add.rectangle(x + 4, y + 5, this.cellSize, this.cellSize, THEME.shadow, 0.24).setOrigin(0);
     const slotTile = this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot)
       .setOrigin(0)
       .setStrokeStyle(3, THEME.slotBorder, 0.9);
@@ -1643,12 +1649,16 @@ export class FarmScene extends Phaser.Scene {
       .setOrigin(0);
   }
   private addLockedExpansionSlotTile(container, x, y) {
+    container.add(this.add.rectangle(x + 3, y + 4, this.cellSize, this.cellSize, THEME.shadow, 0.22).setOrigin(0));
     const lockedTile = this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.locked, 0.72)
       .setOrigin(0)
       .setStrokeStyle(3, THEME.lockedBorder, 0.72);
+    container.add(this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, THEME.lockedInner, 0.22).setOrigin(0));
   }
   private addSlotDropIndicator(slotId, kind, isHoverSlot) {
+    const { dropIndicatorSizePadding } = FARM_SLOT_READABILITY;
     const indicatorSize = this.cellSize + dropIndicatorSizePadding;
+    this.add.rectangle(0, 0, indicatorSize, indicatorSize);
   }
   private renderMonsterInSlot(slot) {
     const visualScale = Math.min(1, Math.max(0.72, this.cellSize / CELL_SIZE));
@@ -1657,6 +1667,15 @@ export class FarmScene extends Phaser.Scene {
 }`;
 const realFarmScenePatch = connectFarmSlotOwnerFileToStyleModule(realFarmScenePatchSource, "src/scenes/FarmScene.ts", "src/config/farmSlotStyle.ts");
 assert.ok(realFarmScenePatch);
+assert.ok(realFarmScenePatch!.includes("import { FARM_SLOT_STYLE } from '../config/farmSlotStyle';"));
+for (const property of requiredFarmSlotRuntimeProofProperties) {
+  assert.ok(realFarmScenePatch!.includes(`FARM_SLOT_STYLE.${property}`), `real FarmScene setup patch should wire ${property}`);
+}
+assert.ok(realFarmScenePatch!.includes("FARM_SLOT_STYLE.lockedOverlayOpacity"));
+assert.ok(realFarmScenePatch!.includes("FARM_SLOT_STYLE.emptySlotOpacity"));
+assert.ok(realFarmScenePatch!.includes("FARM_SLOT_STYLE.mergeCandidatePulseScale"));
+assert.ok(!realFarmScenePatch!.includes("FARM_SLOT_STYLE.gap"));
+assert.ok(!realFarmScenePatch!.includes("FARM_SLOT_STYLE.cornerRadius"));
 const realFarmScenePatchedConnection = analyzeFarmSlotStyleConnection([
   { relativePath: "src/scenes/FarmScene.ts", text: realFarmScenePatch! },
   { relativePath: "src/config/farmSlotStyle.ts", text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };" }
@@ -1664,6 +1683,22 @@ const realFarmScenePatchedConnection = analyzeFarmSlotStyleConnection([
 assert.strictEqual(realFarmScenePatchedConnection.connected, true);
 assert.strictEqual(realFarmScenePatchedConnection.runtimeProof.proofLevel, "runtime_value_usage");
 assert.ok(realFarmScenePatchedConnection.runtimeProof.evidenceFiles.some((file) => file.matchedProperties.includes("monsterDisplayScale")));
+assert.strictEqual(farmSlotRuntimeProofIncludesSetupMinimum(realFarmScenePatchedConnection.runtimeProof), true);
+
+const renderedFarmSlotStyleModule = renderFarmSlotStyleModule(defaultSlotCardStyle);
+assert.ok(renderedFarmSlotStyleModule.includes("export const FARM_SLOT_STYLE: FarmSlotStyle"));
+assert.ok(renderedFarmSlotStyleModule.includes("slotWidth"));
+assert.ok(renderedFarmSlotStyleModule.includes("lockedOverlayOpacity"));
+assert.ok(renderedFarmSlotStyleModule.includes("monsterVerticalOffset"));
+assert.ok(!renderedFarmSlotStyleModule.includes("gap:"));
+assert.ok(!renderedFarmSlotStyleModule.includes("cornerRadius"));
+
+const mismatchedFarmScenePatchSource = realFarmScenePatchSource
+  .replace("this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot)", "this.add.rectangle(x, y, this.cellSize, this.cellSize, resolveSlotTheme())")
+  .replace("this.monsterRenderer.addMonsterVisual(visual, monster, 0, 0, visualScale);", "this.monsterRenderer.addMonsterVisual(visual, monster, 0, baselineOffset, visualScale);");
+const mismatchedFarmScenePatch = connectFarmSlotOwnerFileToStyleModule(mismatchedFarmScenePatchSource, "src/scenes/FarmScene.ts", "src/config/farmSlotStyle.ts");
+assert.strictEqual(mismatchedFarmScenePatch, undefined);
+assert.strictEqual(mismatchedFarmScenePatchSource.includes("FARM_SLOT_STYLE"), false);
 
 const importOnlySetupPreviewSource = "import { FARM_SLOT_STYLE } from '../config/farmSlotStyle';\nexport function renderSlot() { return FARM_SLOT_STYLE; }";
 const importOnlySetupPreview = analyzePatchedFarmSlotSetupConnection({
@@ -1674,6 +1709,7 @@ const importOnlySetupPreview = analyzePatchedFarmSlotSetupConnection({
   generatedStyleText: "export const FARM_SLOT_STYLE = { slotWidth: 100 };\n"
 });
 assert.strictEqual(runtimeProofAllowsDirectApply(importOnlySetupPreview.runtimeProof), false);
+assert.strictEqual(farmSlotRuntimeProofIncludesSetupMinimum(importOnlySetupPreview.runtimeProof), false);
 assert.strictEqual(importOnlySetupPreview.runtimeProof.status, "import_only");
 
 const runtimeSetupPreview = analyzePatchedFarmSlotSetupConnection({
@@ -1681,9 +1717,10 @@ const runtimeSetupPreview = analyzePatchedFarmSlotSetupConnection({
   setupTarget: "src/scenes/FarmScene.ts",
   patchedTargetText: realFarmScenePatch!,
   supportedStyleModulePath: "src/config/farmSlotStyle.ts",
-  generatedStyleText: "export const FARM_SLOT_STYLE = { slotWidth: 100 };\n"
+  generatedStyleText: renderedFarmSlotStyleModule
 });
 assert.strictEqual(runtimeProofAllowsDirectApply(runtimeSetupPreview.runtimeProof), true);
+assert.strictEqual(farmSlotRuntimeProofIncludesSetupMinimum(runtimeSetupPreview.runtimeProof), true);
 assert.strictEqual(runtimeSetupPreview.runtimeProof.proofLevel, "runtime_value_usage");
 
 const connectedFiles = [

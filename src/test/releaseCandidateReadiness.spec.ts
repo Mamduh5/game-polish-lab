@@ -237,11 +237,15 @@ assert.ok(tunerSource.includes("fixture_test_preview"));
 assert.ok(tunerSource.includes("Preview source:"));
 assert.ok(tunerSource.includes("Before: example preview - not read from your game yet"));
 assert.ok(tunerSource.includes("Save Config"));
+assert.ok(tunerSource.includes("Save & Apply"));
+assert.ok(tunerSource.includes("gap and cornerRadius are config-only"));
+assert.ok(tunerSource.includes("m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState"));
 assert.ok(tunerSource.includes("Saved config only. Direct apply is not connected"));
 assert.ok(tunerSource.includes("save/apply result:"));
 assert.ok(tunerSource.includes("applied_to_real_workspace"));
 assert.ok(tunerSource.includes("saved_config_only"));
 assert.ok(tunerSource.includes("adapterOutcomeAppliedToRuntime"));
+assert.ok(tunerSource.includes('result.runtimeConnectionProof.status === "connected"'));
 assert.ok(tunerSource.includes("runtime_value_usage"));
 assert.ok(tunerSource.includes("runtimeConnectionProof"));
 

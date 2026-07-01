@@ -12,10 +12,16 @@ import {
   FarmSlotFileInspection,
   FarmSlotStyleConnection
 } from "../../core/farmSlotAdapterAnalysis";
+import {
+  farmSlotRuntimeProofIncludesSetupMinimum,
+  missingFarmSlotRuntimeProofProperties,
+  renderFarmSlotStyleModule,
+  requiredFarmSlotRuntimeProofProperties
+} from "../../core/farmSlotRuntimeStyle";
 import { runtimeProofAllowsDirectApply, VisualRuntimeConnectionProof } from "../../core/visualRuntimeConnectionProof";
 import { buildRollbackSnapshotName } from "../../core/visualSurfaceConfig";
 import { ensureDirectory, labUri, normalizeWorkspacePath, pathExists, readTextFile, readTextFileIfExists, toWorkspaceRelativePath, writeTextFile } from "../../core/workspace";
-import { SlotCardStyleConfig, SlotCardStyleValues } from "../../types/visualSurface";
+import { SlotCardStyleConfig } from "../../types/visualSurface";
 
 export interface FarmSlotApplyResult {
   applied: boolean;
@@ -51,6 +57,7 @@ const likelyFarmSlotFiles = [
   "src/config/farmSlotStyle.ts",
   "src/config/farmSlotVisualStyle.ts"
 ];
+const farmSlotConfigOnlyStyleWarning = "gap and cornerRadius are config-only for real Idle Monster Farm farm slots; they are layout-coupled and are not claimed as runtime direct apply.";
 
 export async function detectIdleMonsterFarmFarmSlotAdapter(folder: vscode.WorkspaceFolder): Promise<FarmSlotAdapterDetection> {
   const configPath = await resolveSupportedStyleModulePath(folder);
@@ -76,7 +83,7 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
   const styleModuleExists = await pathExists(styleUri);
   const changedFiles = [detection.supportedStyleModulePath];
   const scope = checkV05VisualScope(changedFiles, { throughAdapter: true });
-  const warnings = [...detection.warnings, ...scope.warnings];
+  const warnings = [...detection.warnings, ...scope.warnings, farmSlotConfigOnlyStyleWarning];
 
   if (detection.ownerFiles.length === 0 && !styleModuleExists) {
     return {
@@ -130,8 +137,29 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
   }
 
   await ensureDirectory(vscode.Uri.file(path.dirname(styleUri.fsPath)));
+  const existingStyleText = await readTextFileIfExists(styleUri);
   const rollbackPaths = await createRollbackSnapshots(folder, [detection.supportedStyleModulePath]);
   await writeTextFile(styleUri, renderFarmSlotStyleModule(config.values));
+  const updatedState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
+  if (!runtimeProofAllowsDirectApply(updatedState.connection.runtimeProof)) {
+    await restoreFarmSlotStyleSource(styleUri, existingStyleText);
+    const restoredState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
+    return {
+      applied: false,
+      setupRequired: true,
+      setupOffered: true,
+      changedFiles: [],
+      rollbackPaths,
+      warnings: [
+        ...warnings,
+        "Direct apply post-write verification failed; generated style source was restored before returning."
+      ],
+      blockedFiles: [],
+      detection: restoredState.detection,
+      connection: restoredState.connection,
+      runtimeConnectionProof: restoredState.connection.runtimeProof
+    };
+  }
 
   return {
     applied: true,
@@ -141,9 +169,9 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
     rollbackPaths,
     warnings,
     blockedFiles: [],
-    detection,
-    connection,
-    runtimeConnectionProof: connection.runtimeProof
+    detection: updatedState.detection,
+    connection: updatedState.connection,
+    runtimeConnectionProof: updatedState.connection.runtimeProof
   };
 }
 
@@ -155,9 +183,9 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
     ? [detection.supportedStyleModulePath, setupTarget]
     : [detection.supportedStyleModulePath];
   const scope = checkV05VisualScope(intendedFiles, { throughAdapter: true });
-  const warnings = [...detection.warnings, ...scope.warnings];
+  const warnings = [...detection.warnings, ...scope.warnings, farmSlotConfigOnlyStyleWarning];
 
-  if (connection.connected) {
+  if (farmSlotRuntimeProofIncludesSetupMinimum(connection.runtimeProof)) {
     return {
       setupApplied: false,
       intendedFiles,
@@ -226,14 +254,20 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
     supportedStyleModulePath: detection.supportedStyleModulePath,
     generatedStyleText
   });
-  if (!runtimeProofAllowsDirectApply(previewConnection.runtimeProof)) {
+  if (!farmSlotRuntimeProofIncludesSetupMinimum(previewConnection.runtimeProof)) {
+    const missingProperties = missingFarmSlotRuntimeProofProperties(previewConnection.runtimeProof);
     const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, detection, previewConnection, "Automatic farm slot setup preview did not produce runtime value usage proof.");
     return {
       setupApplied: false,
       intendedFiles,
       changedFiles: [],
       rollbackPaths: [],
-      warnings: [...warnings, "One-time setup was not written because in-memory runtime value usage proof was not established.", `Fallback integration task generated: ${fallbackTaskPath}`],
+      warnings: [
+        ...warnings,
+        "One-time setup was not written because in-memory runtime value usage proof was not established.",
+        missingProperties.length > 0 ? `Missing runtime proof properties: ${missingProperties.join(", ")}` : "",
+        `Fallback integration task generated: ${fallbackTaskPath}`
+      ].filter(Boolean),
       blockedFiles: [],
       detection,
       connection: previewConnection,
@@ -247,7 +281,8 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
   await writeTextFile(targetUri, patchedTargetText);
 
   const updatedState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
-  if (!runtimeProofAllowsDirectApply(updatedState.connection.runtimeProof)) {
+  if (!farmSlotRuntimeProofIncludesSetupMinimum(updatedState.connection.runtimeProof)) {
+    const missingProperties = missingFarmSlotRuntimeProofProperties(updatedState.connection.runtimeProof);
     await restoreFarmSlotSetupSources(targetUri, existingTargetText, styleUri, existingStyleText);
     const restoredState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
     const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, restoredState.detection, restoredState.connection, "Automatic farm slot setup did not produce runtime value usage proof after source write; source files were restored.");
@@ -256,7 +291,12 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
       intendedFiles,
       changedFiles: [],
       rollbackPaths,
-      warnings: [...warnings, "One-time setup post-write verification failed; source files were restored before returning.", `Fallback integration task generated: ${fallbackTaskPath}`],
+      warnings: [
+        ...warnings,
+        "One-time setup post-write verification failed; source files were restored before returning.",
+        missingProperties.length > 0 ? `Missing runtime proof properties: ${missingProperties.join(", ")}` : "",
+        `Fallback integration task generated: ${fallbackTaskPath}`
+      ].filter(Boolean),
       blockedFiles: [],
       detection: restoredState.detection,
       connection: restoredState.connection,
@@ -345,6 +385,10 @@ function connectOwnerFileToStyleModule(text: string, ownerPath: string, styleMod
 
 async function restoreFarmSlotSetupSources(targetUri: vscode.Uri, existingTargetText: string, styleUri: vscode.Uri, existingStyleText: string | undefined): Promise<void> {
   await writeTextFile(targetUri, existingTargetText);
+  await restoreFarmSlotStyleSource(styleUri, existingStyleText);
+}
+
+async function restoreFarmSlotStyleSource(styleUri: vscode.Uri, existingStyleText: string | undefined): Promise<void> {
   if (existingStyleText === undefined) {
     try {
       await vscode.workspace.fs.delete(styleUri, { useTrash: false });
@@ -372,17 +416,7 @@ async function writeFarmSlotFallbackTask(folder: vscode.WorkspaceFolder, detecti
     proofLevel: connection.runtimeProof.proofLevel,
     candidateOwnerFiles: detection.ownerFiles,
     requiredStyleModulePath: detection.supportedStyleModulePath,
-    requiredRuntimeStyleProperties: [
-      "FARM_SLOT_STYLE.slotWidth",
-      "FARM_SLOT_STYLE.slotHeight",
-      "FARM_SLOT_STYLE.gap",
-      "FARM_SLOT_STYLE.fillColor",
-      "FARM_SLOT_STYLE.borderColor",
-      "FARM_SLOT_STYLE.borderWidth",
-      "FARM_SLOT_STYLE.cornerRadius",
-      "FARM_SLOT_STYLE.monsterDisplayScale",
-      "FARM_SLOT_STYLE.monsterVerticalOffset"
-    ],
+    requiredRuntimeStyleProperties: requiredFarmSlotRuntimeProofProperties.map((property) => `FARM_SLOT_STYLE.${property}`),
     evidenceFiles: connection.runtimeProof.evidenceFiles,
     missingPieces: connection.runtimeProof.missingPieces,
     codexMayDo: [
@@ -396,38 +430,6 @@ async function writeFarmSlotFallbackTask(folder: vscode.WorkspaceFolder, detecti
   };
   await writeTextFile(labUri(folder, "fallback-tasks", path.basename(relativePath)), `${JSON.stringify(task, null, 2)}\n`);
   return relativePath;
-}
-
-function relativeImportPath(fromPath: string, toPath: string): string {
-  const fromDir = path.posix.dirname(fromPath.replace(/\\/g, "/"));
-  const target = toPath.replace(/\\/g, "/").replace(/\.ts$/, "");
-  let relativePath = path.posix.relative(fromDir, target);
-  if (!relativePath.startsWith(".")) {
-    relativePath = `./${relativePath}`;
-  }
-  return relativePath;
-}
-
-function renderFarmSlotStyleModule(values: SlotCardStyleValues): string {
-  return `// Generated by Game Polish Lab v0.51. Visual style values only.
-export interface FarmSlotStyle {
-  slotWidth: number;
-  slotHeight: number;
-  gap: number;
-  borderWidth: number;
-  cornerRadius: number;
-  fillColor: string;
-  borderColor: string;
-  selectedGlowStrength: number;
-  lockedOverlayOpacity: number;
-  emptySlotOpacity: number;
-  mergeCandidatePulseScale: number;
-  monsterDisplayScale: number;
-  monsterVerticalOffset: number;
-}
-
-export const FARM_SLOT_STYLE: FarmSlotStyle = ${JSON.stringify(values, null, 2)};
-`;
 }
 
 export function summarizeFarmSlotApplyResult(folder: vscode.WorkspaceFolder, result: FarmSlotApplyResult): string[] {

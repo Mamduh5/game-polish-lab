@@ -1,18 +1,21 @@
 import * as path from "path";
 
+import { requiredFarmSlotRuntimeProofProperties } from "./farmSlotRuntimeStyle";
+
 export function connectFarmSlotOwnerFileToStyleModule(text: string, ownerPath: string, styleModulePath: string): string | undefined {
   if (!/\.(ts|tsx)$/.test(ownerPath)) {
     return undefined;
   }
   const importPath = relativeImportPath(ownerPath, styleModulePath);
-  const importLine = `import { FARM_SLOT_STYLE } from "${importPath}";`;
+  const importLine = `import { FARM_SLOT_STYLE } from '${importPath}';`;
   const lines = text.split(/\r?\n/);
   let patched = text.includes("FARM_SLOT_STYLE") ? text : insertImportLine(lines, importLine);
   if (!patched) {
     return undefined;
   }
   patched = patchFarmSlotVisualExpressions(patched);
-  if (!/FARM_SLOT_STYLE\.(slotWidth|slotHeight|gap|fillColor|borderColor|borderWidth|cornerRadius|monsterDisplayScale|monsterVerticalOffset)/.test(patched)) {
+  const missingRequiredProperties = requiredFarmSlotRuntimeProofProperties.filter((property) => !new RegExp(`\\bFARM_SLOT_STYLE\\s*\\.\\s*${property}\\b`).test(patched));
+  if (missingRequiredProperties.length > 0) {
     return undefined;
   }
   return patched === text ? undefined : patched;
@@ -33,9 +36,7 @@ function patchFarmSlotVisualExpressions(text: string): string {
   const replacements: Array<[RegExp, string]> = [
     [/\bconst\s+slotWidth\s*=\s*\d+(?:\.\d+)?\s*;/, "const slotWidth = FARM_SLOT_STYLE.slotWidth;"],
     [/\bconst\s+slotHeight\s*=\s*\d+(?:\.\d+)?\s*;/, "const slotHeight = FARM_SLOT_STYLE.slotHeight;"],
-    [/\bconst\s+gap\s*=\s*\d+(?:\.\d+)?\s*;/, "const gap = FARM_SLOT_STYLE.gap;"],
     [/\bconst\s+borderWidth\s*=\s*\d+(?:\.\d+)?\s*;/, "const borderWidth = FARM_SLOT_STYLE.borderWidth;"],
-    [/\bconst\s+cornerRadius\s*=\s*\d+(?:\.\d+)?\s*;/, "const cornerRadius = FARM_SLOT_STYLE.cornerRadius;"]
   ];
   for (const [pattern, replacement] of replacements) {
     patched = patched.replace(pattern, replacement);
@@ -79,7 +80,7 @@ function patchRealFarmSceneSlotRendering(text: string): string {
   );
   patched = patched.replace(
     "const indicatorSize = this.cellSize + dropIndicatorSizePadding;",
-    "const indicatorSize = this.cellSize + dropIndicatorSizePadding * FARM_SLOT_STYLE.mergeCandidatePulseScale;"
+    "const indicatorSize = (this.cellSize + dropIndicatorSizePadding) * FARM_SLOT_STYLE.mergeCandidatePulseScale;"
   );
   patched = patched.replace(
     "const visualScale = Math.min(1, Math.max(0.72, this.cellSize / CELL_SIZE));",
