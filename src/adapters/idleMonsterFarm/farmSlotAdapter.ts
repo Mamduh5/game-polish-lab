@@ -204,7 +204,8 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
   };
 }
 
-export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.WorkspaceFolder, config: SlotCardStyleConfig): Promise<FarmSlotSetupResult> {
+export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.WorkspaceFolder, config: SlotCardStyleConfig, options: { writeFallbackTask?: boolean } = {}): Promise<FarmSlotSetupResult> {
+  const writeFallbackTasks = options.writeFallbackTask !== false;
   const state = await getIdleMonsterFarmFarmSlotAdapterState(folder);
   const { detection, connection } = state;
   const setupTarget = await pickSetupTarget(folder, detection);
@@ -228,13 +229,13 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
   }
 
   if (!setupTarget) {
-    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, detection, connection, "No safe farm slot owner file was detected for automatic visual wiring.");
+    const fallbackTaskPath = writeFallbackTasks ? await writeFarmSlotFallbackTask(folder, detection, connection, "No safe farm slot owner file was detected for automatic visual wiring.") : undefined;
     return {
       setupApplied: false,
       intendedFiles,
       changedFiles: [],
       rollbackPaths: [],
-      warnings: [...warnings, "One-time setup is unavailable because no safe farm slot owner file was detected.", `Fallback integration task generated: ${fallbackTaskPath}`],
+      warnings: [...warnings, "One-time setup is unavailable because no safe farm slot owner file was detected.", fallbackTaskPath ? `Fallback integration task generated: ${fallbackTaskPath}` : "Fallback integration task was not written during explicit runtime bridge install."],
       blockedFiles: [],
       detection,
       connection,
@@ -259,13 +260,13 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
   const existingTargetText = await readTextFile(targetUri);
   const patchedTargetText = connectOwnerFileToStyleModule(existingTargetText, setupTarget, detection.supportedStyleModulePath);
   if (!patchedTargetText) {
-    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, detection, connection, `${setupTarget} does not have a recognized visual-only farm slot patch site.`);
+    const fallbackTaskPath = writeFallbackTasks ? await writeFarmSlotFallbackTask(folder, detection, connection, `${setupTarget} does not have a recognized visual-only farm slot patch site.`) : undefined;
     return {
       setupApplied: false,
       intendedFiles,
       changedFiles: [],
       rollbackPaths: [],
-      warnings: [...warnings, `${setupTarget} does not have a recognized visual-only farm slot patch site for v0.99.4 setup.`, `Fallback integration task generated: ${fallbackTaskPath}`],
+      warnings: [...warnings, `${setupTarget} does not have a recognized visual-only farm slot patch site for v0.99.4 setup.`, fallbackTaskPath ? `Fallback integration task generated: ${fallbackTaskPath}` : "Fallback integration task was not written during explicit runtime bridge install."],
       blockedFiles: [],
       detection,
       connection,
@@ -277,7 +278,7 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
   const existingStyleText = await readTextFileIfExists(styleUri);
   const baselineStyle = await resolveFarmSlotSetupBaselineStyle(folder, detection.supportedStyleModulePath, existingStyleText, existingTargetText);
   if (!baselineStyle) {
-    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, detection, connection, "Automatic farm slot setup could not extract the current real farm slot style baseline.");
+    const fallbackTaskPath = writeFallbackTasks ? await writeFarmSlotFallbackTask(folder, detection, connection, "Automatic farm slot setup could not extract the current real farm slot style baseline.") : undefined;
     return {
       setupApplied: false,
       intendedFiles,
@@ -286,7 +287,7 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
       warnings: [
         ...warnings,
         "One-time setup was not written because no existing farm slot style/config/THEME baseline could be extracted without using Game Polish Lab defaults.",
-        `Fallback integration task generated: ${fallbackTaskPath}`
+        fallbackTaskPath ? `Fallback integration task generated: ${fallbackTaskPath}` : "Fallback integration task was not written during explicit runtime bridge install."
       ],
       blockedFiles: [],
       detection,
@@ -304,7 +305,7 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
   });
   if (!farmSlotRuntimeProofIncludesSetupMinimum(previewConnection.runtimeProof)) {
     const missingProperties = missingFarmSlotRuntimeProofProperties(previewConnection.runtimeProof);
-    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, detection, previewConnection, "Automatic farm slot setup preview did not produce runtime value usage proof.");
+    const fallbackTaskPath = writeFallbackTasks ? await writeFarmSlotFallbackTask(folder, detection, previewConnection, "Automatic farm slot setup preview did not produce runtime value usage proof.") : undefined;
     return {
       setupApplied: false,
       intendedFiles,
@@ -314,7 +315,7 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
         ...warnings,
         "One-time setup was not written because in-memory runtime value usage proof was not established.",
         missingProperties.length > 0 ? `Missing runtime proof properties: ${missingProperties.join(", ")}` : "",
-        `Fallback integration task generated: ${fallbackTaskPath}`
+        fallbackTaskPath ? `Fallback integration task generated: ${fallbackTaskPath}` : "Fallback integration task was not written during explicit runtime bridge install."
       ].filter(Boolean),
       blockedFiles: [],
       detection,
@@ -335,7 +336,7 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
     const missingProperties = missingFarmSlotRuntimeProofProperties(updatedState.connection.runtimeProof);
     await restoreFarmSlotSetupSources(targetUri, existingTargetText, styleUri, existingStyleText);
     const restoredState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
-    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, restoredState.detection, restoredState.connection, "Automatic farm slot setup did not produce runtime value usage proof after source write; source files were restored.");
+    const fallbackTaskPath = writeFallbackTasks ? await writeFarmSlotFallbackTask(folder, restoredState.detection, restoredState.connection, "Automatic farm slot setup did not produce runtime value usage proof after source write; source files were restored.") : undefined;
     return {
       setupApplied: false,
       intendedFiles,
@@ -345,7 +346,7 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
         ...warnings,
         "One-time setup post-write verification failed; source files were restored before returning.",
         missingProperties.length > 0 ? `Missing runtime proof properties: ${missingProperties.join(", ")}` : "",
-        `Fallback integration task generated: ${fallbackTaskPath}`
+        fallbackTaskPath ? `Fallback integration task generated: ${fallbackTaskPath}` : "Fallback integration task was not written during explicit runtime bridge install."
       ].filter(Boolean),
       blockedFiles: [],
       detection: restoredState.detection,

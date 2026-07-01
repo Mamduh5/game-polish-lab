@@ -31,6 +31,7 @@ const visualDashboardSource = readText("src/commands/openVisualTuningDashboard.t
 const assetDashboardSource = readText("src/commands/openAssetPipelineDashboard.ts");
 const rollbackHistorySource = readText("src/commands/openRollbackHistory.ts");
 const tunerSource = readText("src/commands/tuneVisualSurface.ts");
+const dashboardModelSource = readText("src/core/visualTuningDashboardModel.ts");
 
 for (const docPath of [
   "docs/1.0-release-candidate.md",
@@ -244,13 +245,20 @@ assert.ok(tunerSource.includes("frame-src http://127.0.0.1:* http://localhost:*"
 assert.ok(tunerSource.includes("Open Live Game"));
 assert.ok(tunerSource.includes("Check Connection"));
 assert.ok(tunerSource.includes("Install Runtime Bridge"));
+assert.ok(tunerSource.includes("Create Baseline Config"));
 assert.ok(tunerSource.includes('command:"checkRuntimeConnection"'));
 assert.ok(tunerSource.includes('command:"installRuntimeBridge"'));
+assert.ok(tunerSource.includes('command:"createBaselineConfig"'));
 assert.ok(tunerSource.includes('command:"saveStyle"'));
 assert.ok(tunerSource.includes("writeLiveStyle"));
 assert.ok(tunerSource.includes("snapshotFarmSlotConnectReadOnlyFiles"));
 assert.ok(tunerSource.includes("diffFarmSlotConnectSnapshots"));
 assert.ok(tunerSource.includes("Runtime bridge not installed"));
+assert.ok(tunerSource.includes('runtime?"Save Style"'));
+assert.ok(tunerSource.includes('checkConnectionButton.style.display=runtime?"inline-block":"none"'));
+assert.ok(tunerSource.includes('installBridgeButton.style.display=runtime?"inline-block":"none"'));
+assert.ok(tunerSource.includes('createBaselineButton.style.display=runtime?"inline-block":"none"'));
+assert.ok(!tunerSource.includes("Install Bridge & Create Config"));
 assert.ok(tunerSource.includes("m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState"));
 assert.ok(tunerSource.includes("Saved config only. Direct apply is not connected"));
 assert.ok(tunerSource.includes("save/apply result:"));
@@ -276,6 +284,62 @@ for (const forbiddenCall of [
 ]) {
   assert.ok(!checkRuntimeConnectionBody.includes(forbiddenCall), `Check Connection must not call ${forbiddenCall}`);
 }
+
+const installRuntimeBridgeBody = extractFunctionBody(tunerSource, "installFarmSlotRuntimeBridge");
+assert.ok(installRuntimeBridgeBody.includes("resolveCurrentFarmSlotBaselineValues"));
+assert.ok(installRuntimeBridgeBody.includes("Current project farm slot baseline"));
+assert.ok(installRuntimeBridgeBody.includes("writeFallbackTask: false"));
+assert.ok(installRuntimeBridgeBody.includes("farmSlotBaselineGuardError"));
+assert.ok(installRuntimeBridgeBody.includes("isAllowedFarmSlotInstallChange"));
+for (const forbiddenCall of [
+  "writeFarmSlotLiveStyle",
+  "createFarmSlotBaselineConfig",
+  "saveFarmSlotRuntimeStyle",
+  "writeTextFile",
+  "renderFarmSlotStyleModule",
+  "executeVisualDirectApplyPlan"
+]) {
+  assert.ok(!installRuntimeBridgeBody.includes(forbiddenCall), `Install Runtime Bridge must not call ${forbiddenCall}`);
+}
+
+const createBaselineConfigBody = extractFunctionBody(tunerSource, "createFarmSlotBaselineConfig");
+assert.ok(createBaselineConfigBody.includes("resolveCurrentFarmSlotBaselineValues"));
+assert.ok(createBaselineConfigBody.includes("farmSlotValuesContainForbiddenBrownDefaults"));
+assert.ok(createBaselineConfigBody.includes("farmSlotStyleConfigRelativePath"));
+assert.ok(createBaselineConfigBody.includes("writeTextFile"));
+for (const forbiddenCall of [
+  "setupIdleMonsterFarmFarmSlotBridge",
+  "writeFarmSlotLiveStyle",
+  "renderFarmSlotStyleModule",
+  "executeVisualDirectApplyPlan"
+]) {
+  assert.ok(!createBaselineConfigBody.includes(forbiddenCall), `Create Baseline Config must not call ${forbiddenCall}`);
+}
+
+const saveRuntimeStyleBody = extractFunctionBody(tunerSource, "saveFarmSlotRuntimeStyle");
+assert.ok(saveRuntimeStyleBody.includes("farmSlotStyleConfigRelativePath"));
+assert.ok(saveRuntimeStyleBody.includes("renderFarmSlotStyleModule"));
+assert.ok(!saveRuntimeStyleBody.includes("setupIdleMonsterFarmFarmSlotBridge"), "Save Style must not install the bridge");
+assert.ok(!saveRuntimeStyleBody.includes("writeFarmSlotLiveStyle"), "Save Style must not write live JSON");
+
+const writeLiveStyleBody = extractFunctionBody(tunerSource, "writeFarmSlotLiveStyle");
+assert.ok(writeLiveStyleBody.includes("farmSlotLiveStyleRelativePath"));
+assert.ok(writeLiveStyleBody.includes("live-style"));
+assert.ok(!writeLiveStyleBody.includes("farmSlotStyleConfigRelativePath"), "Live Edit must not write persistent config");
+assert.ok(!writeLiveStyleBody.includes("setupIdleMonsterFarmFarmSlotBridge"), "Live Edit must not install the bridge");
+assert.ok(!writeLiveStyleBody.includes("renderFarmSlotStyleModule"), "Live Edit must not write runtime modules");
+
+const loadRuntimeEditorBody = extractFunctionBody(tunerSource, "loadFarmSlotRuntimeEditorConfig");
+assert.ok(loadRuntimeEditorBody.includes("farm-slot-style.json"));
+assert.ok(loadRuntimeEditorBody.includes("extractFarmSlotStyleValuesFromModuleIfPresent"));
+assert.ok(loadRuntimeEditorBody.includes("extractFarmSlotStyleValuesFromSourceText"));
+assert.ok(!loadRuntimeEditorBody.includes("writeTextFile"), "Opening the runtime editor must not emit live or persistent JSON");
+
+assert.ok(visualDashboardSource.includes("Farm Slot Runtime Editor opened"));
+assert.ok(visualDashboardSource.includes("Farm Slot dashboard direct apply is disabled"));
+assert.ok(dashboardModelSource.includes('label: "Open Runtime Editor"'));
+assert.ok(dashboardModelSource.includes("Farm Slot uses separate Check Connection"));
+assert.ok(!dashboardModelSource.includes("Install Bridge & Create Config"));
 
 const idleSurface = fakeSurface("idle_monster_farm", "Monster Farm Slots", "slot_card");
 const genericSurface = fakeSurface("generic_phaser", "Generic Phaser Slot/Card", "slot_card");

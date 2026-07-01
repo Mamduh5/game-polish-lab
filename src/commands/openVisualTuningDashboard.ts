@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 
 import { applyIdleMonsterFarmBackgroundStyle, getIdleMonsterFarmBackgroundAdapterState, summarizeBackgroundApplyResult } from "../adapters/idleMonsterFarm/backgroundAdapter";
 import { applyIdleMonsterFarmButtonStyle, getIdleMonsterFarmButtonAdapterState, summarizeButtonApplyResult } from "../adapters/idleMonsterFarm/buttonAdapter";
-import { applyIdleMonsterFarmFarmSlotStyle, getIdleMonsterFarmFarmSlotAdapterState, summarizeFarmSlotApplyResult } from "../adapters/idleMonsterFarm/farmSlotAdapter";
+import { getIdleMonsterFarmFarmSlotAdapterState } from "../adapters/idleMonsterFarm/farmSlotAdapter";
 import { getIdleMonsterFarmAssetTargets } from "../adapters/idleMonsterFarm/assetReplacementAdapter";
 import { applyIdleMonsterFarmPanelStyle, getIdleMonsterFarmPanelAdapterState, summarizePanelApplyResult } from "../adapters/idleMonsterFarm/panelAdapter";
 import { applyIdleMonsterFarmRewardToastStyle, getIdleMonsterFarmRewardToastAdapterState, summarizeRewardToastApplyResult } from "../adapters/idleMonsterFarm/rewardToastAdapter";
@@ -429,6 +429,10 @@ async function handleDashboardMessage(context: vscode.ExtensionContext, folder: 
     return { ok: summary.ok, message: lines.join("\n") };
   }
   if (message.command === "directApply") {
+    if (row.adapterId === "idle_monster_farm" && row.surfaceType === "slot_card") {
+      await tuneVisualSurface(context, { adapterId: "idle_monster_farm", surfaceType: "slot_card", targetLabel: row.targetLabel });
+      return { ok: true, message: "Farm Slot Runtime Editor opened. Use separate Check Connection, Install Runtime Bridge, Create Baseline Config, Save Style, and Live Edit actions.", refresh: false };
+    }
     return directApplyFromDashboard(folder, row);
   }
   if (message.command === "exportTheme") {
@@ -459,6 +463,9 @@ async function handleDashboardMessage(context: vscode.ExtensionContext, folder: 
 }
 
 async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: VisualTuningDashboardRow): Promise<{ ok: boolean; message: string; refresh?: boolean }> {
+  if (row.adapterId === "idle_monster_farm" && row.surfaceType === "slot_card") {
+    return { ok: false, message: "Farm Slot dashboard direct apply is disabled. Open the Runtime Editor and use separate actions." };
+  }
   if (!row.actions.directApply.enabled) {
     return { ok: false, message: row.actions.directApply.reason ?? "Direct apply is not available." };
   }
@@ -742,12 +749,7 @@ async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder,
 
 async function applyIdleStyleConfig(folder: vscode.WorkspaceFolder, surfaceType: Exclude<VisualSurfaceType, "asset_replacement">, configText: string): Promise<{ ok: boolean; message: string; presetName?: string; styleSnapshot?: object; changedFiles: string[]; rollbackPaths: string[]; checklist: string[]; warnings: string[] }> {
   if (surfaceType === "slot_card") {
-    const load = loadSlotCardStyleConfigFromText(configText);
-    if (load.status !== "valid") {
-      return failedDirectApply("Slot card config is invalid.");
-    }
-    const result = await applyIdleMonsterFarmFarmSlotStyle(folder, load.config);
-    return directApplyResult(result.applied, summarizeFarmSlotApplyResult(folder, result), load.config.presetName, load.config.values, result.changedFiles, result.rollbackPaths, [], result.warnings);
+    return failedDirectApply("Farm Slot direct apply is disabled in the dashboard. Use the Runtime Editor separate actions.");
   }
   if (surfaceType === "background_readability") {
     const load = loadBackgroundReadabilityStyleConfigFromText(configText);

@@ -3270,7 +3270,7 @@ assert.strictEqual(connectedIdleSlotRow.directApplyTemplate.executable, true);
 assert.deepStrictEqual(Object.values(connectedIdleSlotRow.actions).map((action) => action.label), [
   "Tune",
   "Open Config",
-  "Direct Apply",
+  "Open Runtime Editor",
   "Export Theme",
   "Import Theme",
   "Annotate Screenshot",
@@ -3286,8 +3286,8 @@ const missingProofIdleSlotRow = buildDashboardRow({
 }, attemptIndex);
 assert.strictEqual(missingProofIdleSlotRow.appliedStatus, "config_only");
 assert.strictEqual(missingProofIdleSlotRow.actions.directApply.enabled, true);
-assert.strictEqual(missingProofIdleSlotRow.actions.directApply.label, "Install Runtime Bridge");
-assert.ok(missingProofIdleSlotRow.actions.directApply.reason?.includes("Explicit write action"));
+assert.strictEqual(missingProofIdleSlotRow.actions.directApply.label, "Open Runtime Editor");
+assert.ok(missingProofIdleSlotRow.actions.directApply.reason?.includes("separate Check Connection"));
 assert.strictEqual(missingProofIdleSlotRow.scopeSummary.directApplySafe, false);
 
 const importOnlyProofIdleSlotRow = buildDashboardRow({
@@ -3299,8 +3299,8 @@ const importOnlyProofIdleSlotRow = buildDashboardRow({
 }, attemptIndex);
 assert.strictEqual(importOnlyProofIdleSlotRow.appliedStatus, "config_only");
 assert.strictEqual(importOnlyProofIdleSlotRow.actions.directApply.enabled, true);
-assert.strictEqual(importOnlyProofIdleSlotRow.actions.directApply.label, "Install Runtime Bridge");
-assert.ok(importOnlyProofIdleSlotRow.actions.directApply.reason?.includes("import_only/module_import_only"));
+assert.strictEqual(importOnlyProofIdleSlotRow.actions.directApply.label, "Open Runtime Editor");
+assert.ok(importOnlyProofIdleSlotRow.actions.directApply.reason?.includes("separate Check Connection"));
 
 const runtimeProofIdleSlotRow = buildDashboardRow({
   ...connectedIdleSlotSurface,
@@ -3465,8 +3465,8 @@ assert.strictEqual(missingConfigDisconnectedIdleSlotRow.connectedState, "not_con
 assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.openConfig.enabled, true);
 assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.openConfig.label, "Open Tuner");
 assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.directApply.enabled, true);
-assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.directApply.label, "Install Bridge & Create Config");
-assert.ok(missingConfigDisconnectedIdleSlotRow.actions.directApply.reason?.includes("Explicit write action"));
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.directApply.label, "Open Runtime Editor");
+assert.ok(missingConfigDisconnectedIdleSlotRow.actions.directApply.reason?.includes("separate Check Connection"));
 
 const missingConfigDisconnectedBackgroundSurface = {
   ...connectedIdleSlotSurface,
@@ -4178,8 +4178,8 @@ assert.ok(v078IdleDashboard.rows.some((row) => row.adapterId === "idle_monster_f
 const v078IdleFarmSlotsRow = v078IdleDashboard.rows.find((row) => row.adapterId === "idle_monster_farm" && row.targetId === "farm_slots");
 assert.strictEqual(v078IdleFarmSlotsRow?.configStatus, "valid");
 assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.enabled, true);
-assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.label, "Install Runtime Bridge");
-assert.ok(v078IdleFarmSlotsRow?.actions.directApply.reason?.includes("Explicit write action"));
+assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.label, "Open Runtime Editor");
+assert.ok(v078IdleFarmSlotsRow?.actions.directApply.reason?.includes("separate Check Connection"));
 assert.strictEqual(v078IdleFarmSlotsRow?.directApplyTemplate.templateId, "idle-monster-farm.slot_card.style-config.v1");
 assert.strictEqual(v078IdleFarmSlotsRow?.directApplyTemplate.executable, true);
 const v078IdleAssetRow = v078IdleDashboard.rows.find((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "asset_replacement");
