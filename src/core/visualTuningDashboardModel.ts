@@ -518,6 +518,9 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
   }
   if (surface.adapter.adapterId === "idle_monster_farm") {
     if (surface.config.status === "missing") {
+      if (surface.surfaceType === "slot_card") {
+        return { enabled: true, label: "Install Bridge & Create Config", reason: `Explicit write action: create the default ${surface.displayName} config, install the supported Farm Slot runtime bridge, and apply runtime style values.` };
+      }
       return { enabled: true, label: "Create Config & Connect", reason: `Create the default ${surface.displayName} config, install the supported runtime bridge, and apply runtime style values.` };
     }
     if (surface.config.status !== "valid") {
@@ -525,6 +528,9 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
     }
     if (surface.adapter.connectedState !== "connected" || !proofAllowsDirectApply(surface.adapter.runtimeConnectionProof)) {
       const proof = surface.adapter.runtimeConnectionProof;
+      if (surface.surfaceType === "slot_card") {
+        return { enabled: true, label: "Install Runtime Bridge", reason: proof ? `Explicit write action: runtime proof is ${proof.status}/${proof.proofLevel}; install Farm Slot runtime usage before applying style values.` : "Explicit write action: runtime value usage proof is missing; install Farm Slot runtime usage before applying style values." };
+      }
       return { enabled: true, label: "Save & Connect", reason: proof ? `Runtime proof is ${proof.status}/${proof.proofLevel}; run setup/apply to connect runtime usage.` : "Runtime value usage proof is missing; run setup/apply to connect runtime usage." };
     }
   }

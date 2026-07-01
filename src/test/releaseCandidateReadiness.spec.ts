@@ -242,7 +242,15 @@ assert.ok(tunerSource.includes("Farm Slot Runtime Editor: the running Idle Monst
 assert.ok(tunerSource.includes("The embedded game or Open Live Game fallback is the preview."));
 assert.ok(tunerSource.includes("frame-src http://127.0.0.1:* http://localhost:*"));
 assert.ok(tunerSource.includes("Open Live Game"));
+assert.ok(tunerSource.includes("Check Connection"));
+assert.ok(tunerSource.includes("Install Runtime Bridge"));
+assert.ok(tunerSource.includes('command:"checkRuntimeConnection"'));
+assert.ok(tunerSource.includes('command:"installRuntimeBridge"'));
+assert.ok(tunerSource.includes('command:"saveStyle"'));
 assert.ok(tunerSource.includes("writeLiveStyle"));
+assert.ok(tunerSource.includes("snapshotFarmSlotConnectReadOnlyFiles"));
+assert.ok(tunerSource.includes("diffFarmSlotConnectSnapshots"));
+assert.ok(tunerSource.includes("Runtime bridge not installed"));
 assert.ok(tunerSource.includes("m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState"));
 assert.ok(tunerSource.includes("Saved config only. Direct apply is not connected"));
 assert.ok(tunerSource.includes("save/apply result:"));
@@ -252,6 +260,22 @@ assert.ok(tunerSource.includes("adapterOutcomeAppliedToRuntime"));
 assert.ok(tunerSource.includes('result.runtimeConnectionProof.status === "connected"'));
 assert.ok(tunerSource.includes("runtime_value_usage"));
 assert.ok(tunerSource.includes("runtimeConnectionProof"));
+
+const checkRuntimeConnectionBody = extractFunctionBody(tunerSource, "checkFarmSlotRuntimeConnection");
+assert.ok(checkRuntimeConnectionBody.includes("snapshotFarmSlotConnectReadOnlyFiles"));
+assert.ok(checkRuntimeConnectionBody.includes("diffFarmSlotConnectSnapshots"));
+for (const forbiddenCall of [
+  "writeTextFile",
+  "ensureDirectory",
+  "setupIdleMonsterFarmFarmSlotBridge",
+  "applyIdleMonsterFarmFarmSlotStyle",
+  "executeVisualDirectApplyPlan",
+  "renderFarmSlotStyleModule",
+  "writeFarmSlotLiveStyle",
+  "saveConfigAndApply"
+]) {
+  assert.ok(!checkRuntimeConnectionBody.includes(forbiddenCall), `Check Connection must not call ${forbiddenCall}`);
+}
 
 const idleSurface = fakeSurface("idle_monster_farm", "Monster Farm Slots", "slot_card");
 const genericSurface = fakeSurface("generic_phaser", "Generic Phaser Slot/Card", "slot_card");
@@ -371,6 +395,26 @@ function readText(relativePath: string): string {
 
 function readJson(relativePath: string): unknown {
   return JSON.parse(readText(relativePath));
+}
+
+function extractFunctionBody(source: string, functionName: string): string {
+  const start = source.indexOf(`function ${functionName}`);
+  assert.ok(start >= 0, `${functionName} not found`);
+  const firstBrace = source.indexOf("{", start);
+  assert.ok(firstBrace >= 0, `${functionName} body not found`);
+  let depth = 0;
+  for (let index = firstBrace; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(firstBrace + 1, index);
+      }
+    }
+  }
+  assert.fail(`${functionName} body did not terminate`);
 }
 
 function makeTempWorkspace(name: string): string {

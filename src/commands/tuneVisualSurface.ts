@@ -17,7 +17,7 @@ import { buildVisualPreviewRenderRequest } from "../core/visualPreviewModel";
 import { ensureVisualRecipeFiles } from "../core/visualRecipeFiles";
 import { getVisualSurfaceRecipe, getVisualSurfaceRecipes, visualSurfacePickerOrder } from "../core/visualRecipeRegistry";
 import { findLatestVisualRollbackForFile, restoreVisualRollbackSnapshot } from "../core/visualRollback";
-import { extractFarmSlotStyleValuesFromModuleIfPresent, extractFarmSlotStyleValuesFromSourceText } from "../core/farmSlotRuntimeStyle";
+import { extractFarmSlotStyleValuesFromModuleIfPresent, extractFarmSlotStyleValuesFromSourceText, renderFarmSlotStyleModule } from "../core/farmSlotRuntimeStyle";
 import {
   backgroundReadabilityStyleConfigRelativePath,
   BackgroundStyleConfigLoadResult,
@@ -41,7 +41,7 @@ import {
   RewardToastStyleConfigLoadResult,
   StyleConfigLoadResult
 } from "../core/visualSurfaceConfig";
-import { ensureDirectory, labUri, readTextFileIfExists, requireWorkspaceFolder, resolveProductionWorkspaceContext, writeTextFile } from "../core/workspace";
+import { ensureDirectory, labUri, pathExists, readTextFileIfExists, requireWorkspaceFolder, resolveProductionWorkspaceContext, toWorkspaceRelativePath, writeTextFile } from "../core/workspace";
 import { VisualRuntimeConnectionProof } from "../core/visualRuntimeConnectionProof";
 import { backgroundReadabilityPresets, backgroundReadabilityStyleBounds, defaultBackgroundReadabilityStyle } from "../presets/backgroundReadabilityPresets";
 import { buttonStyleBounds, buttonStylePresets, defaultButtonStyle } from "../presets/buttonStylePresets";
@@ -62,7 +62,7 @@ export interface TuneVisualSurfaceInitialState {
 }
 
 interface SaveMessage {
-  command: "saveAndApply" | "setupBridge" | "applyAsset" | "markResult" | "undoLastApply" | "writeLiveStyle" | "openLiveGame";
+  command: "saveAndApply" | "setupBridge" | "checkRuntimeConnection" | "installRuntimeBridge" | "saveStyle" | "applyAsset" | "markResult" | "undoLastApply" | "writeLiveStyle" | "openLiveGame";
   surfaceType: VisualSurfaceType;
   presetName: string;
   values: SurfaceValues;
@@ -104,9 +104,10 @@ interface SaveResultMessage {
   surfaceUpdate?: TunerSurfaceUpdate;
   latestRollback?: TunerRollbackHandle;
   runtimeEditorState?: FarmSlotRuntimeEditorState;
+  changedFiles?: string[];
 }
 
-type FarmSlotRuntimeEditorState = "game_url_not_configured" | "game_not_running" | "live_file_waiting" | "connected" | "style_applied" | "error";
+type FarmSlotRuntimeEditorState = "game_url_not_configured" | "game_not_running" | "runtime_bridge_missing" | "live_file_waiting" | "connected" | "style_applied" | "error";
 
 interface AdapterApplyOutcome {
   applied: boolean;
@@ -227,6 +228,12 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
         ? await writeFarmSlotLiveStyle(folder, message)
         : message.command === "openLiveGame"
         ? await openFarmSlotLiveGame(message)
+        : message.command === "checkRuntimeConnection"
+        ? await checkFarmSlotRuntimeConnection(folder, message)
+        : message.command === "installRuntimeBridge"
+        ? await installFarmSlotRuntimeBridge(folder, message, slotLoad)
+        : message.command === "saveStyle"
+        ? await saveFarmSlotRuntimeStyle(folder, message)
         : message.command === "setupBridge"
         ? await setupBridge(folder, message, slotLoad, backgroundLoad, panelLoad, rewardToastLoad, buttonLoad)
         : await saveAndApply(folder, message, slotLoad, backgroundLoad, panelLoad, rewardToastLoad, buttonLoad);
@@ -238,6 +245,104 @@ export async function tuneVisualSurface(context: vscode.ExtensionContext, initia
   } finally {
     logCommandEnd("gamePolishLab.tuneVisualSurface");
   }
+}
+
+async function checkFarmSlotRuntimeConnection(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  if (message.surfaceType !== "slot_card" || message.adapterId !== "idle_monster_farm") {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Runtime connection check is only available for Idle Monster Farm Farm Slot." };
+  }
+
+  const before = await snapshotFarmSlotConnectReadOnlyFiles(folder);
+  const state = await getIdleMonsterFarmFarmSlotAdapterState(folder);
+  const runtimeState = await resolveFarmSlotRuntimeEditorState(folder, message.devServerUrl);
+  const after = await snapshotFarmSlotConnectReadOnlyFiles(folder);
+  const changedFiles = diffFarmSlotConnectSnapshots(before, after);
+  if (changedFiles.length > 0) {
+    return {
+      command: "saveResult",
+      ok: false,
+      surfaceType: "slot_card",
+      error: `Check Connection must be read-only, but files changed: ${changedFiles.join(", ")}`,
+      changedFiles,
+      runtimeConnectionProof: state.connection.runtimeProof,
+      runtimeEditorState: "error"
+    };
+  }
+
+  const bridgeInstalled = state.connection.connected && state.connection.runtimeProof.proofLevel === "runtime_value_usage";
+  return {
+    command: "saveResult",
+    ok: true,
+    surfaceType: "slot_card",
+    savedConfigOnly: true,
+    runtimeConnectionProof: state.connection.runtimeProof,
+    runtimeEditorState: bridgeInstalled ? runtimeState : "runtime_bridge_missing",
+    applySummary: [
+      bridgeInstalled ? "Runtime bridge installed" : "Runtime bridge not installed",
+      `Connection proof: ${state.connection.runtimeProof.status} / ${state.connection.runtimeProof.proofLevel}`,
+      "Check Connection read-only audit: zero changed files"
+    ],
+    changedFiles: []
+  };
+}
+
+async function installFarmSlotRuntimeBridge(folder: vscode.WorkspaceFolder, message: SaveMessage, slotLoad: StyleConfigLoadResult): Promise<SaveResultMessage> {
+  if (message.surfaceType !== "slot_card" || message.adapterId !== "idle_monster_farm") {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Runtime bridge install is only available for Idle Monster Farm Farm Slot." };
+  }
+  if (!(await workspaceSupportsIdleMonsterFarm(folder))) {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Idle Monster Farm setup is blocked because this active workspace does not contain Idle Monster Farm evidence." };
+  }
+
+  const result = await setupIdleMonsterFarmFarmSlotBridge(folder, buildSlotCardStyleConfig(message.presetName, message.values as SlotCardStyleValues));
+  return setupResponse(
+    "slot_card",
+    farmSlotStyleConfigRelativePath,
+    result.blockedFiles,
+    result.rollbackPaths,
+    checklistFor("slot_card", slotLoad, result.rollbackPaths.length > 0, []),
+    summarizeSetup("idle_monster_farm.farm_slots", result.setupApplied, result.intendedFiles, result.changedFiles, result.rollbackPaths, result.connection.connected, result.connection.connectionType, result.warnings, result.connection.missingPieces, result.blockedFiles, result.connection.runtimeProof),
+    result.warnings,
+    result.connection.runtimeProof
+  );
+}
+
+async function saveFarmSlotRuntimeStyle(folder: vscode.WorkspaceFolder, message: SaveMessage): Promise<SaveResultMessage> {
+  if (message.surfaceType !== "slot_card" || message.adapterId !== "idle_monster_farm") {
+    return { command: "saveResult", ok: false, surfaceType: message.surfaceType, error: "Save Style is only available for Idle Monster Farm Farm Slot." };
+  }
+  const config = buildSlotCardStyleConfig(message.presetName, message.values as SlotCardStyleValues);
+  await ensureDirectory(labUri(folder, "styles"));
+  await writeTextFile(labUri(folder, "styles", "farm-slot-style.json"), `${JSON.stringify(config, null, 2)}\n`);
+
+  const state = await getIdleMonsterFarmFarmSlotAdapterState(folder);
+  const changedFiles = [farmSlotStyleConfigRelativePath];
+  if (state.connection.connected && state.connection.runtimeProof.proofLevel === "runtime_value_usage") {
+    const styleUri = vscode.Uri.joinPath(folder.uri, ...state.detection.supportedStyleModulePath.split("/"));
+    if (await pathExists(styleUri)) {
+      await writeTextFile(styleUri, renderFarmSlotStyleModule(config.values));
+      changedFiles.push(state.detection.supportedStyleModulePath);
+    }
+  }
+
+  const updatedState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
+  return {
+    command: "saveResult",
+    ok: true,
+    surfaceType: "slot_card",
+    appliedToRuntime: changedFiles.length > 1,
+    savedConfigOnly: changedFiles.length === 1,
+    configPath: farmSlotStyleConfigRelativePath,
+    changedFiles,
+    runtimeConnectionProof: updatedState.connection.runtimeProof,
+    runtimeEditorState: updatedState.connection.connected ? "connected" : "runtime_bridge_missing",
+    applySummary: [
+      "Save Style persisted Farm Slot style values.",
+      `changed files: ${changedFiles.join(", ")}`,
+      changedFiles.length > 1 ? "Runtime style module updated because the bridge is already installed." : "Runtime style module was not written because no installed bridge module was available."
+    ],
+    surfaceUpdate: buildTunerSurfaceUpdate(folder.uri.fsPath, "slot_card", config, false, "real_project_current_config")
+  };
 }
 
 async function loadFarmSlotRuntimeEditorConfig(folder: vscode.WorkspaceFolder): Promise<StyleConfigLoadResult> {
@@ -394,6 +499,42 @@ function normalizeLocalDevServerUrl(value: string | undefined): string | undefin
   } catch {
     return undefined;
   }
+}
+
+type FarmSlotConnectSnapshot = Map<string, string>;
+
+async function snapshotFarmSlotConnectReadOnlyFiles(folder: vscode.WorkspaceFolder): Promise<FarmSlotConnectSnapshot> {
+  const snapshot: FarmSlotConnectSnapshot = new Map();
+  const uris = await vscode.workspace.findFiles(
+    new vscode.RelativePattern(folder, "{src,.game-polish-lab}/**/*"),
+    "**/{node_modules,dist,build,out}/**",
+    2500
+  );
+  for (const uri of uris) {
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (stat.type !== vscode.FileType.File) {
+        continue;
+      }
+      const relativePath = toWorkspaceRelativePath(folder, uri);
+      const content = await readTextFileIfExists(uri);
+      snapshot.set(relativePath, content ?? "");
+    } catch {
+      // Deleted or unreadable files are represented by absence in the snapshot.
+    }
+  }
+  return snapshot;
+}
+
+function diffFarmSlotConnectSnapshots(before: FarmSlotConnectSnapshot, after: FarmSlotConnectSnapshot): string[] {
+  const paths = new Set([...before.keys(), ...after.keys()]);
+  const changed: string[] = [];
+  for (const relativePath of Array.from(paths).sort()) {
+    if (before.get(relativePath) !== after.get(relativePath)) {
+      changed.push(relativePath);
+    }
+  }
+  return changed;
 }
 
 async function saveAndApply(folder: vscode.WorkspaceFolder, message: SaveMessage, slotLoad: StyleConfigLoadResult, backgroundLoad: BackgroundStyleConfigLoadResult, panelLoad: PanelStyleConfigLoadResult, rewardToastLoad: RewardToastStyleConfigLoadResult, buttonLoad: ButtonStyleConfigLoadResult): Promise<SaveResultMessage> {
@@ -1279,7 +1420,7 @@ function renderHtml(input: {
 <body>
   <div style="margin-bottom:16px"><h1>Game Polish Lab v0.62: Visual Surface Tuning</h1><p class="meta">Workspace: ${escapeHtml(input.workspaceName)} | ${escapeHtml(input.workspaceMode)}</p><p class="meta">${escapeHtml(input.workspaceRoot)}</p><p class="meta">Preset library -> preview across frames/states -> save config/assets -> direct apply for supported adapters -> record result.</p></div>
   <main>
-    <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"></select></div><div><label for="adapterMode">Adapter</label><select id="adapterMode"><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option></select></div><div id="genericFields" style="display:none"><label for="genericTarget">Manual target label</label><input id="genericTarget" type="text" value="Manual visual target"><label for="genericFiles">Selected target files</label><textarea id="genericFiles"></textarea><label for="genericAssetFolder">Asset destination folder</label><input id="genericAssetFolder" type="text" value="src/assets"><label><input id="genericDirect" type="checkbox"> Write generated style module</label></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select><div id="presetDescription" class="preset-description"></div></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary warning-action" id="undoApply" disabled>Undo Last Apply</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="resultPanel" style="display:none;margin-top:12px"><label for="resultNote">Result note</label><textarea id="resultNote" placeholder="What improved, got worse, or did not move?"></textarea><div class="actions"><button class="secondary" data-result="better">Mark Better</button><button class="secondary" data-result="worse">Mark Worse</button><button class="secondary" data-result="same">Mark Same</button><button class="secondary" data-result="mixed">Mark Mixed</button><button data-result="unreviewed">Add Note</button></div></div><div id="status" class="status"></div></section>
+    <section class="panel"><h2>Style Values</h2><div class="controls"><div><label for="surface">Surface</label><select id="surface"></select></div><div><label for="adapterMode">Adapter</label><select id="adapterMode"><option value="idle_monster_farm">Idle Monster Farm</option><option value="generic_phaser">Generic Phaser</option></select></div><div id="genericFields" style="display:none"><label for="genericTarget">Manual target label</label><input id="genericTarget" type="text" value="Manual visual target"><label for="genericFiles">Selected target files</label><textarea id="genericFiles"></textarea><label for="genericAssetFolder">Asset destination folder</label><input id="genericAssetFolder" type="text" value="src/assets"><label><input id="genericDirect" type="checkbox"> Write generated style module</label></div><div id="presetRow"><label for="preset">Preset</label><select id="preset"></select><div id="presetDescription" class="preset-description"></div></div><div id="controls"></div></div><div class="actions"><button class="secondary" id="reset">Reset</button><button class="secondary warning-action" id="undoApply" disabled>Undo Last Apply</button><button class="secondary" id="checkConnection" style="display:none">Check Connection</button><button class="secondary" id="installBridge" style="display:none">Install Runtime Bridge</button><button class="secondary" id="setup" style="display:none">One-Time Setup</button><button id="save">Save & Apply</button></div><div id="resultPanel" style="display:none;margin-top:12px"><label for="resultNote">Result note</label><textarea id="resultNote" placeholder="What improved, got worse, or did not move?"></textarea><div class="actions"><button class="secondary" data-result="better">Mark Better</button><button class="secondary" data-result="worse">Mark Worse</button><button class="secondary" data-result="same">Mark Same</button><button class="secondary" data-result="mixed">Mark Mixed</button><button data-result="unreviewed">Add Note</button></div></div><div id="status" class="status"></div></section>
     <section><div class="preview-toolbar"><div><label for="frameMode">Preview frame</label><select id="frameMode"><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select></div><label><input id="animationToggle" type="checkbox" checked> Play preview animation</label></div><p id="previewSourceLabel" class="meta"></p><section class="preview-grid"><div><div class="compare-heading"><h2>Before</h2><span id="beforeLabel" class="frame-label"></span></div><div id="before"></div></div><div><div class="compare-heading"><h2>After</h2><span id="afterLabel" class="frame-label"></span></div><div id="after"></div></div></section><section class="panel" style="margin-top:14px"><h3>State Preview Grid</h3><p id="stateGridLabel" class="meta"></p><div id="stateGrid" class="state-grid"></div></section></section>
   </main>
   <section class="panel" style="margin-top:14px"><h3>Adapter Detection</h3><ul id="adapter" class="list"></ul></section>
@@ -1291,7 +1432,7 @@ function renderHtml(input: {
     labels.innerFillColor=labels.innerFillColor||"Inner fill color";
     const farmSlotRuntimeNumeric=["borderWidth","emptySlotOpacity","lockedOverlayOpacity","monsterDisplayScale","monsterVerticalOffset","mergeCandidatePulseScale"], farmSlotRuntimeColors=["fillColor","innerFillColor","borderColor"];
     let surfaceType=data.initialState.surfaceType&&data.surfaceOrder.includes(data.initialState.surfaceType)?data.initialState.surfaceType:"slot_card", surfaceData=data.surfaces[surfaceType], presetName=surfaceType==="asset_replacement"?"":surfaceData.initialConfig.presetName, values=surfaceType==="asset_replacement"?{}:structuredClone(surfaceData.initialConfig.values), selectedPresetId="", selectedAsset=null, needsSetup=false, adapterId=data.initialState.adapterId||(data.workspace.idleMonsterFarmDetected?"idle_monster_farm":"generic_phaser"), currentAttemptPath="", frameMode="desktop", animationOn=true, liveWriteTimer=0, liveGameUrl="http://127.0.0.1:5173", liveGameStatusText="game not loaded";
-    const surface=document.getElementById("surface"), preset=document.getElementById("preset"), presetDescription=document.getElementById("presetDescription"), controls=document.getElementById("controls"), status=document.getElementById("status"), adapterMode=document.getElementById("adapterMode"), genericFields=document.getElementById("genericFields"), genericTarget=document.getElementById("genericTarget"), genericFiles=document.getElementById("genericFiles"), genericAssetFolder=document.getElementById("genericAssetFolder"), genericDirect=document.getElementById("genericDirect"), frameModeSelect=document.getElementById("frameMode"), animationToggle=document.getElementById("animationToggle"), beforeLabel=document.getElementById("beforeLabel"), afterLabel=document.getElementById("afterLabel"), previewSourceLabel=document.getElementById("previewSourceLabel"), stateGrid=document.getElementById("stateGrid"), stateGridLabel=document.getElementById("stateGridLabel"), undoApply=document.getElementById("undoApply"), saveButton=document.getElementById("save"), setupButton=document.getElementById("setup");
+    const surface=document.getElementById("surface"), preset=document.getElementById("preset"), presetDescription=document.getElementById("presetDescription"), controls=document.getElementById("controls"), status=document.getElementById("status"), adapterMode=document.getElementById("adapterMode"), genericFields=document.getElementById("genericFields"), genericTarget=document.getElementById("genericTarget"), genericFiles=document.getElementById("genericFiles"), genericAssetFolder=document.getElementById("genericAssetFolder"), genericDirect=document.getElementById("genericDirect"), frameModeSelect=document.getElementById("frameMode"), animationToggle=document.getElementById("animationToggle"), beforeLabel=document.getElementById("beforeLabel"), afterLabel=document.getElementById("afterLabel"), previewSourceLabel=document.getElementById("previewSourceLabel"), stateGrid=document.getElementById("stateGrid"), stateGridLabel=document.getElementById("stateGridLabel"), undoApply=document.getElementById("undoApply"), saveButton=document.getElementById("save"), setupButton=document.getElementById("setup"), checkConnectionButton=document.getElementById("checkConnection"), installBridgeButton=document.getElementById("installBridge");
     genericTarget.value=data.initialState.targetLabel||genericTarget.value;genericFiles.value=(data.genericPhaser.likelySceneFiles||[]).join("\\n");genericAssetFolder.value=(data.genericPhaser.likelyAssetFolders&&data.genericPhaser.likelyAssetFolders[0])||"src/assets";
     for(const id of data.surfaceOrder){const option=document.createElement("option");option.value=id;option.textContent=recipesBySurface[id]?recipesBySurface[id].displayName:id;option.selected=id===surfaceType;surface.append(option);}
     adapterMode.value=adapterId;
@@ -1314,21 +1455,23 @@ function renderHtml(input: {
     function runtimeProof(){return surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection&&surfaceData.adapterState.connection.runtimeProof;}
     function isRuntimeSlotMode(){return adapterId==="idle_monster_farm"&&surfaceType==="slot_card";}
     function directApplyConnected(){const proof=runtimeProof();return adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement"&&proof&&proof.connected&&proof.status==="connected"&&proof.proofLevel==="runtime_value_usage";}
-    function updateActionLabels(){const connected=directApplyConnected();const canConnect=adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement";saveButton.textContent=surfaceType==="asset_replacement"?"Save Asset Metadata":isRuntimeSlotMode()?"Save Style":connected?"Save":canConnect?"Save & Connect":"Save Config";saveButton.title=isRuntimeSlotMode()?"Save writes the selected Farm Slot values into the persistent style config/module. Connect is separate and does not seed preset values.":connected?"Connected direct apply will update the real workspace style path.":canConnect?"Save writes the lab config, then attempts supported runtime setup/connect before returning.":"Saved config only. Direct apply is not connected for this workspace.";const showSetup=canConnect&&!connected;setupButton.textContent=isRuntimeSlotMode()?"Connect":"One-Time Setup";setupButton.style.display=showSetup||needsSetup?"inline-block":"none";}
+    function updateActionLabels(){const connected=directApplyConnected();const canConnect=adapterId==="idle_monster_farm"&&surfaceType!=="asset_replacement";const runtime=isRuntimeSlotMode();saveButton.textContent=surfaceType==="asset_replacement"?"Save Asset Metadata":runtime?"Save Style":connected?"Save":canConnect?"Save & Connect":"Save Config";saveButton.title=runtime?"Save Style writes persistent Farm Slot values. It does not install the bridge.":connected?"Connected direct apply will update the real workspace style path.":canConnect?"Save writes the lab config, then attempts supported runtime setup/connect before returning.":"Saved config only. Direct apply is not connected for this workspace.";checkConnectionButton.style.display=runtime?"inline-block":"none";installBridgeButton.style.display=runtime?"inline-block":"none";installBridgeButton.disabled=connected;installBridgeButton.title=connected?"Runtime bridge is already installed.":"Explicit write action: installs only the Farm Slot runtime bridge.";const showSetup=canConnect&&!connected&&!runtime;setupButton.textContent="One-Time Setup";setupButton.style.display=showSetup||needsSetup?"inline-block":"none";}
     function previewSourceText(){const source=(surfaceData&&surfaceData.previewSource)||"real_project_generated_default";if(source==="real_project_current_config")return"Preview source: real_project_current_config. Before/current uses the real Game Polish Lab config in this workspace.";if(source==="real_project_generated_default")return"Preview source: real_project_generated_default. No existing config was found; this is a generated default preview for this workspace.";if(source==="example_preview_not_connected")return"Preview source: example_preview_not_connected. Example preview - not read from your game yet. Direct apply is not connected.";if(source==="fixture_test_preview")return"Preview source: fixture_test_preview. Fixture/test preview because the opened workspace is under fixtures/.";return"Preview source: no_workspace.";}
     function initialStatusText(){const lines=[previewSourceText()];if(surfaceType!=="asset_replacement"&&surfaceData.configLoad.warning)lines.push(surfaceData.configLoad.warning);if(isRuntimeSlotMode()){const proof=runtimeProof();lines.push("Farm Slot Runtime Editor: the running Idle Monster Farm browser game is the preview.");lines.push("Live edits write .game-polish-lab/live-style/farm-slot.json only; Save writes the persistent style config/module.");lines.push(directApplyConnected()?"Runtime bridge connected. Move a slider, then judge the browser game.":"Runtime bridge not connected yet. Use Connect before judging live edits.");if(proof){lines.push("Proof: "+proof.status+" / "+proof.proofLevel+" / "+proof.styleSource);(proof.missingPieces||[]).slice(0,3).forEach(p=>lines.push("Missing: "+p));}}else if(adapterId==="idle_monster_farm"){const proof=runtimeProof();lines.push(directApplyConnected()?"Direct apply connected: runtime value usage proven.":"Direct apply not connected. Save & Connect writes JSON first, then attempts supported runtime setup before returning.");if(proof){lines.push("Proof: "+proof.status+" / "+proof.proofLevel+" / "+proof.styleSource);(proof.missingPieces||[]).slice(0,3).forEach(p=>lines.push("Missing: "+p));}}else{lines.push("Generic Phaser mode writes config/fallback metadata only unless explicitly configured; runtime source integration remains fallback-only.");}return lines.join("\\n");}
     function setNumber(key,raw,num,range){const b=surfaceData.bounds[key],next=Math.min(b.max,Math.max(b.min,Number(raw)));values[key]=next;num.value=next;range.value=next;render();scheduleLiveStyleWrite();}
     function scheduleLiveStyleWrite(){if(!isRuntimeSlotMode())return;clearTimeout(liveWriteTimer);liveWriteTimer=setTimeout(()=>{vscode.postMessage({command:"writeLiveStyle",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl});},120);}
     preset.addEventListener("change",()=>{const p=selectedPresetOption();if(!p)return;selectedPresetId=p.id;presetName=p.name;values=structuredClone(p.values);buildControls();render();buildPreset();scheduleLiveStyleWrite();});
     document.getElementById("reset").addEventListener("click",()=>{if(surfaceType==="asset_replacement"){selectedAsset=null;render();return;}const p=selectedPresetOption();if(!p)return;selectedPresetId=p.id;presetName=p.name;values=structuredClone(p.values);buildControls();render();buildPreset();scheduleLiveStyleWrite();});
-    saveButton.addEventListener("click",()=>{if(surfaceType==="asset_replacement"){if(!selectedAsset){status.textContent="Choose a PNG/WebP asset before applying.";return;}if(adapterId==="generic_phaser"){vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64,assetDestinationFolder:genericAssetFolder.value});return;}vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,assetTargetId:document.getElementById("assetTarget").value,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64});return;}vscode.postMessage({command:"saveAndApply",surfaceType,presetName,values,adapterId,targetLabel:genericTarget.value,selectedFiles:genericSelectedFiles(),directApplyAllowed:genericDirect.checked});});
+    saveButton.addEventListener("click",()=>{if(surfaceType==="asset_replacement"){if(!selectedAsset){status.textContent="Choose a PNG/WebP asset before applying.";return;}if(adapterId==="generic_phaser"){vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64,assetDestinationFolder:genericAssetFolder.value});return;}vscode.postMessage({command:"applyAsset",surfaceType,presetName:"",values:{},adapterId,assetTargetId:document.getElementById("assetTarget").value,fileName:selectedAsset.name,dataBase64:selectedAsset.dataBase64});return;}if(isRuntimeSlotMode()){vscode.postMessage({command:"saveStyle",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl});return;}vscode.postMessage({command:"saveAndApply",surfaceType,presetName,values,adapterId,targetLabel:genericTarget.value,selectedFiles:genericSelectedFiles(),directApplyAllowed:genericDirect.checked});});
     undoApply.addEventListener("click",()=>requestUndoLastApply("button"));
     window.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&!event.shiftKey&&event.key.toLowerCase()==="z"){if(requestUndoLastApply("keyboard"))event.preventDefault();}});
     function updateUndoState(){const handle=surfaceType!=="asset_replacement"&&adapterId==="idle_monster_farm"?surfaceData.latestRollback:undefined;undoApply.disabled=!handle;undoApply.title=handle?"Restore latest safe rollback snapshot for this visual config. Shortcut: Ctrl+Z":"No safe rollback snapshot exists for this visual config.";}
     function requestUndoLastApply(source){if(surfaceType==="asset_replacement"||adapterId!=="idle_monster_farm"){status.textContent="Undo Last Apply is only available for generated visual style configs.";return false;}if(!surfaceData.latestRollback){status.textContent="No safe rollback snapshot exists for this visual surface.";return false;}undoApply.disabled=true;status.textContent=(source==="keyboard"?"Ctrl+Z: ":"")+"Undoing latest apply for "+surfaceType+"...";vscode.postMessage({command:"undoLastApply",surfaceType,presetName,values,adapterId});return true;}
+    checkConnectionButton.addEventListener("click",()=>vscode.postMessage({command:"checkRuntimeConnection",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl}));
+    installBridgeButton.addEventListener("click",()=>vscode.postMessage({command:"installRuntimeBridge",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl}));
     setupButton.addEventListener("click",()=>vscode.postMessage({command:"setupBridge",surfaceType,presetName,values,devServerUrl:liveGameUrl}));
     document.querySelectorAll("[data-result]").forEach(button=>button.addEventListener("click",()=>{if(!currentAttemptPath){status.textContent+="\\nNo saved tuning attempt is available to mark.";return;}vscode.postMessage({command:"markResult",surfaceType,presetName,values,attemptPath:currentAttemptPath,resultStatus:button.dataset.result,resultNote:document.getElementById("resultNote").value});}));
-    window.addEventListener("message",event=>{const m=event.data;if(m.command==="resultMarked"){if(!m.ok){status.textContent+="\\nResult update failed: "+m.error;return;}status.textContent+="\\nResult marked "+m.resultStatus+". Field notes appended.";document.getElementById("resultNote").value="";return;}if(m.runtimeEditorState&&m.surfaceType===surfaceType){liveGameStatusText=runtimeEditorStatusText(m.runtimeEditorState);status.textContent=["Runtime editor state: "+m.runtimeEditorState,"Live file: "+(m.configPath||".game-polish-lab/live-style/farm-slot.json"),liveGameStatusText,...(m.applySummary||[])].join("\\n");renderRuntimeStatus();return;}if((m.command==="saveResult"||m.command==="undoResult")&&m.surfaceType===surfaceType){if(!m.ok){status.textContent=(m.command==="undoResult"?"Undo failed: ":"Save/apply failed: ")+m.error;updateUndoState();return;}if(m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection){surfaceData.adapterState.connection.runtimeProof=m.runtimeConnectionProof;surfaceData.adapterState.connection.connected=m.runtimeConnectionProof.connected;}if(m.surfaceUpdate)applySurfaceUpdate(m.surfaceUpdate,m.latestRollback);if(m.command==="undoResult"){currentAttemptPath="";document.getElementById("resultPanel").style.display="none";status.textContent=["Undo Last Apply restored: "+(m.configPath||surfaceType),m.rollbackPaths&&m.rollbackPaths.length?"Pre-restore backup: "+m.rollbackPaths.join(", "):"Undo consumed the latest visible rollback action.",...(m.warnings||[]).map(w=>"Rollback warning: "+w),...(m.applySummary||[])].filter(Boolean).join("\\n");return;}currentAttemptPath=m.attemptPath||"";document.getElementById("resultPanel").style.display=currentAttemptPath?"block":"none";needsSetup=(m.applySummary||[]).some(line=>line.includes("setup offered: yes")||line.includes("one-time setup: blocked"));updateActionLabels();const applied=Boolean(m.appliedToRuntime);status.textContent=[(applied?"Applied to real workspace: ":"Saved config only: ")+(m.configPath||""),applied?"Real workspace direct apply path updated.":"Direct apply is not connected for this workspace.",m.savedConfigOnly?"Setup/fallback is required before the game consumes this config.":"", "Preview baseline refreshed from saved config.",currentAttemptPath?"Attempt: "+currentAttemptPath+" ("+(m.resultStatus||"unreviewed")+")":"Attempt: none",m.rollbackPaths&&m.rollbackPaths.length?"Rollback: "+m.rollbackPaths.join(", "):"Rollback: no existing target overwritten",(m.warnings&&m.warnings.length)?"":"",...(m.warnings||[]).map(w=>"Field note warning: "+w),"","Adapter:",...(m.applySummary||[]),"","Manual checklist:",...(m.checklist||[]).map(i=>"- "+i)].filter(line=>line!==undefined).join("\\n");}});
+    window.addEventListener("message",event=>{const m=event.data;if(m.command==="resultMarked"){if(!m.ok){status.textContent+="\\nResult update failed: "+m.error;return;}status.textContent+="\\nResult marked "+m.resultStatus+". Field notes appended.";document.getElementById("resultNote").value="";return;}if(m.runtimeEditorState&&m.surfaceType===surfaceType){if(m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection){surfaceData.adapterState.connection.runtimeProof=m.runtimeConnectionProof;surfaceData.adapterState.connection.connected=m.runtimeConnectionProof.connected;}if(m.surfaceUpdate)applySurfaceUpdate(m.surfaceUpdate,m.latestRollback);liveGameStatusText=runtimeEditorStatusText(m.runtimeEditorState);status.textContent=["Runtime editor state: "+m.runtimeEditorState,"Live file: "+(m.configPath||".game-polish-lab/live-style/farm-slot.json"),liveGameStatusText,...(m.changedFiles&&m.changedFiles.length?["Changed files: "+m.changedFiles.join(", ")]:[]),...(m.applySummary||[])].join("\\n");renderRuntimeStatus();renderAdapter();updateActionLabels();return;}if((m.command==="saveResult"||m.command==="undoResult")&&m.surfaceType===surfaceType){if(!m.ok){status.textContent=(m.command==="undoResult"?"Undo failed: ":"Save/apply failed: ")+m.error;updateUndoState();return;}if(m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState&&surfaceData.adapterState.connection){surfaceData.adapterState.connection.runtimeProof=m.runtimeConnectionProof;surfaceData.adapterState.connection.connected=m.runtimeConnectionProof.connected;}if(m.surfaceUpdate)applySurfaceUpdate(m.surfaceUpdate,m.latestRollback);if(m.command==="undoResult"){currentAttemptPath="";document.getElementById("resultPanel").style.display="none";status.textContent=["Undo Last Apply restored: "+(m.configPath||surfaceType),m.rollbackPaths&&m.rollbackPaths.length?"Pre-restore backup: "+m.rollbackPaths.join(", "):"Undo consumed the latest visible rollback action.",...(m.warnings||[]).map(w=>"Rollback warning: "+w),...(m.applySummary||[])].filter(Boolean).join("\\n");return;}currentAttemptPath=m.attemptPath||"";document.getElementById("resultPanel").style.display=currentAttemptPath?"block":"none";needsSetup=(m.applySummary||[]).some(line=>line.includes("setup offered: yes")||line.includes("one-time setup: blocked"));updateActionLabels();const applied=Boolean(m.appliedToRuntime);status.textContent=[(applied?"Applied to real workspace: ":"Saved config only: ")+(m.configPath||""),applied?"Real workspace direct apply path updated.":"Direct apply is not connected for this workspace.",m.savedConfigOnly?"Setup/fallback is required before the game consumes this config.":"", "Preview baseline refreshed from saved config.",currentAttemptPath?"Attempt: "+currentAttemptPath+" ("+(m.resultStatus||"unreviewed")+")":"Attempt: none",m.rollbackPaths&&m.rollbackPaths.length?"Rollback: "+m.rollbackPaths.join(", "):"Rollback: no existing target overwritten",(m.warnings&&m.warnings.length)?"":"",...(m.warnings||[]).map(w=>"Field note warning: "+w),"","Adapter:",...(m.applySummary||[]),"","Manual checklist:",...(m.checklist||[]).map(i=>"- "+i)].filter(line=>line!==undefined).join("\\n");}});
     function applySurfaceUpdate(update,latestRollback){if(!update||!data.surfaces[update.surfaceType])return;const current=data.surfaces[update.surfaceType];data.surfaces[update.surfaceType]={...current,initialConfig:update.initialConfig,configLoad:update.configLoad,beforeValues:structuredClone(update.beforeValues),preview:update.preview,previewSource:update.previewSource||current.previewSource,latestRollback:latestRollback||update.latestRollback};if(update.surfaceType===surfaceType){surfaceData=data.surfaces[surfaceType];presetName=surfaceData.initialConfig.presetName||presetName;values=structuredClone(surfaceData.initialConfig.values||values);selectedPresetId="";buildControls();buildPreset();render();renderAdapter();updateActionLabels();updateUndoState();}}
     function render(){const preview=(surfaceData&&surfaceData.preview)||{};const previewSource=(surfaceData&&surfaceData.previewSource)||"real_project_generated_default";setRuntimePreviewLayout(isRuntimeSlotMode());previewSourceLabel.textContent=isRuntimeSlotMode()?"Runtime preview source: local Idle Monster Farm dev server. The embedded game or Open Live Game fallback is the preview.":previewSourceText();const beforeBase=previewSource==="real_project_current_config"?(preview.comparison?preview.comparison.beforeLabel:"Before: real config"):previewSource==="fixture_test_preview"?"Before: fixture test preview":previewSource==="example_preview_not_connected"?"Before: example preview - not read from your game yet":previewSource==="no_workspace"?"Before: no workspace":"Before: generated default preview";beforeLabel.textContent=isRuntimeSlotMode()?"http://127.0.0.1:5173 default":beforeBase;afterLabel.textContent=isRuntimeSlotMode()?"":(preview.comparison?preview.comparison.afterLabel:"After: draft style")+", "+frameMode+" frame";animationToggle.disabled=isRuntimeSlotMode()||!preview.animations||preview.animations.length===0;if(isRuntimeSlotMode()){renderRuntimeGame(document.getElementById("before"));renderStateGrid({states:[],animations:[]});return;}if(surfaceType==="asset_replacement"){renderAsset(document.getElementById("before"),null);renderAsset(document.getElementById("after"),selectedAsset);renderStateGrid({states:[],animations:[]});return;}if(surfaceType==="button"){renderButton(document.getElementById("before"),surfaceData.beforeValues);renderButton(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="reward_toast"){renderRewardToast(document.getElementById("before"),surfaceData.beforeValues);renderRewardToast(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="panel"){renderPanel(document.getElementById("before"),surfaceData.beforeValues);renderPanel(document.getElementById("after"),values);renderStateGrid(preview);return;}if(surfaceType==="background_readability"){renderBackground(document.getElementById("before"),surfaceData.beforeValues);renderBackground(document.getElementById("after"),values);renderStateGrid(preview);return;}renderSlot(document.getElementById("before"),surfaceData.beforeValues);renderSlot(document.getElementById("after"),values);renderStateGrid(preview);}
     function baseBoard(container){container.className="board "+frameMode;container.textContent="";}
@@ -1336,7 +1479,7 @@ function renderHtml(input: {
     function renderRuntimeGame(container){container.className="runtime-game-panel";container.textContent="";const toolbar=document.createElement("div");toolbar.className="runtime-game-toolbar";const field=document.createElement("div"),label=document.createElement("label"),input=document.createElement("input");label.textContent="Game URL";input.type="text";input.value=liveGameUrl;input.addEventListener("change",()=>{liveGameUrl=input.value.trim();liveGameStatusText=allowedLocalGameUrl(liveGameUrl)?"game not loaded":"game URL not configured";render();});field.append(label,input);const reload=document.createElement("button");reload.className="secondary";reload.textContent="Reload Game";const open=document.createElement("button");open.textContent="Open Live Game";toolbar.append(field,reload,open);const state=document.createElement("p");state.id="liveGameStatus";state.className="meta";const fallback=document.createElement("div");fallback.className="runtime-fallback";const iframe=document.createElement("iframe");iframe.className="runtime-game-frame";iframe.title="Running Idle Monster Farm dev server";iframe.setAttribute("sandbox","allow-scripts allow-same-origin allow-forms allow-pointer-lock");function loadFrame(){if(!allowedLocalGameUrl(liveGameUrl)){iframe.removeAttribute("src");liveGameStatusText="game URL not configured";renderRuntimeStatus();return;}liveGameStatusText="game not reachable";iframe.src=liveGameUrl;}iframe.addEventListener("load",()=>{liveGameStatusText=directApplyConnected()?"game loaded; live style connected":"game loaded; live style waiting for bridge";renderRuntimeStatus();});iframe.addEventListener("error",()=>{liveGameStatusText="game not reachable";renderRuntimeStatus();});reload.addEventListener("click",loadFrame);open.addEventListener("click",()=>vscode.postMessage({command:"openLiveGame",surfaceType,presetName,values,adapterId,devServerUrl:liveGameUrl}));fallback.append(state,iframe);container.append(toolbar,fallback);loadFrame();}
     function allowedLocalGameUrl(value){try{const url=new URL(value);return url.protocol==="http:"&&(url.hostname==="127.0.0.1"||url.hostname==="localhost");}catch{return false;}}
     function renderRuntimeStatus(){const target=document.getElementById("liveGameStatus");if(target)target.textContent=liveGameStatusText;}
-    function runtimeEditorStatusText(state){if(state==="style_applied")return"live style connected";if(state==="game_url_not_configured")return"game URL not configured";if(state==="game_not_running")return"game not reachable";if(state==="error")return"live style error";if(state==="connected")return"game loaded";return"live style waiting for bridge";}
+    function runtimeEditorStatusText(state){if(state==="style_applied")return"live style connected";if(state==="game_url_not_configured")return"game URL not configured";if(state==="game_not_running")return"game not reachable";if(state==="runtime_bridge_missing")return"Runtime bridge not installed";if(state==="error")return"live style error";if(state==="connected")return"game loaded";return"live style waiting for bridge";}
     function setSlotVars(el,style){el.style.setProperty("--slot-width",style.slotWidth+"px");el.style.setProperty("--slot-height",style.slotHeight+"px");el.style.setProperty("--slot-gap",style.gap+"px");el.style.setProperty("--border-width",style.borderWidth+"px");el.style.setProperty("--corner-radius",style.cornerRadius+"px");el.style.setProperty("--fill-color",style.fillColor);el.style.setProperty("--border-color",style.borderColor);el.style.setProperty("--selected-glow",style.selectedGlowStrength);el.style.setProperty("--locked-opacity",style.lockedOverlayOpacity);el.style.setProperty("--empty-opacity",style.emptySlotOpacity);el.style.setProperty("--monster-scale",style.monsterDisplayScale);el.style.setProperty("--monster-offset",style.monsterVerticalOffset+"px");el.style.setProperty("--merge-pulse",style.mergeCandidatePulseScale||1);}
     function renderSlot(container,style){baseBoard(container);setSlotVars(container,style);const grid=document.createElement("div");grid.className="slot-grid";container.append(grid);const states=(surfaceData.preview&&surfaceData.preview.states&&surfaceData.preview.states.length?surfaceData.preview.states:[{stateId:"empty",label:"Empty",supported:true},{stateId:"occupied",label:"Occupied",supported:true},{stateId:"selected",label:"Selected",supported:true},{stateId:"locked",label:"Locked",supported:true},{stateId:"merge_candidate",label:"Merge candidate",supported:true}]);for(let i=0;i<9;i++){appendSlotState(grid,states[i%states.length],style);}}
     function appendSlotState(container,state,style){const id=(state.stateId||"unknown").replace(/_/g,"-"),card=document.createElement("div");card.className="slot-card "+classForSlotState(state)+(animationOn&&state.stateId==="merge_candidate"?" animate":"");const label=document.createElement("span");label.className="state-label";label.textContent=state.label||id;card.append(label);if(state.stateId==="empty"){card.append(document.createElement("span"));}else{const monster=document.createElement("div");monster.className="monster";card.append(monster);}container.append(card);}
