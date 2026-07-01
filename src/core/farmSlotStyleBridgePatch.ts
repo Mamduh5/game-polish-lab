@@ -116,17 +116,11 @@ function hasImportInsertedInsideMultilineImport(text: string): boolean {
 function patchFarmSlotVisualExpressions(text: string): string {
   let patched = text;
   const replacements: Array<[RegExp, string]> = [
-    [/\bconst\s+slotWidth\s*=\s*\d+(?:\.\d+)?\s*;/, "const slotWidth = FARM_SLOT_STYLE.slotWidth;"],
-    [/\bconst\s+slotHeight\s*=\s*\d+(?:\.\d+)?\s*;/, "const slotHeight = FARM_SLOT_STYLE.slotHeight;"],
     [/\bconst\s+borderWidth\s*=\s*\d+(?:\.\d+)?\s*;/, "const borderWidth = FARM_SLOT_STYLE.borderWidth;"],
   ];
   for (const [pattern, replacement] of replacements) {
     patched = patched.replace(pattern, replacement);
   }
-  patched = patched.replace(
-    /(\b(?:this|scene)\.add\.rectangle\s*\(\s*[^,\n]+,\s*[^,\n]+,\s*)\d+(?:\.\d+)?(\s*,\s*)\d+(?:\.\d+)?(\s*,\s*)(0x[0-9a-fA-F]+|\d+)(\s*\))/,
-    `$1FARM_SLOT_STYLE.slotWidth$2FARM_SLOT_STYLE.slotHeight$3Number(FARM_SLOT_STYLE.fillColor.replace("#", "0x"))$5`
-  );
   patched = patched.replace(
     /(\.setStrokeStyle\s*\(\s*)\d+(?:\.\d+)?(\s*,\s*)(0x[0-9a-fA-F]+|\d+)(\s*\))/,
     `$1FARM_SLOT_STYLE.borderWidth$2Number(FARM_SLOT_STYLE.borderColor.replace("#", "0x"))$4`
@@ -159,10 +153,6 @@ function patchRealFarmSceneSlotRendering(text: string): string {
   patched = patched.replace(
     ".setStrokeStyle(3, THEME.lockedBorder, 0.72);",
     ".setStrokeStyle(FARM_SLOT_STYLE.borderWidth, Number(FARM_SLOT_STYLE.borderColor.replace(\"#\", \"0x\")), 0.72);"
-  );
-  patched = patched.replace(
-    "container.add(this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, THEME.lockedInner, 0.22)",
-    "container.add(this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, THEME.lockedInner, FARM_SLOT_STYLE.lockedOverlayOpacity)"
   );
   patched = patched.replace(
     "const indicatorSize = this.cellSize + dropIndicatorSizePadding;",
