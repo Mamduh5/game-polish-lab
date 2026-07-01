@@ -101,6 +101,20 @@ export function analyzePatchedFarmSlotSetupConnection(input: {
   ].sort((a, b) => a.relativePath.localeCompare(b.relativePath)), input.supportedStyleModulePath);
 }
 
+export function orderFarmSlotSetupTargetCandidates(ownerFiles: string[]): string[] {
+  const uniqueOwnerFiles = Array.from(new Set(ownerFiles));
+  return [
+    ...uniqueOwnerFiles.filter((file) => normalizePath(file).toLowerCase() === "src/scenes/farmscene.ts"),
+    ...uniqueOwnerFiles.filter((file) => /FarmSlot|FarmSlots|FarmGrid|SlotCard/.test(file)),
+    ...uniqueOwnerFiles.filter((file) => /MonsterRenderer/.test(file)),
+    ...uniqueOwnerFiles.filter((file) => {
+      const normalized = normalizePath(file).toLowerCase();
+      return normalized !== "src/scenes/farmscene.ts"
+        && !/FarmSlot|FarmSlots|FarmGrid|SlotCard|MonsterRenderer/.test(file);
+    })
+  ];
+}
+
 export function detectConnectionType(text: string, supportedStyleModulePath: string): FarmSlotStyleConnectionType {
   const normalized = text.toLowerCase();
   const styleImportPath = supportedStyleModulePath.replace(/^src\//, "../").replace(/\.ts$/, "").toLowerCase();
@@ -117,7 +131,7 @@ export function detectConnectionType(text: string, supportedStyleModulePath: str
 }
 
 function isLikelyOwnerFile(file: FarmSlotFileInspection): boolean {
-  const normalizedPath = file.relativePath.toLowerCase();
+  const normalizedPath = normalizePath(file.relativePath).toLowerCase();
   const text = file.text.toLowerCase();
   if (isForbiddenV05Path(file.relativePath)) {
     return false;
@@ -196,6 +210,10 @@ function resolveConnectionType(files: FarmSlotFileInspection[], supportedStyleMo
     }
   }
   return "none";
+}
+
+function normalizePath(relativePath: string): string {
+  return relativePath.replace(/\\/g, "/");
 }
 
 const farmSlotStyleProperties = [

@@ -10,7 +10,8 @@ import {
   FarmSlotAdapterDetection,
   FarmSlotAdapterState,
   FarmSlotFileInspection,
-  FarmSlotStyleConnection
+  FarmSlotStyleConnection,
+  orderFarmSlotSetupTargetCandidates
 } from "../../core/farmSlotAdapterAnalysis";
 import {
   farmSlotRuntimeProofIncludesSetupMinimum,
@@ -84,7 +85,7 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
   const changedFiles = [detection.supportedStyleModulePath];
   const scope = checkV05VisualScope(changedFiles, { throughAdapter: true });
   const warnings = [...detection.warnings, ...scope.warnings, farmSlotConfigOnlyStyleWarning];
-  const setupTarget = pickSetupTarget(detection);
+  const setupTarget = await pickSetupTarget(folder, detection);
 
   if (!setupTarget && !styleModuleExists) {
     return {
@@ -204,7 +205,7 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
 export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.WorkspaceFolder, config: SlotCardStyleConfig): Promise<FarmSlotSetupResult> {
   const state = await getIdleMonsterFarmFarmSlotAdapterState(folder);
   const { detection, connection } = state;
-  const setupTarget = pickSetupTarget(detection);
+  const setupTarget = await pickSetupTarget(folder, detection);
   const intendedFiles = setupTarget
     ? [detection.supportedStyleModulePath, setupTarget]
     : [detection.supportedStyleModulePath];
@@ -401,8 +402,18 @@ async function createRollbackSnapshots(folder: vscode.WorkspaceFolder, relativeP
   return rollbackPaths;
 }
 
-function pickSetupTarget(detection: FarmSlotAdapterDetection): string | undefined {
-  return detection.ownerFiles.find((file) => /FarmSlot|FarmGrid|SlotCard|MonsterRenderer|FarmScene/.test(file));
+async function pickSetupTarget(folder: vscode.WorkspaceFolder, detection: FarmSlotAdapterDetection): Promise<string | undefined> {
+  const candidates = orderFarmSlotSetupTargetCandidates(detection.ownerFiles);
+  for (const relativePath of candidates) {
+    const text = await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, ...relativePath.split("/")));
+    if (text === undefined) {
+      continue;
+    }
+    if (connectOwnerFileToStyleModule(text, relativePath, detection.supportedStyleModulePath)) {
+      return relativePath;
+    }
+  }
+  return undefined;
 }
 
 function connectOwnerFileToStyleModule(text: string, ownerPath: string, styleModulePath: string): string | undefined {

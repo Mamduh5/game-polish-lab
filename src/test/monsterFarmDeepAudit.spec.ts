@@ -14,7 +14,7 @@ import {
 } from "../core/monsterFarmDeepAudit";
 import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
 import { analyzeButtonDetection, analyzeButtonStyleConnection } from "../core/buttonAdapterAnalysis";
-import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection, analyzePatchedFarmSlotSetupConnection } from "../core/farmSlotAdapterAnalysis";
+import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection, analyzePatchedFarmSlotSetupConnection, orderFarmSlotSetupTargetCandidates } from "../core/farmSlotAdapterAnalysis";
 import {
   farmSlotRuntimeProofIncludesSetupMinimum,
   renderFarmSlotStyleModule,
@@ -1691,6 +1691,14 @@ assert.strictEqual(realFarmScenePatchedConnection.connected, true);
 assert.strictEqual(realFarmScenePatchedConnection.runtimeProof.proofLevel, "runtime_value_usage");
 assert.ok(realFarmScenePatchedConnection.runtimeProof.evidenceFiles.some((file) => file.matchedProperties.includes("monsterDisplayScale")));
 assert.strictEqual(farmSlotRuntimeProofIncludesSetupMinimum(realFarmScenePatchedConnection.runtimeProof), true);
+assert.deepStrictEqual(orderFarmSlotSetupTargetCandidates([
+  "src/rendering/MonsterRenderer.ts",
+  "src/scenes/FarmScene.ts"
+]).slice(0, 2), [
+  "src/scenes/FarmScene.ts",
+  "src/rendering/MonsterRenderer.ts"
+]);
+assert.strictEqual(connectFarmSlotOwnerFileToStyleModule("import { MonsterRenderer } from './MonsterRenderer';\nexport class MonsterRenderer {}", "src/rendering/MonsterRenderer.ts", "src/config/farmSlotStyle.ts"), undefined);
 
 const renderedFarmSlotStyleModule = renderFarmSlotStyleModule(defaultSlotCardStyle);
 assert.ok(renderedFarmSlotStyleModule.includes("export const FARM_SLOT_STYLE: FarmSlotStyle"));
