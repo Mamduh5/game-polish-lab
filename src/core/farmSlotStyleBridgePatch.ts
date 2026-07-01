@@ -8,7 +8,7 @@ export function connectFarmSlotOwnerFileToStyleModule(text: string, ownerPath: s
   }
 
   const importPath = relativeImportPath(ownerPath, styleModulePath);
-  const importLine = `import { FARM_SLOT_STYLE } from '${importPath}';`;
+  const importLine = `import { FARM_SLOT_STYLE, pollFarmSlotLiveStyle } from '${importPath}';`;
   const lines = text.split(/\r?\n/);
 
   let patched = hasFarmSlotStyleImport(text) ? text : insertImportLine(lines, importLine);
@@ -38,7 +38,7 @@ export function connectFarmSlotOwnerFileToStyleModule(text: string, ownerPath: s
 }
 
 function hasFarmSlotStyleImport(text: string): boolean {
-  return /import\s*\{\s*FARM_SLOT_STYLE\s*\}\s*from\s*['"][^'"]*farmSlotStyle['"]\s*;/.test(text);
+  return /import\s*\{[^}]*\bFARM_SLOT_STYLE\b[^}]*\}\s*from\s*['"][^'"]*farmSlotStyle['"]\s*;/.test(text);
 }
 
 function insertImportLine(lines: string[], importLine: string): string | undefined {
@@ -137,8 +137,12 @@ function patchFarmSlotVisualExpressions(text: string): string {
 function patchRealFarmSceneSlotRendering(text: string): string {
   let patched = text;
   patched = patched.replace(
+    /import\s*\{\s*FARM_SLOT_STYLE\s*\}\s*from\s*(['"][^'"]*farmSlotStyle['"])\s*;/,
+    "import { FARM_SLOT_STYLE, pollFarmSlotLiveStyle } from $1;"
+  );
+  patched = patched.replace(
     "this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot)",
-    "this.add.rectangle(x, y, FARM_SLOT_STYLE.slotWidth, FARM_SLOT_STYLE.slotHeight, Number(FARM_SLOT_STYLE.fillColor.replace(\"#\", \"0x\")))"
+    "this.add.rectangle(x, y, this.cellSize, this.cellSize, Number(FARM_SLOT_STYLE.fillColor.replace(\"#\", \"0x\")))"
   );
   patched = patched.replace(
     ".setStrokeStyle(3, THEME.slotBorder, 0.9);",
@@ -146,11 +150,11 @@ function patchRealFarmSceneSlotRendering(text: string): string {
   );
   patched = patched.replace(
     "this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, THEME.slotInner, 0.22)",
-    "this.add.rectangle(x + 8, y + 8, FARM_SLOT_STYLE.slotWidth - 16, FARM_SLOT_STYLE.slotHeight - 16, Number(FARM_SLOT_STYLE.fillColor.replace(\"#\", \"0x\")), FARM_SLOT_STYLE.emptySlotOpacity)"
+    "this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, Number(FARM_SLOT_STYLE.innerFillColor.replace(\"#\", \"0x\")), FARM_SLOT_STYLE.emptySlotOpacity)"
   );
   patched = patched.replace(
     "const lockedTile = this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.locked, 0.72)",
-    "const lockedTile = this.add.rectangle(x, y, FARM_SLOT_STYLE.slotWidth, FARM_SLOT_STYLE.slotHeight, THEME.locked, FARM_SLOT_STYLE.lockedOverlayOpacity)"
+    "const lockedTile = this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.locked, FARM_SLOT_STYLE.lockedOverlayOpacity)"
   );
   patched = patched.replace(
     ".setStrokeStyle(3, THEME.lockedBorder, 0.72);",
@@ -158,7 +162,7 @@ function patchRealFarmSceneSlotRendering(text: string): string {
   );
   patched = patched.replace(
     "container.add(this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, THEME.lockedInner, 0.22)",
-    "container.add(this.add.rectangle(x + 8, y + 8, FARM_SLOT_STYLE.slotWidth - 16, FARM_SLOT_STYLE.slotHeight - 16, THEME.lockedInner, FARM_SLOT_STYLE.lockedOverlayOpacity)"
+    "container.add(this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, THEME.lockedInner, FARM_SLOT_STYLE.lockedOverlayOpacity)"
   );
   patched = patched.replace(
     "const indicatorSize = this.cellSize + dropIndicatorSizePadding;",
@@ -172,6 +176,37 @@ function patchRealFarmSceneSlotRendering(text: string): string {
     "this.monsterRenderer.addMonsterVisual(visual, monster, 0, 0, visualScale);",
     "this.monsterRenderer.addMonsterVisual(visual, monster, 0, FARM_SLOT_STYLE.monsterVerticalOffset, visualScale);"
   );
+  return patchFarmSceneLivePoll(patched);
+}
+
+function patchFarmSceneLivePoll(text: string): string {
+  if (/\bpollFarmSlotLiveStyle\s*\(/.test(text) && /\bprivate\s+pollFarmSlotLiveStyle\s*\(/.test(text)) {
+    return text;
+  }
+
+  let patched = text;
+  if (!/\bprivate\s+pollFarmSlotLiveStyle\s*\(/.test(patched)) {
+    patched = patched.replace(
+      /(\n\s*update\s*\([^)]*\)\s*:\s*void\s*\{[\s\S]*?\n\s*\})/,
+      `$1
+
+  private pollFarmSlotLiveStyle(): void {
+    void pollFarmSlotLiveStyle(this.time.now).then((changed) => {
+      if (!changed || !this.scene.isActive()) {
+        return;
+      }
+
+      this.rebuildResponsiveFarmView();
+    });
+  }`
+    );
+  }
+  if (!/\bthis\.pollFarmSlotLiveStyle\s*\(\s*\)\s*;/.test(patched)) {
+    patched = patched.replace(
+      "    this.refreshEconomyDebugPanel();\n  }",
+      "    this.refreshEconomyDebugPanel();\n    this.pollFarmSlotLiveStyle();\n  }"
+    );
+  }
   return patched;
 }
 

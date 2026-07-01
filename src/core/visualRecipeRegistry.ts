@@ -50,6 +50,7 @@ const tokenLabels: Record<string, string> = {
   borderWidth: "Border width",
   cornerRadius: "Corner radius",
   fillColor: "Fill color",
+  innerFillColor: "Inner fill color",
   borderColor: "Border color",
   selectedGlowStrength: "Selected glow strength",
   lockedOverlayOpacity: "Locked overlay opacity",
@@ -112,6 +113,7 @@ const tokenLabels: Record<string, string> = {
 
 const categoryByToken: Record<string, VisualStyleTokenCategory> = {
   fillColor: "color",
+  innerFillColor: "color",
   borderColor: "color",
   backgroundColor: "color",
   contrastOverlayColor: "color",

@@ -337,7 +337,7 @@ for (const familyName of requiredStylePresetFamilies) {
   for (const key of Object.keys(defaultSlotCardStyle) as Array<keyof typeof defaultSlotCardStyle>) {
     assert.ok(key in stylePatch, `${familyName} missing ${key}`);
     const value = stylePatch[key];
-    if (key === "fillColor" || key === "borderColor") {
+    if (key === "fillColor" || key === "innerFillColor" || key === "borderColor") {
       assert.strictEqual(typeof value, "string");
       assert.match(String(value), /^#[0-9a-f]{6}$/i);
     } else {
@@ -1659,6 +1659,10 @@ assert.strictEqual(importOnlyPatchAttempt, undefined);
 const realFarmScenePatchSource = `import { MonsterRenderer } from '../rendering/MonsterRenderer';
 export class FarmScene extends Phaser.Scene {
   private cellSize = CELL_SIZE;
+  update(_time, delta): void {
+    this.refreshEconomyDebugPanel();
+  }
+  private rebuildResponsiveFarmView() {}
   private addUnlockedSlotTile(container, x, y, slotId) {
     const shadow = this.add.rectangle(x + 4, y + 5, this.cellSize, this.cellSize, THEME.shadow, 0.24).setOrigin(0);
     const slotTile = this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot)
@@ -1686,13 +1690,17 @@ export class FarmScene extends Phaser.Scene {
 }`;
 const realFarmScenePatch = connectFarmSlotOwnerFileToStyleModule(realFarmScenePatchSource, "src/scenes/FarmScene.ts", "src/config/farmSlotStyle.ts");
 assert.ok(realFarmScenePatch);
-assert.ok(realFarmScenePatch!.includes("import { FARM_SLOT_STYLE } from '../config/farmSlotStyle';"));
+assert.ok(realFarmScenePatch!.includes("import { FARM_SLOT_STYLE, pollFarmSlotLiveStyle } from '../config/farmSlotStyle';"));
 for (const property of requiredFarmSlotRuntimeProofProperties) {
   assert.ok(realFarmScenePatch!.includes(`FARM_SLOT_STYLE.${property}`), `real FarmScene setup patch should wire ${property}`);
 }
 assert.ok(realFarmScenePatch!.includes("FARM_SLOT_STYLE.lockedOverlayOpacity"));
 assert.ok(realFarmScenePatch!.includes("FARM_SLOT_STYLE.emptySlotOpacity"));
+assert.ok(realFarmScenePatch!.includes("FARM_SLOT_STYLE.innerFillColor"));
 assert.ok(realFarmScenePatch!.includes("FARM_SLOT_STYLE.mergeCandidatePulseScale"));
+assert.ok(realFarmScenePatch!.includes("pollFarmSlotLiveStyle(this.time.now)"));
+assert.ok(!realFarmScenePatch!.includes("FARM_SLOT_STYLE.slotWidth"));
+assert.ok(!realFarmScenePatch!.includes("FARM_SLOT_STYLE.slotHeight"));
 assert.ok(!realFarmScenePatch!.includes("FARM_SLOT_STYLE.gap"));
 assert.ok(!realFarmScenePatch!.includes("FARM_SLOT_STYLE.cornerRadius"));
 const realFarmScenePatchedConnection = analyzeFarmSlotStyleConnection([
@@ -1714,11 +1722,11 @@ assert.strictEqual(connectFarmSlotOwnerFileToStyleModule("import { MonsterRender
 
 const renderedFarmSlotStyleModule = renderFarmSlotStyleModule(defaultSlotCardStyle);
 assert.ok(renderedFarmSlotStyleModule.includes("export const FARM_SLOT_STYLE: FarmSlotStyle"));
-assert.ok(renderedFarmSlotStyleModule.includes("slotWidth"));
+assert.ok(renderedFarmSlotStyleModule.includes("DEFAULT_FARM_SLOT_STYLE"));
+assert.ok(renderedFarmSlotStyleModule.includes("pollFarmSlotLiveStyle"));
+assert.ok(renderedFarmSlotStyleModule.includes("innerFillColor"));
 assert.ok(renderedFarmSlotStyleModule.includes("lockedOverlayOpacity"));
 assert.ok(renderedFarmSlotStyleModule.includes("monsterVerticalOffset"));
-assert.ok(!renderedFarmSlotStyleModule.includes("gap:"));
-assert.ok(!renderedFarmSlotStyleModule.includes("cornerRadius"));
 
 const mismatchedFarmScenePatchSource = realFarmScenePatchSource
   .replace("this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot)", "this.add.rectangle(x, y, this.cellSize, this.cellSize, resolveSlotTheme())")

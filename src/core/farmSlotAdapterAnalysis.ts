@@ -223,6 +223,7 @@ const farmSlotStyleProperties = [
   "borderWidth",
   "cornerRadius",
   "fillColor",
+  "innerFillColor",
   "borderColor",
   "selectedGlowStrength",
   "lockedOverlayOpacity",

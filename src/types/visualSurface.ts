@@ -8,6 +8,7 @@ export interface SlotCardStyleValues {
   borderWidth: number;
   cornerRadius: number;
   fillColor: string;
+  innerFillColor: string;
   borderColor: string;
   selectedGlowStrength: number;
   lockedOverlayOpacity: number;

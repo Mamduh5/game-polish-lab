@@ -14,6 +14,7 @@ import {
   orderFarmSlotSetupTargetCandidates
 } from "../../core/farmSlotAdapterAnalysis";
 import {
+  extractFarmSlotStyleValuesFromModule,
   farmSlotRuntimeProofIncludesSetupMinimum,
   missingFarmSlotRuntimeProofProperties,
   renderFarmSlotStyleModule,
@@ -273,7 +274,7 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
 
   const styleUri = vscode.Uri.joinPath(folder.uri, ...detection.supportedStyleModulePath.split("/"));
   const existingStyleText = await readTextFileIfExists(styleUri);
-  const generatedStyleText = renderFarmSlotStyleModule(config.values);
+  const generatedStyleText = renderFarmSlotStyleModule(extractFarmSlotStyleValuesFromModule(existingStyleText));
   const previewConnection = analyzePatchedFarmSlotSetupConnection({
     files: await readLikelyFarmSlotFiles(folder),
     setupTarget,

@@ -18,6 +18,7 @@ export interface StyleConfigLoadResult {
 }
 
 export const farmSlotStyleConfigRelativePath = ".game-polish-lab/styles/farm-slot-style.json";
+export const farmSlotLiveStyleRelativePath = ".game-polish-lab/live-style/farm-slot.json";
 export const backgroundReadabilityStyleConfigRelativePath = ".game-polish-lab/styles/background-readability-style.json";
 export const panelStyleConfigRelativePath = ".game-polish-lab/styles/panel-style.json";
 export const rewardToastStyleConfigRelativePath = ".game-polish-lab/styles/reward-toast-style.json";
@@ -278,6 +279,7 @@ export function normalizeSlotCardStyleValues(values: SlotCardStyleValues): SlotC
     borderWidth: clampNumber(values.borderWidth, "borderWidth"),
     cornerRadius: clampNumber(values.cornerRadius, "cornerRadius"),
     fillColor: normalizeColor(values.fillColor, defaultSlotCardStyle.fillColor),
+    innerFillColor: normalizeColor(values.innerFillColor, values.fillColor ?? defaultSlotCardStyle.innerFillColor),
     borderColor: normalizeColor(values.borderColor, defaultSlotCardStyle.borderColor),
     selectedGlowStrength: clampNumber(values.selectedGlowStrength, "selectedGlowStrength"),
     lockedOverlayOpacity: clampNumber(values.lockedOverlayOpacity, "lockedOverlayOpacity"),
@@ -456,6 +458,7 @@ function isSlotCardStyleValuesShape(value: unknown): value is SlotCardStyleValue
     && typeof candidate.borderWidth === "number"
     && typeof candidate.cornerRadius === "number"
     && typeof candidate.fillColor === "string"
+    && (candidate.innerFillColor === undefined || typeof candidate.innerFillColor === "string")
     && typeof candidate.borderColor === "string"
     && typeof candidate.selectedGlowStrength === "number"
     && typeof candidate.lockedOverlayOpacity === "number"

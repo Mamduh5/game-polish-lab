@@ -1,7 +1,7 @@
 import { SlotCardPreset, SlotCardStyleValues } from "../types/visualSurface";
 import { slotCardVisualStylePresets } from "./visualStylePresetLibrary";
 
-export const slotCardStyleBounds: Record<keyof Omit<SlotCardStyleValues, "fillColor" | "borderColor">, { min: number; max: number; step: number }> = {
+export const slotCardStyleBounds: Record<keyof Omit<SlotCardStyleValues, "fillColor" | "innerFillColor" | "borderColor">, { min: number; max: number; step: number }> = {
   slotWidth: { min: 64, max: 180, step: 1 },
   slotHeight: { min: 64, max: 180, step: 1 },
   gap: { min: 2, max: 32, step: 1 },
