@@ -352,9 +352,6 @@ async function saveConfigAndApply(
     logWarn(error);
     return { command: "saveResult", ok: false, surfaceType, error, warnings: plan.warnings, directApplyTemplateId: plan.templateId, directApplyTemplateName: plan.templateName };
   }
-  const applyResult = await apply();
-  const runtimeApplied = adapterOutcomeAppliedToRuntime(applyResult);
-  const applySummary = applyResult.summary;
   const templateResult = executeVisualDirectApplyPlan(folder.uri.fsPath, plan, [{
     relativePath: configRelativePath,
     text: `${JSON.stringify(config, null, 2)}\n`
@@ -364,6 +361,9 @@ async function saveConfigAndApply(
     logWarn(error);
     return { command: "saveResult", ok: false, surfaceType, error, warnings: templateResult.warnings, directApplyTemplateId: plan.templateId, directApplyTemplateName: plan.templateName };
   }
+  const applyResult = await apply();
+  const runtimeApplied = adapterOutcomeAppliedToRuntime(applyResult);
+  const applySummary = applyResult.summary;
   const honestApplySummary = [
     `save/apply result: ${runtimeApplied ? "applied_to_real_workspace" : "saved_config_only"}`,
     runtimeApplied
@@ -372,8 +372,8 @@ async function saveConfigAndApply(
     ...applySummary
   ];
   const warnings = runtimeApplied
-    ? templateResult.warnings
-    : [...templateResult.warnings, "Saved config only. Direct apply is not connected for this workspace; setup/fallback is required before the game consumes this config."];
+    ? [...templateResult.warnings, ...applyResult.warnings]
+    : [...templateResult.warnings, ...applyResult.warnings, "Saved config only. Direct apply is not connected for this workspace; setup/fallback is required before the game consumes this config."];
   logSummary(honestApplySummary, warnings);
   const checklist = [...checklistFor(surfaceType, load, templateResult.rollbackPaths.length > 0, honestApplySummary), ...templateResult.manualChecks.map((check) => check.label)];
   logChecklist(`v0.58 ${surfaceType} manual test checklist:`, checklist);
@@ -386,7 +386,7 @@ async function saveConfigAndApply(
     configPath: configRelativePath,
     directApplyTemplateId: plan.templateId,
     directApplyTemplateName: plan.templateName,
-    rollbackPaths: templateResult.rollbackPaths,
+    rollbackPaths: [...templateResult.rollbackPaths, ...applyResult.rollbackPaths],
     checklist,
     applySummary: [
       `direct apply template: ${plan.templateId ?? "none"} (${plan.templateName ?? "unresolved"})`,

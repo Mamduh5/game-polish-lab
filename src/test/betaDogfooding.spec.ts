@@ -28,9 +28,9 @@ import { VisualTuningAttemptIndex } from "../types/visualTuningAttempt";
 type MainDogfoodFamily = "idle_monster_farm" | "sort_puzzle" | "cursor_arena";
 
 const fixtureRoots: Record<MainDogfoodFamily, string> = {
-  idle_monster_farm: "fixtures/phaser-idle-monster-farm-sample",
-  sort_puzzle: "fixtures/phaser-sort-puzzle-sample",
-  cursor_arena: "fixtures/phaser-incremental-arena-sample"
+  idle_monster_farm: "src/test/fixtures/idle-monster-farm",
+  sort_puzzle: "src/test/fixtures/sort-puzzle",
+  cursor_arena: "src/test/fixtures/cursor-arena"
 };
 
 const familyLabels: Record<MainDogfoodFamily, string> = {

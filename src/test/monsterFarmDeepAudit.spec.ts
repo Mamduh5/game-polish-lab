@@ -238,8 +238,15 @@ import { InspectedFile } from "../types/audit";
 import { VisualAdapterSurfaceTarget, VisualGameAdapter } from "../types/visualGameAdapter";
 import { visualRecipeSchemaVersion } from "../types/visualRecipe";
 
-const fixtureRoot = path.join(process.cwd(), "fixtures", "phaser-idle-monster-farm-sample");
-const files = readFixtureFiles(fixtureRoot);
+const files: InspectedFile[] = [
+  inspectedFile("src/scenes/FarmScene.ts", "export class FarmScene extends Phaser.Scene { create(){ this.add.graphics(); this.add.text(0,0,'farm'); this.add.sprite(0,0,'monster'); this.add.image(0,0,'coin'); } }"),
+  inspectedFile("src/rendering/MonsterRenderer.ts", "export class MonsterRenderer { render(){ this.scene.add.sprite(0,0,'monster'); } }"),
+  inspectedFile("src/ui/TapFarmView.ts", "export class TapFarmView {}"),
+  inspectedFile("src/ui/HatchPanelView.ts", "export const HATCH_COOLDOWN_MS = 1000;"),
+  inspectedFile("src/ui/NextQuestWidgetView.ts", "export const QUEST_DEFINITIONS = [];"),
+  inspectedFile("src/data/bossBattles.ts", "export const BOSS_BATTLE_DEFINITIONS = [];"),
+  inspectedFile("src/state/coinBugState.ts", "export const coinBug = true;")
+];
 const audit = buildMonsterFarmAuditDetails(files, "tap_farm_idle", "phaser_rendered_ui_heavy", "typescript_module");
 const sections = renderMonsterFarmAuditMarkdownSections(audit);
 const guardrail = renderMonsterFarmPromptGuardrail();
@@ -1723,6 +1730,55 @@ assert.strictEqual(runtimeProofAllowsDirectApply(runtimeSetupPreview.runtimeProo
 assert.strictEqual(farmSlotRuntimeProofIncludesSetupMinimum(runtimeSetupPreview.runtimeProof), true);
 assert.strictEqual(runtimeSetupPreview.runtimeProof.proofLevel, "runtime_value_usage");
 
+const realShapeBootstrapWorkspace = makeTempWorkspace("farm-slot-bootstrap-real-shape");
+try {
+  writeWorkspaceFile(realShapeBootstrapWorkspace, "src/scenes/FarmScene.ts", realFarmScenePatchSource);
+  const realShapeFiles = [{
+    relativePath: "src/scenes/FarmScene.ts",
+    text: readWorkspaceFile(realShapeBootstrapWorkspace, "src/scenes/FarmScene.ts")
+  }];
+  const realShapeDetection = analyzeFarmSlotDetection(realShapeFiles, "src/config/farmSlotStyle.ts");
+  assert.strictEqual(realShapeDetection.detected, true);
+  assert.strictEqual(realShapeDetection.confidence, "medium");
+  assert.deepStrictEqual(realShapeDetection.ownerFiles, ["src/scenes/FarmScene.ts"]);
+
+  const defaultFarmSlotConfigText = `${JSON.stringify(validFarmSlotConfig, null, 2)}\n`;
+  const dashboardBootstrapPlan = buildVisualDirectApplyPlan({
+    adapterId: "idle_monster_farm",
+    surfaceType: "slot_card",
+    targetId: "farm_slots",
+    styleConfigPath: farmSlotStyleConfigRelativePath,
+    generatedStyleModulePath: "src/config/farmSlotStyle.ts",
+    candidatePaths: [farmSlotStyleConfigRelativePath, "src/config/farmSlotStyle.ts"]
+  });
+  assert.strictEqual(dashboardBootstrapPlan.executable, true);
+  const configWrite = executeVisualDirectApplyPlan(realShapeBootstrapWorkspace, dashboardBootstrapPlan, [{
+    relativePath: farmSlotStyleConfigRelativePath,
+    text: defaultFarmSlotConfigText
+  }]);
+  assert.strictEqual(configWrite.ok, true);
+  assert.strictEqual(readWorkspaceFile(realShapeBootstrapWorkspace, farmSlotStyleConfigRelativePath), defaultFarmSlotConfigText);
+
+  const patchedRealShapeFarmScene = connectFarmSlotOwnerFileToStyleModule(
+    readWorkspaceFile(realShapeBootstrapWorkspace, "src/scenes/FarmScene.ts"),
+    "src/scenes/FarmScene.ts",
+    "src/config/farmSlotStyle.ts"
+  );
+  assert.ok(patchedRealShapeFarmScene);
+  writeWorkspaceFile(realShapeBootstrapWorkspace, "src/config/farmSlotStyle.ts", renderFarmSlotStyleModule(validFarmSlotConfig.values));
+  writeWorkspaceFile(realShapeBootstrapWorkspace, "src/scenes/FarmScene.ts", patchedRealShapeFarmScene!);
+
+  const connectedRealShape = analyzeFarmSlotStyleConnection([
+    { relativePath: "src/scenes/FarmScene.ts", text: readWorkspaceFile(realShapeBootstrapWorkspace, "src/scenes/FarmScene.ts") },
+    { relativePath: "src/config/farmSlotStyle.ts", text: readWorkspaceFile(realShapeBootstrapWorkspace, "src/config/farmSlotStyle.ts") }
+  ], "src/config/farmSlotStyle.ts");
+  assert.strictEqual(connectedRealShape.runtimeProof.status, "connected");
+  assert.strictEqual(connectedRealShape.runtimeProof.proofLevel, "runtime_value_usage");
+  assert.strictEqual(farmSlotRuntimeProofIncludesSetupMinimum(connectedRealShape.runtimeProof), true);
+} finally {
+  cleanupTempWorkspace(realShapeBootstrapWorkspace);
+}
+
 const connectedFiles = [
   {
     relativePath: "src/ui/FarmSlotView.ts",
@@ -2980,7 +3036,8 @@ const missingProofIdleSlotRow = buildDashboardRow({
   adapter: connectedIdleAdapterWithoutProof
 }, attemptIndex);
 assert.strictEqual(missingProofIdleSlotRow.appliedStatus, "config_only");
-assert.strictEqual(missingProofIdleSlotRow.actions.directApply.enabled, false);
+assert.strictEqual(missingProofIdleSlotRow.actions.directApply.enabled, true);
+assert.strictEqual(missingProofIdleSlotRow.actions.directApply.label, "Save & Connect");
 assert.ok(missingProofIdleSlotRow.actions.directApply.reason?.includes("Runtime value usage proof is missing"));
 assert.strictEqual(missingProofIdleSlotRow.scopeSummary.directApplySafe, false);
 
@@ -2992,7 +3049,8 @@ const importOnlyProofIdleSlotRow = buildDashboardRow({
   }
 }, attemptIndex);
 assert.strictEqual(importOnlyProofIdleSlotRow.appliedStatus, "config_only");
-assert.strictEqual(importOnlyProofIdleSlotRow.actions.directApply.enabled, false);
+assert.strictEqual(importOnlyProofIdleSlotRow.actions.directApply.enabled, true);
+assert.strictEqual(importOnlyProofIdleSlotRow.actions.directApply.label, "Save & Connect");
 assert.ok(importOnlyProofIdleSlotRow.actions.directApply.reason?.includes("import_only/module_import_only"));
 
 const runtimeProofIdleSlotRow = buildDashboardRow({
@@ -3132,10 +3190,34 @@ const disconnectedIdlePanelSurface = {
 };
 const disconnectedPanelRow = buildDashboardRow(disconnectedIdlePanelSurface, attemptIndex);
 assert.strictEqual(disconnectedPanelRow.appliedStatus, "config_only");
-assert.strictEqual(disconnectedPanelRow.actions.directApply.enabled, false);
+assert.strictEqual(disconnectedPanelRow.actions.directApply.enabled, true);
+assert.strictEqual(disconnectedPanelRow.actions.directApply.label, "Save & Connect");
 assert.strictEqual(disconnectedPanelRow.actions.generateFallbackTask.enabled, true);
-assert.ok(disconnectedPanelRow.actions.directApply.reason?.includes("not connected"));
+assert.ok(disconnectedPanelRow.actions.directApply.reason?.includes("connect runtime usage"));
 assert.notStrictEqual(disconnectedPanelRow.appliedStatus, "fallback_ready");
+
+const missingConfigDisconnectedIdleSlotSurface = {
+  ...connectedIdleSlotSurface,
+  adapter: {
+    ...connectedIdleSlotSurface.adapter,
+    connectedState: "not_connected" as const,
+    runtimeConnectionProof: undefined
+  },
+  config: { status: "missing" as const, path: farmSlotStyleConfigRelativePath, exists: false },
+  recipeFile: recipeFileStatus(dashboardSlotRecipe, false),
+  fallbackTaskCount: 0
+};
+const missingConfigDisconnectedIdleSlotRow = buildDashboardRow(missingConfigDisconnectedIdleSlotSurface, attemptIndex);
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.appliedStatus, "unapplied");
+assert.notStrictEqual(missingConfigDisconnectedIdleSlotRow.appliedStatus, "fallback_ready");
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.configStatus, "missing");
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.recipeStatus, "missing");
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.connectedState, "not_connected");
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.openConfig.enabled, true);
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.openConfig.label, "Open Tuner");
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.directApply.enabled, true);
+assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.directApply.label, "Create Config & Connect");
+assert.ok(missingConfigDisconnectedIdleSlotRow.actions.directApply.reason?.includes("install the FarmScene bridge"));
 
 const invalidButtonSurface = {
   ...genericButtonSurface,
@@ -3761,7 +3843,8 @@ const v078IdleDashboard = buildVisualTuningDashboardModel({
 assert.ok(v078IdleDashboard.rows.some((row) => row.adapterId === "idle_monster_farm" && row.targetId === "farm_slots"));
 const v078IdleFarmSlotsRow = v078IdleDashboard.rows.find((row) => row.adapterId === "idle_monster_farm" && row.targetId === "farm_slots");
 assert.strictEqual(v078IdleFarmSlotsRow?.configStatus, "valid");
-assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.enabled, false);
+assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.enabled, true);
+assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.label, "Save & Connect");
 assert.ok(v078IdleFarmSlotsRow?.actions.directApply.reason?.includes("Runtime value usage proof is missing"));
 assert.strictEqual(v078IdleFarmSlotsRow?.directApplyTemplate.templateId, "idle-monster-farm.slot_card.style-config.v1");
 assert.strictEqual(v078IdleFarmSlotsRow?.directApplyTemplate.executable, true);
@@ -4233,6 +4316,10 @@ function concatBytes(...chunks: Uint8Array[]): Uint8Array {
   return result;
 }
 
+function inspectedFile(relativePath: string, text: string): InspectedFile {
+  return { relativePath, text, sizeBytes: Buffer.byteLength(text, "utf8") };
+}
+
 function makeTempWorkspace(name: string): string {
   return fs.mkdtempSync(path.join(process.cwd(), `.tmp-${name}-`));
 }
@@ -4359,26 +4446,42 @@ function buildFixtureDashboardSurfaces(adapterId: "idle_monster_farm" | "generic
 }
 
 function fixtureStyleConfigExists(fixtureRoot: string, configPath: string): boolean {
-  return fs.existsSync(path.join(fixtureRoot, ...configPath.split("/"))) || v078GeneratedStyleConfigs[configPath] !== undefined;
+  const resolvedRoot = resolveFixtureRoot(fixtureRoot);
+  return fs.existsSync(path.join(resolvedRoot, ...configPath.split("/"))) || v078GeneratedStyleConfigs[configPath] !== undefined;
 }
 
 function readFixtureText(root: string, relativePath: string): string {
-  return fs.readFileSync(path.join(root, ...relativePath.split("/")), "utf8");
+  return fs.readFileSync(path.join(resolveFixtureRoot(root), ...relativePath.split("/")), "utf8");
 }
 
 function readFixtureFiles(root: string): InspectedFile[] {
+  const resolvedRoot = resolveFixtureRoot(root);
   const results: InspectedFile[] = [];
-  for (const absolutePath of walk(root)) {
+  for (const absolutePath of walk(resolvedRoot)) {
     if (!/\.(ts|js|json|html|css)$/i.test(absolutePath)) {
       continue;
     }
     results.push({
-      relativePath: path.relative(root, absolutePath).replace(/\\/g, "/"),
+      relativePath: path.relative(resolvedRoot, absolutePath).replace(/\\/g, "/"),
       text: fs.readFileSync(absolutePath, "utf8"),
       sizeBytes: fs.statSync(absolutePath).size
     });
   }
   return results;
+}
+
+function resolveFixtureRoot(root: string): string {
+  if (fs.existsSync(root)) {
+    return root;
+  }
+  const fixtureAliases: Record<string, string> = {
+    "phaser-idle-monster-farm-sample": "idle-monster-farm",
+    "phaser-sort-puzzle-sample": "sort-puzzle",
+    "phaser-incremental-arena-sample": "cursor-arena"
+  };
+  const alias = fixtureAliases[path.basename(root)];
+  const resolved = alias ? path.join(process.cwd(), "src", "test", "fixtures", alias) : root;
+  return fs.existsSync(resolved) ? resolved : root;
 }
 
 function walk(root: string): string[] {

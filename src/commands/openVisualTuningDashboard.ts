@@ -45,7 +45,6 @@ import {
   buildButtonStyleConfig,
   buildPanelStyleConfig,
   buildRewardToastStyleConfig,
-  buildSlotCardStyleConfig,
   buttonStyleConfigRelativePath,
   farmSlotStyleConfigRelativePath,
   loadBackgroundReadabilityStyleConfigFromText,
@@ -409,11 +408,8 @@ async function handleDashboardMessage(context: vscode.ExtensionContext, folder: 
       return { ok: false, message: `Config path is outside the active workspace or unsafe: ${row.configPath}` };
     }
     if (!(await pathExists(uri))) {
-      const choice = await vscode.window.showInformationMessage("Config is missing. Open the tuner to create it safely?", "Open Tuner");
-      if (choice === "Open Tuner") {
-        await tuneVisualSurface(context, { surfaceType: row.surfaceType, adapterId: row.adapterId, targetLabel: row.targetLabel });
-      }
-      return { ok: false, message: "Config does not exist yet." };
+      await tuneVisualSurface(context, { surfaceType: row.surfaceType, adapterId: row.adapterId, targetLabel: row.targetLabel });
+      return { ok: true, message: `Opened tuner to create ${row.configPath}.` };
     }
     await openTextDocument(uri);
     return { ok: true, message: `Opened ${row.configPath}.` };
@@ -473,12 +469,19 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
     return { ok: false, message: "Dashboard direct apply is available only for connected Idle Monster Farm style surfaces and generated config writes for Sort Puzzle, Cursor Arena, or Generic Phaser." };
   }
   const configUri = row.configPath ? workspaceRelativeUri(folder, row.configPath) : undefined;
-  const configText = configUri ? await readTextFileIfExists(configUri) : undefined;
   if (row.configPath && !configUri) {
     return { ok: false, message: `Config path is outside the active workspace or unsafe: ${row.configPath}` };
   }
+  let configText = configUri ? await readTextFileIfExists(configUri) : undefined;
+  let configWriteResult: ReturnType<typeof executeVisualDirectApplyPlan> | undefined;
+  let createdDefaultConfig = false;
   if (!configText) {
-    return { ok: false, message: "A valid config is required before direct apply." };
+    if (!canBootstrapIdleFarmSlotFromDashboard(row)) {
+      return { ok: false, message: "A valid config is required before direct apply." };
+    }
+    const defaultConfig = loadSlotCardStyleConfigFromText(undefined).config;
+    configText = `${JSON.stringify(defaultConfig, null, 2)}\n`;
+    createdDefaultConfig = true;
   }
   const plan = buildVisualDirectApplyPlan({
     adapterId: row.adapterId,
@@ -492,6 +495,15 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   });
   if (!plan.executable) {
     return { ok: false, message: `Direct apply template blocked: ${plan.blockingReasons.join(" ") || plan.scopeGuardResult.summaryMessage}` };
+  }
+  if (createdDefaultConfig) {
+    configWriteResult = executeVisualDirectApplyPlan(folder.uri.fsPath, plan, [{
+      relativePath: row.configPath!,
+      text: configText
+    }]);
+    if (!configWriteResult.ok) {
+      return { ok: false, message: `Create Config & Connect could not write ${row.configPath}: ${configWriteResult.errors.join(" ")}` };
+    }
   }
   if (row.adapterId === "sort_puzzle" || row.adapterId === "cursor_arena" || row.adapterId === "generic_phaser") {
     const result = executeVisualDirectApplyPlan(folder.uri.fsPath, plan, [{
@@ -561,12 +573,27 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
     applyMode: "direct_apply",
     connectionState: "connected",
     scopeSummary: result.changedFiles.join(", ") || row.configPath,
-    rollbackPaths: result.rollbackPaths,
+    rollbackPaths: [...(configWriteResult?.rollbackPaths ?? []), ...result.rollbackPaths],
     manualChecklist: result.checklist,
-    warnings: [...plan.warnings, ...result.warnings],
+    warnings: [...plan.warnings, ...(configWriteResult?.warnings ?? []), ...result.warnings],
     tags: ["v0.60-dashboard"]
   });
-  return { ok: true, message: [`Template: ${plan.templateId} (${plan.templateName})`, result.message].join("\n"), refresh: true };
+  return {
+    ok: true,
+    message: [
+      `Template: ${plan.templateId} (${plan.templateName})`,
+      createdDefaultConfig ? `Created ${row.configPath} from the default Slot Card style.` : undefined,
+      result.message
+    ].filter(Boolean).join("\n"),
+    refresh: true
+  };
+}
+
+function canBootstrapIdleFarmSlotFromDashboard(row: VisualTuningDashboardRow): boolean {
+  return row.adapterId === "idle_monster_farm"
+    && row.surfaceType === "slot_card"
+    && row.configPath === farmSlotStyleConfigRelativePath
+    && row.actions.directApply.enabled;
 }
 
 async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder, row: VisualTuningDashboardRow): Promise<{ ok: boolean; message: string; refresh?: boolean }> {

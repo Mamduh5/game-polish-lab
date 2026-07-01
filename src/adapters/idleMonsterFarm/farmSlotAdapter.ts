@@ -84,8 +84,9 @@ export async function applyIdleMonsterFarmFarmSlotStyle(folder: vscode.Workspace
   const changedFiles = [detection.supportedStyleModulePath];
   const scope = checkV05VisualScope(changedFiles, { throughAdapter: true });
   const warnings = [...detection.warnings, ...scope.warnings, farmSlotConfigOnlyStyleWarning];
+  const setupTarget = pickSetupTarget(detection);
 
-  if (detection.ownerFiles.length === 0 && !styleModuleExists) {
+  if (!setupTarget && !styleModuleExists) {
     return {
       applied: false,
       setupRequired: true,

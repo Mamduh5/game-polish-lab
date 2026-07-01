@@ -360,7 +360,7 @@ export function buildDashboardRow(surface: DashboardSurfaceInput, attemptIndex: 
       tune: { enabled: true, label: "Tune" },
       openConfig: surface.config.exists
         ? { enabled: true, label: "Open Config" }
-        : { enabled: false, label: "Create Config / Open Tuner", reason: "Config is missing; open the tuner to create it safely." },
+        : { enabled: true, label: "Open Tuner", reason: "Config is missing; the tuner can create it safely." },
       directApply: directApplyAction(surface, appliedStatus, directApplyTemplate),
       exportTheme: exportThemeAction(surface),
       importTheme: importThemeAction(surface),
@@ -391,6 +391,9 @@ export function calculateAppliedStatus(surface: DashboardSurfaceInput, scope: Re
   }
   if (surface.config.status === "valid") {
     return "config_only";
+  }
+  if (surface.adapter.adapterId === "idle_monster_farm" && surface.adapter.detected && surface.adapter.confidence !== "low" && surface.adapter.directApplySupported) {
+    return "unapplied";
   }
   if (surface.adapter.connectedState === "not_connected" || surface.adapter.adapterId === "generic_phaser") {
     return "fallback_ready";
@@ -437,7 +440,7 @@ export function dashboardManualChecklist(): string[] {
     "known-good and known-bad field notes shown",
     "Tune opens the existing tuner for the selected surface",
     "Open Config opens existing config or offers safe create/init",
-    "Direct Apply refuses when not connected",
+    "Direct Apply can bootstrap supported Idle Monster Farm setup when runtime proof is missing",
     "Direct Apply rows show template availability and warning/block counts",
     "Export Theme reads existing generated config and writes .game-polish-lab/themes files",
     "Import Theme writes generated config-only style files and keeps runtime status honest",
@@ -512,6 +515,18 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
       return { enabled: false, label: "Save Config", reason: "A valid generated style config is required before config-only save." };
     }
     return { enabled: true, label: "Save Config", reason: "Config-only write; runtime source integration remains fallback-only." };
+  }
+  if (surface.adapter.adapterId === "idle_monster_farm") {
+    if (surface.config.status === "missing" && surface.surfaceType === "slot_card") {
+      return { enabled: true, label: "Create Config & Connect", reason: "Create the default farm slot config, install the FarmScene bridge, and apply runtime style values." };
+    }
+    if (surface.config.status !== "valid") {
+      return { enabled: false, label: "Open Tuner", reason: "A valid generated style config is required before setup/apply." };
+    }
+    if (surface.adapter.connectedState !== "connected" || !proofAllowsDirectApply(surface.adapter.runtimeConnectionProof)) {
+      const proof = surface.adapter.runtimeConnectionProof;
+      return { enabled: true, label: "Save & Connect", reason: proof ? `Runtime proof is ${proof.status}/${proof.proofLevel}; run setup/apply to connect runtime usage.` : "Runtime value usage proof is missing; run setup/apply to connect runtime usage." };
+    }
   }
   if (surface.adapter.connectedState !== "connected") {
     const proof = surface.adapter.runtimeConnectionProof;
