@@ -24,6 +24,7 @@ import { buttonRuntimeProofIncludesSetupMinimum, renderButtonStyleModule } from 
 import { connectButtonOwnerFileToStyleModule } from "../core/buttonStyleBridgePatch";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection, analyzePatchedFarmSlotSetupConnection, orderFarmSlotSetupTargetCandidates } from "../core/farmSlotAdapterAnalysis";
 import {
+  extractFarmSlotStyleValuesFromSourceText,
   farmSlotRuntimeProofIncludesSetupMinimum,
   renderFarmSlotStyleModule,
   requiredFarmSlotRuntimeProofProperties
@@ -1727,6 +1728,25 @@ assert.ok(renderedFarmSlotStyleModule.includes("pollFarmSlotLiveStyle"));
 assert.ok(renderedFarmSlotStyleModule.includes("innerFillColor"));
 assert.ok(renderedFarmSlotStyleModule.includes("lockedOverlayOpacity"));
 assert.ok(renderedFarmSlotStyleModule.includes("monsterVerticalOffset"));
+
+const extractedGreenFarmSlotStyle = extractFarmSlotStyleValuesFromSourceText(`
+const THEME = {
+  slot: 0xaadf78,
+  slotBorder: 0x469247,
+  slotInner: 0xaadf78
+};
+export class FarmScene {
+  private renderFarmSlot() {
+    this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot)
+      .setStrokeStyle(3, THEME.slotBorder, 0.9);
+    this.add.rectangle(x + 8, y + 8, this.cellSize - 16, this.cellSize - 16, THEME.slotInner, 0.22);
+  }
+}`);
+assert.ok(extractedGreenFarmSlotStyle);
+assert.strictEqual(extractedGreenFarmSlotStyle!.fillColor, "#aadf78");
+assert.strictEqual(extractedGreenFarmSlotStyle!.innerFillColor, "#aadf78");
+assert.strictEqual(extractedGreenFarmSlotStyle!.borderColor, "#469247");
+assert.strictEqual(extractedGreenFarmSlotStyle!.borderWidth, 3);
 
 const mismatchedFarmScenePatchSource = realFarmScenePatchSource
   .replace("this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot)", "this.add.rectangle(x, y, this.cellSize, this.cellSize, resolveSlotTheme())")

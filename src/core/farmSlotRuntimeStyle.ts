@@ -169,12 +169,16 @@ function numberInRange(value: unknown, fallback: number, min: number, max: numbe
 }
 
 export function extractFarmSlotStyleValuesFromModule(text: string | undefined, fallback: SlotCardStyleValues = idleMonsterFarmFarmSlotNoopStyleDefaults): SlotCardStyleValues {
+  return extractFarmSlotStyleValuesFromModuleIfPresent(text, fallback) ?? fallback;
+}
+
+export function extractFarmSlotStyleValuesFromModuleIfPresent(text: string | undefined, fallback: SlotCardStyleValues = idleMonsterFarmFarmSlotNoopStyleDefaults): SlotCardStyleValues | undefined {
   if (!text) {
-    return fallback;
+    return undefined;
   }
   const match = text.match(/(?:DEFAULT_FARM_SLOT_STYLE|FARM_SLOT_STYLE)\s*:\s*FarmSlotStyle\s*=\s*(\{[\s\S]*?\})\s*;/);
   if (!match) {
-    return fallback;
+    return undefined;
   }
   try {
     const parsed = JSON.parse(match[1]) as Partial<SlotCardStyleValues>;
@@ -195,8 +199,58 @@ export function extractFarmSlotStyleValuesFromModule(text: string | undefined, f
       monsterVerticalOffset: numberOr(parsed.monsterVerticalOffset, fallback.monsterVerticalOffset)
     };
   } catch {
-    return fallback;
+    return undefined;
   }
+}
+
+export function extractFarmSlotStyleValuesFromSourceText(text: string | undefined, fallback: SlotCardStyleValues = idleMonsterFarmFarmSlotNoopStyleDefaults): SlotCardStyleValues | undefined {
+  if (!text) {
+    return undefined;
+  }
+
+  const fillColor = extractThemeColor(text, "slot");
+  const innerFillColor = extractThemeColor(text, "slotInner") ?? fillColor;
+  const borderColor = extractThemeColor(text, "slotBorder");
+  const borderWidth = extractBorderWidth(text);
+  if (!fillColor && !innerFillColor && !borderColor && borderWidth === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...fallback,
+    fillColor: fillColor ?? fallback.fillColor,
+    innerFillColor: innerFillColor ?? fallback.innerFillColor,
+    borderColor: borderColor ?? fallback.borderColor,
+    borderWidth: borderWidth ?? fallback.borderWidth
+  };
+}
+
+function extractThemeColor(text: string, propertyName: string): string | undefined {
+  const match = text.match(new RegExp(`\\b${propertyName}\\s*:\\s*(0x[0-9a-fA-F]{6}|#[0-9a-fA-F]{6}|["']#[0-9a-fA-F]{6}["'])`));
+  if (!match) {
+    return undefined;
+  }
+  return normalizeSourceColor(match[1]);
+}
+
+function extractBorderWidth(text: string): number | undefined {
+  const constMatch = text.match(/\bconst\s+borderWidth\s*=\s*(\d+(?:\.\d+)?)\s*;/);
+  if (constMatch) {
+    return Number(constMatch[1]);
+  }
+  const strokeMatch = text.match(/\.setStrokeStyle\s*\(\s*(\d+(?:\.\d+)?)/);
+  return strokeMatch ? Number(strokeMatch[1]) : undefined;
+}
+
+function normalizeSourceColor(value: string): string | undefined {
+  const cleaned = value.replace(/^["']|["']$/g, "");
+  if (/^#[0-9a-f]{6}$/i.test(cleaned)) {
+    return cleaned.toLowerCase();
+  }
+  if (/^0x[0-9a-f]{6}$/i.test(cleaned)) {
+    return `#${cleaned.slice(2).toLowerCase()}`;
+  }
+  return undefined;
 }
 
 function numberOr(value: unknown, fallback: number): number {

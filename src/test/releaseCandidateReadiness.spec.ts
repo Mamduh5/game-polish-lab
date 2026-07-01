@@ -239,7 +239,9 @@ assert.ok(tunerSource.includes("Before: example preview - not read from your gam
 assert.ok(tunerSource.includes("Save Config"));
 assert.ok(tunerSource.includes("Save & Apply"));
 assert.ok(tunerSource.includes("Farm Slot Runtime Editor: the running Idle Monster Farm browser game is the preview."));
-assert.ok(tunerSource.includes("Mock preview is disabled for this mode."));
+assert.ok(tunerSource.includes("The embedded game or Open Live Game fallback is the preview."));
+assert.ok(tunerSource.includes("frame-src http://127.0.0.1:* http://localhost:*"));
+assert.ok(tunerSource.includes("Open Live Game"));
 assert.ok(tunerSource.includes("writeLiveStyle"));
 assert.ok(tunerSource.includes("m.runtimeConnectionProof&&surfaceData&&surfaceData.adapterState"));
 assert.ok(tunerSource.includes("Saved config only. Direct apply is not connected"));

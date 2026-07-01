@@ -14,14 +14,15 @@ import {
   orderFarmSlotSetupTargetCandidates
 } from "../../core/farmSlotAdapterAnalysis";
 import {
-  extractFarmSlotStyleValuesFromModule,
+  extractFarmSlotStyleValuesFromModuleIfPresent,
+  extractFarmSlotStyleValuesFromSourceText,
   farmSlotRuntimeProofIncludesSetupMinimum,
   missingFarmSlotRuntimeProofProperties,
   renderFarmSlotStyleModule,
   requiredFarmSlotRuntimeProofProperties
 } from "../../core/farmSlotRuntimeStyle";
 import { runtimeProofAllowsDirectApply, VisualRuntimeConnectionProof } from "../../core/visualRuntimeConnectionProof";
-import { buildRollbackSnapshotName } from "../../core/visualSurfaceConfig";
+import { buildRollbackSnapshotName, loadSlotCardStyleConfigFromText } from "../../core/visualSurfaceConfig";
 import { ensureDirectory, labUri, normalizeWorkspacePath, pathExists, readTextFile, readTextFileIfExists, toWorkspaceRelativePath, writeTextFile } from "../../core/workspace";
 import { SlotCardStyleConfig } from "../../types/visualSurface";
 
@@ -274,7 +275,26 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
 
   const styleUri = vscode.Uri.joinPath(folder.uri, ...detection.supportedStyleModulePath.split("/"));
   const existingStyleText = await readTextFileIfExists(styleUri);
-  const generatedStyleText = renderFarmSlotStyleModule(extractFarmSlotStyleValuesFromModule(existingStyleText));
+  const baselineStyle = await resolveFarmSlotSetupBaselineStyle(folder, detection.supportedStyleModulePath, existingStyleText, existingTargetText);
+  if (!baselineStyle) {
+    const fallbackTaskPath = await writeFarmSlotFallbackTask(folder, detection, connection, "Automatic farm slot setup could not extract the current real farm slot style baseline.");
+    return {
+      setupApplied: false,
+      intendedFiles,
+      changedFiles: [],
+      rollbackPaths: [],
+      warnings: [
+        ...warnings,
+        "One-time setup was not written because no existing farm slot style/config/THEME baseline could be extracted without using Game Polish Lab defaults.",
+        `Fallback integration task generated: ${fallbackTaskPath}`
+      ],
+      blockedFiles: [],
+      detection,
+      connection,
+      fallbackTaskPath
+    };
+  }
+  const generatedStyleText = existingStyleText ?? renderFarmSlotStyleModule(baselineStyle);
   const previewConnection = analyzePatchedFarmSlotSetupConnection({
     files: await readLikelyFarmSlotFiles(folder),
     setupTarget,
@@ -305,7 +325,9 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
 
   await ensureDirectory(vscode.Uri.file(path.dirname(styleUri.fsPath)));
   const rollbackPaths = await createRollbackSnapshots(folder, intendedFiles);
-  await writeTextFile(styleUri, generatedStyleText);
+  if (existingStyleText === undefined) {
+    await writeTextFile(styleUri, generatedStyleText);
+  }
   await writeTextFile(targetUri, patchedTargetText);
 
   const updatedState = await getIdleMonsterFarmFarmSlotAdapterState(folder);
@@ -331,16 +353,48 @@ export async function setupIdleMonsterFarmFarmSlotBridge(folder: vscode.Workspac
       fallbackTaskPath
     };
   }
+  const changedFiles = existingStyleText === undefined ? intendedFiles : [setupTarget];
   return {
     setupApplied: true,
     intendedFiles,
-    changedFiles: intendedFiles,
+    changedFiles,
     rollbackPaths,
     warnings,
     blockedFiles: [],
     detection: updatedState.detection,
     connection: updatedState.connection
   };
+}
+
+async function resolveFarmSlotSetupBaselineStyle(folder: vscode.WorkspaceFolder, styleModulePath: string, existingStyleText: string | undefined, ownerText: string): Promise<SlotCardStyleConfig["values"] | undefined> {
+  const configLoad = loadSlotCardStyleConfigFromText(await readTextFileIfExists(labUri(folder, "styles", "farm-slot-style.json")));
+  if (configLoad.status === "valid") {
+    return configLoad.config.values;
+  }
+  if (existingStyleText !== undefined) {
+    const moduleBaseline = extractFarmSlotStyleValuesFromModuleIfPresent(existingStyleText);
+    if (moduleBaseline) {
+      return moduleBaseline;
+    }
+  }
+  const sourceBaseline = extractFarmSlotStyleValuesFromSourceText(ownerText);
+  if (sourceBaseline) {
+    return sourceBaseline;
+  }
+
+  const fallbackModuleCandidates = [
+    styleModulePath === "src/config/farmSlotStyle.ts" ? "src/config/farmSlotVisualStyle.ts" : "src/config/farmSlotStyle.ts"
+  ];
+  for (const candidate of fallbackModuleCandidates) {
+    const text = await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, ...candidate.split("/")));
+    if (text !== undefined) {
+      const moduleBaseline = extractFarmSlotStyleValuesFromModuleIfPresent(text);
+      if (moduleBaseline) {
+        return moduleBaseline;
+      }
+    }
+  }
+  return undefined;
 }
 
 async function resolveSupportedStyleModulePath(folder: vscode.WorkspaceFolder): Promise<string> {
