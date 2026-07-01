@@ -1,8 +1,0 @@
-#game canvas {
-  image-rendering: pixelated;
-}
-
-.hud {
-  font-family: monospace;
-  font-size: 12px;
-}

@@ -1,8 +1,0 @@
-{
-  "name": "phaser-arena-sample",
-  "version": "0.0.0",
-  "private": true,
-  "dependencies": {
-    "phaser": "^3.80.1"
-  }
-}
