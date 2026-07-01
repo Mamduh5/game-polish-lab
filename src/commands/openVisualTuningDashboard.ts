@@ -476,10 +476,10 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
   let configWriteResult: ReturnType<typeof executeVisualDirectApplyPlan> | undefined;
   let createdDefaultConfig = false;
   if (!configText) {
-    if (!canBootstrapIdleFarmSlotFromDashboard(row)) {
+    const defaultConfig = defaultIdleStyleConfigForDashboard(row);
+    if (!defaultConfig) {
       return { ok: false, message: "A valid config is required before direct apply." };
     }
-    const defaultConfig = loadSlotCardStyleConfigFromText(undefined).config;
     configText = `${JSON.stringify(defaultConfig, null, 2)}\n`;
     createdDefaultConfig = true;
   }
@@ -582,18 +582,24 @@ async function directApplyFromDashboard(folder: vscode.WorkspaceFolder, row: Vis
     ok: true,
     message: [
       `Template: ${plan.templateId} (${plan.templateName})`,
-      createdDefaultConfig ? `Created ${row.configPath} from the default Slot Card style.` : undefined,
+      createdDefaultConfig ? `Created ${row.configPath} from the default ${row.displayName} style.` : undefined,
       result.message
     ].filter(Boolean).join("\n"),
     refresh: true
   };
 }
 
-function canBootstrapIdleFarmSlotFromDashboard(row: VisualTuningDashboardRow): boolean {
-  return row.adapterId === "idle_monster_farm"
-    && row.surfaceType === "slot_card"
-    && row.configPath === farmSlotStyleConfigRelativePath
-    && row.actions.directApply.enabled;
+function defaultIdleStyleConfigForDashboard(row: VisualTuningDashboardRow): object | undefined {
+  if (row.adapterId !== "idle_monster_farm" || !row.actions.directApply.enabled) {
+    return undefined;
+  }
+  if (row.surfaceType === "slot_card" && row.configPath === farmSlotStyleConfigRelativePath) {
+    return loadSlotCardStyleConfigFromText(undefined).config;
+  }
+  if (row.surfaceType === "background_readability" && row.configPath === backgroundReadabilityStyleConfigRelativePath) {
+    return loadBackgroundReadabilityStyleConfigFromText(undefined).config;
+  }
+  return undefined;
 }
 
 async function generateFallbackTaskFromDashboard(folder: vscode.WorkspaceFolder, row: VisualTuningDashboardRow): Promise<{ ok: boolean; message: string; refresh?: boolean }> {

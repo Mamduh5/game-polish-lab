@@ -517,8 +517,8 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
     return { enabled: true, label: "Save Config", reason: "Config-only write; runtime source integration remains fallback-only." };
   }
   if (surface.adapter.adapterId === "idle_monster_farm") {
-    if (surface.config.status === "missing" && surface.surfaceType === "slot_card") {
-      return { enabled: true, label: "Create Config & Connect", reason: "Create the default farm slot config, install the FarmScene bridge, and apply runtime style values." };
+    if (surface.config.status === "missing" && (surface.surfaceType === "slot_card" || surface.surfaceType === "background_readability")) {
+      return { enabled: true, label: "Create Config & Connect", reason: `Create the default ${surface.displayName} config, install the supported runtime bridge, and apply runtime style values.` };
     }
     if (surface.config.status !== "valid") {
       return { enabled: false, label: "Open Tuner", reason: "A valid generated style config is required before setup/apply." };

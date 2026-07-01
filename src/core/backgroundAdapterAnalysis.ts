@@ -1,6 +1,7 @@
 import { isForbiddenV05Path } from "./v05VisualScopeGuard";
 import { FarmSlotStyleConnectionType } from "./farmSlotAdapterAnalysis";
 import { analyzeVisualRuntimeConnectionProof, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
+import { backgroundRuntimeStylePropertyNames } from "./backgroundRuntimeStyle";
 
 export interface BackgroundFileInspection {
   relativePath: string;
@@ -60,7 +61,7 @@ export function analyzeBackgroundStyleConnection(files: BackgroundFileInspection
     files,
     supportedStyleModulePath,
     styleIdentifier: "BACKGROUND_READABILITY_STYLE",
-    styleProperties: backgroundStyleProperties,
+    styleProperties: [...backgroundRuntimeStylePropertyNames],
     styleConfigPath: ".game-polish-lab/styles/background-readability-style.json",
     importNameHints: ["BACKGROUND_READABILITY_STYLE", "backgroundReadabilityStyle", "background_readability_style"],
     commentMarkers: ["background readability bridge", "gamepolishlabbackgroundstyle", "renderer should read BACKGROUND_READABILITY_STYLE"],
@@ -78,6 +79,22 @@ export function analyzeBackgroundStyleConnection(files: BackgroundFileInspection
     missingPieces: runtimeProof.connected ? [] : runtimeProof.missingPieces,
     runtimeProof
   };
+}
+
+export function analyzePatchedBackgroundSetupConnection(input: {
+  files: BackgroundFileInspection[];
+  setupTarget: string;
+  patchedTargetText: string;
+  supportedStyleModulePath: string;
+  generatedStyleText: string;
+}): BackgroundStyleConnection {
+  const mergedFiles = new Map(input.files.map((file) => [file.relativePath, file.text]));
+  mergedFiles.set(input.setupTarget, input.patchedTargetText);
+  mergedFiles.set(input.supportedStyleModulePath, input.generatedStyleText);
+  return analyzeBackgroundStyleConnection(
+    Array.from(mergedFiles.entries()).map(([relativePath, text]) => ({ relativePath, text })),
+    input.supportedStyleModulePath
+  );
 }
 
 export function detectBackgroundConnectionType(text: string, supportedStyleModulePath: string): FarmSlotStyleConnectionType {
@@ -171,15 +188,3 @@ function resolveConnectionType(files: BackgroundFileInspection[], supportedStyle
   }
   return "none";
 }
-
-const backgroundStyleProperties = [
-  "backgroundColor",
-  "backgroundImageOpacity",
-  "contrastOverlayColor",
-  "contrastOverlayOpacity",
-  "vignetteStrength",
-  "patternOpacity",
-  "blurAmount",
-  "brightness",
-  "contrast"
-];

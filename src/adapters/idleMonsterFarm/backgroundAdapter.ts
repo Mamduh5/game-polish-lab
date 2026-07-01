@@ -4,16 +4,23 @@ import * as vscode from "vscode";
 import {
   analyzeBackgroundDetection,
   analyzeBackgroundStyleConnection,
+  analyzePatchedBackgroundSetupConnection,
   BackgroundAdapterDetection,
   BackgroundAdapterState,
   BackgroundFileInspection,
-  BackgroundStyleConnection,
-  detectBackgroundConnectionType
+  BackgroundStyleConnection
 } from "../../core/backgroundAdapterAnalysis";
+import {
+  backgroundRuntimeProofIncludesSetupMinimum,
+  missingBackgroundRuntimeProofProperties,
+  renderBackgroundReadabilityStyleModule
+} from "../../core/backgroundRuntimeStyle";
+import { connectBackgroundOwnerFileToStyleModule } from "../../core/backgroundStyleBridgePatch";
 import { checkV05VisualScope, isForbiddenV05Path } from "../../core/v05VisualScopeGuard";
 import { buildRollbackSnapshotName } from "../../core/visualSurfaceConfig";
+import { runtimeProofAllowsDirectApply } from "../../core/visualRuntimeConnectionProof";
 import { ensureDirectory, labUri, normalizeWorkspacePath, pathExists, readTextFile, readTextFileIfExists, toWorkspaceRelativePath, writeTextFile } from "../../core/workspace";
-import { BackgroundReadabilityStyleConfig, BackgroundReadabilityStyleValues } from "../../types/visualSurface";
+import { BackgroundReadabilityStyleConfig } from "../../types/visualSurface";
 
 export interface BackgroundApplyResult {
   applied: boolean;
@@ -65,14 +72,31 @@ export async function applyIdleMonsterFarmBackgroundStyle(folder: vscode.Workspa
   const styleModuleExists = await pathExists(styleUri);
   const scope = checkV05VisualScope(changedFiles, { throughAdapter: true });
   const warnings = [...detection.warnings, ...scope.warnings];
+  const setupTarget = await pickSetupTarget(folder, detection);
 
-  if (detection.ownerFiles.length === 0 && !styleModuleExists) {
+  if (!setupTarget && !styleModuleExists) {
     return blockedResult(detection, connection, warnings, "Direct apply skipped because no safe Idle Monster Farm background target was detected.");
   }
-  if (!connection.connected) {
+  if (!runtimeProofAllowsDirectApply(connection.runtimeProof)) {
+    const setupResult = await setupIdleMonsterFarmBackgroundBridge(folder, config);
+    if (!backgroundRuntimeProofIncludesSetupMinimum(setupResult.connection.runtimeProof)) {
+      return {
+        ...blockedResult(setupResult.detection, setupResult.connection, [...warnings, ...setupResult.warnings], "Direct apply could not install the background connector. Runtime value usage proof is still missing."),
+        setupOffered: true,
+        rollbackPaths: setupResult.rollbackPaths,
+        blockedFiles: setupResult.blockedFiles
+      };
+    }
     return {
-      ...blockedResult(detection, connection, warnings, "Direct apply skipped because background rendering is not connected to the generated style module/config yet. Use the one-time adapter setup path."),
-      setupOffered: true
+      applied: true,
+      setupRequired: false,
+      setupOffered: false,
+      changedFiles: setupResult.changedFiles,
+      rollbackPaths: setupResult.rollbackPaths,
+      warnings: [...warnings, ...setupResult.warnings, "One-time background connector was installed before applying runtime style."],
+      blockedFiles: setupResult.blockedFiles,
+      detection: setupResult.detection,
+      connection: setupResult.connection
     };
   }
   if (!scope.ok) {
@@ -84,8 +108,25 @@ export async function applyIdleMonsterFarmBackgroundStyle(folder: vscode.Workspa
   }
 
   await ensureDirectory(vscode.Uri.file(path.dirname(styleUri.fsPath)));
+  const existingStyleText = await readTextFileIfExists(styleUri);
   const rollbackPaths = await createRollbackSnapshots(folder, [detection.supportedStyleModulePath]);
-  await writeTextFile(styleUri, renderBackgroundStyleModule(config.values));
+  await writeTextFile(styleUri, renderBackgroundReadabilityStyleModule(config.values));
+  const updatedState = await getIdleMonsterFarmBackgroundAdapterState(folder);
+  if (!runtimeProofAllowsDirectApply(updatedState.connection.runtimeProof)) {
+    await restoreBackgroundStyleSource(styleUri, existingStyleText);
+    const restoredState = await getIdleMonsterFarmBackgroundAdapterState(folder);
+    return {
+      applied: false,
+      setupRequired: true,
+      setupOffered: true,
+      changedFiles: [],
+      rollbackPaths,
+      warnings: [...warnings, "Direct apply post-write verification failed; generated background style source was restored before returning."],
+      blockedFiles: [],
+      detection: restoredState.detection,
+      connection: restoredState.connection
+    };
+  }
   return {
     applied: true,
     setupRequired: false,
@@ -94,20 +135,20 @@ export async function applyIdleMonsterFarmBackgroundStyle(folder: vscode.Workspa
     rollbackPaths,
     warnings,
     blockedFiles: [],
-    detection,
-    connection
+    detection: updatedState.detection,
+    connection: updatedState.connection
   };
 }
 
 export async function setupIdleMonsterFarmBackgroundBridge(folder: vscode.WorkspaceFolder, config: BackgroundReadabilityStyleConfig): Promise<BackgroundSetupResult> {
   const state = await getIdleMonsterFarmBackgroundAdapterState(folder);
   const { detection, connection } = state;
-  const setupTarget = pickSetupTarget(detection);
+  const setupTarget = await pickSetupTarget(folder, detection);
   const intendedFiles = setupTarget ? [detection.supportedStyleModulePath, setupTarget] : [detection.supportedStyleModulePath];
   const scope = checkV05VisualScope(intendedFiles, { throughAdapter: true });
   const warnings = [...detection.warnings, ...scope.warnings];
 
-  if (connection.connected) {
+  if (backgroundRuntimeProofIncludesSetupMinimum(connection.runtimeProof)) {
     return {
       setupApplied: false,
       intendedFiles,
@@ -161,11 +202,57 @@ export async function setupIdleMonsterFarmBackgroundBridge(folder: vscode.Worksp
   }
 
   const styleUri = vscode.Uri.joinPath(folder.uri, ...detection.supportedStyleModulePath.split("/"));
+  const existingStyleText = await readTextFileIfExists(styleUri);
+  const generatedStyleText = renderBackgroundReadabilityStyleModule(config.values);
+  const previewConnection = analyzePatchedBackgroundSetupConnection({
+    files: await readLikelyBackgroundFiles(folder),
+    setupTarget,
+    patchedTargetText,
+    supportedStyleModulePath: detection.supportedStyleModulePath,
+    generatedStyleText
+  });
+  if (!backgroundRuntimeProofIncludesSetupMinimum(previewConnection.runtimeProof)) {
+    const missingProperties = missingBackgroundRuntimeProofProperties(previewConnection.runtimeProof);
+    return {
+      setupApplied: false,
+      intendedFiles,
+      changedFiles: [],
+      rollbackPaths: [],
+      warnings: [
+        ...warnings,
+        "One-time setup was not written because in-memory background runtime value usage proof was not established.",
+        missingProperties.length > 0 ? `Missing runtime proof properties: ${missingProperties.join(", ")}` : ""
+      ].filter(Boolean),
+      blockedFiles: [],
+      detection,
+      connection: previewConnection
+    };
+  }
+
   await ensureDirectory(vscode.Uri.file(path.dirname(styleUri.fsPath)));
   const rollbackPaths = await createRollbackSnapshots(folder, intendedFiles);
-  await writeTextFile(styleUri, renderBackgroundStyleModule(config.values));
+  await writeTextFile(styleUri, generatedStyleText);
   await writeTextFile(targetUri, patchedTargetText);
   const updatedState = await getIdleMonsterFarmBackgroundAdapterState(folder);
+  if (!backgroundRuntimeProofIncludesSetupMinimum(updatedState.connection.runtimeProof)) {
+    const missingProperties = missingBackgroundRuntimeProofProperties(updatedState.connection.runtimeProof);
+    await restoreBackgroundSetupSources(targetUri, existingTargetText, styleUri, existingStyleText);
+    const restoredState = await getIdleMonsterFarmBackgroundAdapterState(folder);
+    return {
+      setupApplied: false,
+      intendedFiles,
+      changedFiles: [],
+      rollbackPaths,
+      warnings: [
+        ...warnings,
+        "One-time setup post-write verification failed; source files were restored before returning.",
+        missingProperties.length > 0 ? `Missing runtime proof properties: ${missingProperties.join(", ")}` : ""
+      ].filter(Boolean),
+      blockedFiles: [],
+      detection: restoredState.detection,
+      connection: restoredState.connection
+    };
+  }
   return {
     setupApplied: true,
     intendedFiles,
@@ -260,51 +347,52 @@ function blockedResult(detection: BackgroundAdapterDetection, connection: Backgr
   };
 }
 
-function pickSetupTarget(detection: BackgroundAdapterDetection): string | undefined {
-  return detection.ownerFiles.find((file) => /Background|Backdrop|Environment|WorldView|FarmScene/.test(file));
+async function pickSetupTarget(folder: vscode.WorkspaceFolder, detection: BackgroundAdapterDetection): Promise<string | undefined> {
+  for (const relativePath of orderBackgroundSetupTargetCandidates(detection.ownerFiles)) {
+    const text = await readTextFileIfExists(vscode.Uri.joinPath(folder.uri, ...relativePath.split("/")));
+    if (text === undefined) {
+      continue;
+    }
+    if (connectOwnerFileToStyleModule(text, relativePath, detection.supportedStyleModulePath)) {
+      return relativePath;
+    }
+  }
+  return undefined;
 }
 
 function connectOwnerFileToStyleModule(text: string, ownerPath: string, styleModulePath: string): string | undefined {
-  if (detectBackgroundConnectionType(text, styleModulePath) !== "none") {
-    return text;
-  }
-  if (!/\.(ts|tsx)$/.test(ownerPath)) {
-    return undefined;
-  }
-  const importLine = `import { BACKGROUND_READABILITY_STYLE } from "${relativeImportPath(ownerPath, styleModulePath)}";`;
-  const lines = text.split(/\r?\n/);
-  const lastImportIndex = lines.reduce((latest, line, index) => line.startsWith("import ") ? index : latest, -1);
-  if (lastImportIndex < 0) {
-    return undefined;
-  }
-  lines.splice(lastImportIndex + 1, 0, importLine, "// Game Polish Lab v0.52 bridge: renderer should read BACKGROUND_READABILITY_STYLE for visual-only background values.");
-  return lines.join("\n");
+  return connectBackgroundOwnerFileToStyleModule(text, ownerPath, styleModulePath);
 }
 
-function relativeImportPath(fromPath: string, toPath: string): string {
-  const fromDir = path.posix.dirname(fromPath.replace(/\\/g, "/"));
-  const target = toPath.replace(/\\/g, "/").replace(/\.ts$/, "");
-  let relativePath = path.posix.relative(fromDir, target);
-  if (!relativePath.startsWith(".")) {
-    relativePath = `./${relativePath}`;
+function orderBackgroundSetupTargetCandidates(ownerFiles: string[]): string[] {
+  const score = (file: string): number => {
+    if (/src\/ui\/.*(Background|Backdrop|Environment|WorldView)/.test(file)) {
+      return 0;
+    }
+    if (/Background|Backdrop|Environment|WorldView/.test(file)) {
+      return 1;
+    }
+    if (file.includes("src/scenes/FarmScene.ts")) {
+      return 2;
+    }
+    return 3;
+  };
+  return [...ownerFiles].sort((left, right) => score(left) - score(right) || left.localeCompare(right));
+}
+
+async function restoreBackgroundSetupSources(targetUri: vscode.Uri, existingTargetText: string, styleUri: vscode.Uri, existingStyleText: string | undefined): Promise<void> {
+  await writeTextFile(targetUri, existingTargetText);
+  await restoreBackgroundStyleSource(styleUri, existingStyleText);
+}
+
+async function restoreBackgroundStyleSource(styleUri: vscode.Uri, existingStyleText: string | undefined): Promise<void> {
+  if (existingStyleText === undefined) {
+    try {
+      await vscode.workspace.fs.delete(styleUri, { useTrash: false });
+    } catch {
+      // Missing generated style files are already restored to the pre-setup state.
+    }
+    return;
   }
-  return relativePath;
-}
-
-function renderBackgroundStyleModule(values: BackgroundReadabilityStyleValues): string {
-  return `// Generated by Game Polish Lab v0.52. Visual style values only.
-export interface BackgroundReadabilityStyle {
-  backgroundColor: string;
-  backgroundImageOpacity: number;
-  contrastOverlayColor: string;
-  contrastOverlayOpacity: number;
-  vignetteStrength: number;
-  patternOpacity: number;
-  blurAmount: number;
-  brightness: number;
-  contrast: number;
-}
-
-export const BACKGROUND_READABILITY_STYLE: BackgroundReadabilityStyle = ${JSON.stringify(values, null, 2)};
-`;
+  await writeTextFile(styleUri, existingStyleText);
 }

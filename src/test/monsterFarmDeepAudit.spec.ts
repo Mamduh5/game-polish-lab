@@ -12,7 +12,13 @@ import {
   renderMonsterFarmPromptGuardrail,
   splitMonsterFarmProjectTypeEvidence
 } from "../core/monsterFarmDeepAudit";
-import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
+import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection, analyzePatchedBackgroundSetupConnection } from "../core/backgroundAdapterAnalysis";
+import {
+  backgroundRuntimeProofIncludesSetupMinimum,
+  renderBackgroundReadabilityStyleModule,
+  requiredBackgroundRuntimeProofProperties
+} from "../core/backgroundRuntimeStyle";
+import { connectBackgroundOwnerFileToStyleModule } from "../core/backgroundStyleBridgePatch";
 import { analyzeButtonDetection, analyzeButtonStyleConnection } from "../core/buttonAdapterAnalysis";
 import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection, analyzePatchedFarmSlotSetupConnection, orderFarmSlotSetupTargetCandidates } from "../core/farmSlotAdapterAnalysis";
 import {
@@ -1883,6 +1889,124 @@ assert.strictEqual(disconnectedBackground.connectionType, "json_config");
 assert.strictEqual(disconnectedBackground.runtimeProof.status, "config_only");
 assert.ok(disconnectedBackground.missingPieces.some((piece) => piece.includes("Background owner/rendering files")));
 
+const importOnlyBackgroundConnection = analyzeBackgroundStyleConnection([
+  {
+    relativePath: "src/ui/BackgroundView.ts",
+    text: "import { BACKGROUND_READABILITY_STYLE } from '../config/backgroundReadabilityStyle';\n// renderer should read BACKGROUND_READABILITY_STYLE"
+  },
+  {
+    relativePath: "src/config/backgroundReadabilityStyle.ts",
+    text: "export const BACKGROUND_READABILITY_STYLE = { backgroundColor: '#000000' };"
+  }
+]);
+assert.strictEqual(importOnlyBackgroundConnection.connected, false);
+assert.strictEqual(importOnlyBackgroundConnection.runtimeProof.status, "import_only");
+assert.strictEqual(backgroundRuntimeProofIncludesSetupMinimum(importOnlyBackgroundConnection.runtimeProof), false);
+
+const realBackgroundFarmSceneSource = `import { MonsterRenderer } from '../rendering/MonsterRenderer';
+import {
+  THEME,
+  UI_DEPTH
+} from '../ui/theme';
+export class FarmScene extends Phaser.Scene {
+  create() {
+    this.cameras.main.setBackgroundColor(THEME.bg);
+    const width = this.scale.width;
+    const height = this.scale.height;
+    this.add.rectangle(0, 0, width, height, THEME.ground).setOrigin(0);
+    this.cameras.main.setBounds(0, 0, width, height);
+  }
+}`;
+const realBackgroundFarmScenePatch = connectBackgroundOwnerFileToStyleModule(
+  realBackgroundFarmSceneSource,
+  "src/scenes/FarmScene.ts",
+  "src/config/backgroundReadabilityStyle.ts"
+);
+assert.ok(realBackgroundFarmScenePatch);
+assert.ok(realBackgroundFarmScenePatch!.includes("import { BACKGROUND_READABILITY_STYLE } from '../config/backgroundReadabilityStyle';"));
+for (const property of requiredBackgroundRuntimeProofProperties) {
+  assert.ok(realBackgroundFarmScenePatch!.includes(`BACKGROUND_READABILITY_STYLE.${property}`), `background setup patch should wire ${property}`);
+}
+assert.ok(!realBackgroundFarmScenePatch!.includes("import { BACKGROUND_READABILITY_STYLE } from '../config/backgroundReadabilityStyle';\n  THEME"));
+assert.ok(realBackgroundFarmScenePatch!.includes("this.cameras.main.setBackgroundColor(BACKGROUND_READABILITY_STYLE.backgroundColor);"));
+assert.ok(realBackgroundFarmScenePatch!.includes("Number(BACKGROUND_READABILITY_STYLE.backgroundColor.replace"));
+assert.ok(realBackgroundFarmScenePatch!.includes("this.cameras.main.setBounds(0, 0, width, height);"));
+const realBackgroundPatchedConnection = analyzeBackgroundStyleConnection([
+  { relativePath: "src/scenes/FarmScene.ts", text: realBackgroundFarmScenePatch! },
+  { relativePath: "src/config/backgroundReadabilityStyle.ts", text: renderBackgroundReadabilityStyleModule(validBackgroundConfig.values) }
+]);
+assert.strictEqual(realBackgroundPatchedConnection.connected, true);
+assert.strictEqual(realBackgroundPatchedConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.strictEqual(backgroundRuntimeProofIncludesSetupMinimum(realBackgroundPatchedConnection.runtimeProof), true);
+
+const unpatchableBackgroundSource = "import { THEME } from '../ui/theme';\nexport class FarmScene extends Phaser.Scene { create(){ this.add.rectangle(x, y, this.cellSize, this.cellSize, THEME.slot); } }";
+assert.strictEqual(connectBackgroundOwnerFileToStyleModule(unpatchableBackgroundSource, "src/scenes/FarmScene.ts", "src/config/backgroundReadabilityStyle.ts"), undefined);
+
+const backgroundBootstrapWorkspace = makeTempWorkspace("background-bootstrap-real-shape");
+try {
+  writeWorkspaceFile(backgroundBootstrapWorkspace, "src/scenes/FarmScene.ts", realBackgroundFarmSceneSource);
+  const backgroundBootstrapPlan = buildVisualDirectApplyPlan({
+    adapterId: "idle_monster_farm",
+    surfaceType: "background_readability",
+    targetId: "background",
+    styleConfigPath: backgroundReadabilityStyleConfigRelativePath,
+    generatedStyleModulePath: "src/config/backgroundReadabilityStyle.ts",
+    candidatePaths: [backgroundReadabilityStyleConfigRelativePath, "src/config/backgroundReadabilityStyle.ts"]
+  });
+  assert.strictEqual(backgroundBootstrapPlan.executable, true);
+  assert.strictEqual(fs.existsSync(path.join(backgroundBootstrapWorkspace, backgroundReadabilityStyleConfigRelativePath)), false);
+  assert.strictEqual(fs.existsSync(path.join(backgroundBootstrapWorkspace, "src", "config", "backgroundReadabilityStyle.ts")), false);
+  const defaultBackgroundConfigText = `${JSON.stringify(validBackgroundConfig, null, 2)}\n`;
+  const configWrite = executeVisualDirectApplyPlan(backgroundBootstrapWorkspace, backgroundBootstrapPlan, [{
+    relativePath: backgroundReadabilityStyleConfigRelativePath,
+    text: defaultBackgroundConfigText
+  }]);
+  assert.strictEqual(configWrite.ok, true);
+  assert.strictEqual(readWorkspaceFile(backgroundBootstrapWorkspace, backgroundReadabilityStyleConfigRelativePath), defaultBackgroundConfigText);
+
+  const patchedBackgroundFarmScene = connectBackgroundOwnerFileToStyleModule(
+    readWorkspaceFile(backgroundBootstrapWorkspace, "src/scenes/FarmScene.ts"),
+    "src/scenes/FarmScene.ts",
+    "src/config/backgroundReadabilityStyle.ts"
+  );
+  assert.ok(patchedBackgroundFarmScene);
+  const generatedBackgroundStyleText = renderBackgroundReadabilityStyleModule(validBackgroundConfig.values);
+  const previewBackgroundConnection = analyzePatchedBackgroundSetupConnection({
+    files: [{ relativePath: "src/scenes/FarmScene.ts", text: realBackgroundFarmSceneSource }],
+    setupTarget: "src/scenes/FarmScene.ts",
+    patchedTargetText: patchedBackgroundFarmScene!,
+    supportedStyleModulePath: "src/config/backgroundReadabilityStyle.ts",
+    generatedStyleText: generatedBackgroundStyleText
+  });
+  assert.strictEqual(previewBackgroundConnection.runtimeProof.status, "connected");
+  assert.strictEqual(previewBackgroundConnection.runtimeProof.proofLevel, "runtime_value_usage");
+  assert.strictEqual(backgroundRuntimeProofIncludesSetupMinimum(previewBackgroundConnection.runtimeProof), true);
+  writeWorkspaceFile(backgroundBootstrapWorkspace, "src/config/backgroundReadabilityStyle.ts", generatedBackgroundStyleText);
+  writeWorkspaceFile(backgroundBootstrapWorkspace, "src/scenes/FarmScene.ts", patchedBackgroundFarmScene!);
+
+  const connectedBackgroundBootstrap = analyzeBackgroundStyleConnection([
+    { relativePath: "src/scenes/FarmScene.ts", text: readWorkspaceFile(backgroundBootstrapWorkspace, "src/scenes/FarmScene.ts") },
+    { relativePath: "src/config/backgroundReadabilityStyle.ts", text: readWorkspaceFile(backgroundBootstrapWorkspace, "src/config/backgroundReadabilityStyle.ts") }
+  ], "src/config/backgroundReadabilityStyle.ts");
+  assert.strictEqual(connectedBackgroundBootstrap.runtimeProof.status, "connected");
+  assert.strictEqual(connectedBackgroundBootstrap.runtimeProof.proofLevel, "runtime_value_usage");
+
+  const repeatedBackgroundStyleText = renderBackgroundReadabilityStyleModule({
+    ...validBackgroundConfig.values,
+    backgroundColor: "#123456"
+  });
+  writeWorkspaceFile(backgroundBootstrapWorkspace, "src/config/backgroundReadabilityStyle.ts", repeatedBackgroundStyleText);
+  const connectedAfterRepeatedBackgroundApply = analyzeBackgroundStyleConnection([
+    { relativePath: "src/scenes/FarmScene.ts", text: readWorkspaceFile(backgroundBootstrapWorkspace, "src/scenes/FarmScene.ts") },
+    { relativePath: "src/config/backgroundReadabilityStyle.ts", text: readWorkspaceFile(backgroundBootstrapWorkspace, "src/config/backgroundReadabilityStyle.ts") }
+  ], "src/config/backgroundReadabilityStyle.ts");
+  assert.strictEqual(connectedAfterRepeatedBackgroundApply.runtimeProof.status, "connected");
+  assert.strictEqual(connectedAfterRepeatedBackgroundApply.runtimeProof.proofLevel, "runtime_value_usage");
+  assert.ok(readWorkspaceFile(backgroundBootstrapWorkspace, "src/config/backgroundReadabilityStyle.ts").includes('"backgroundColor": "#123456"'));
+} finally {
+  cleanupTempWorkspace(backgroundBootstrapWorkspace);
+}
+
 const connectedBackgroundFiles = [
   {
     relativePath: "src/ui/BackgroundView.ts",
@@ -3225,7 +3349,35 @@ assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.openConfig.enabl
 assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.openConfig.label, "Open Tuner");
 assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.directApply.enabled, true);
 assert.strictEqual(missingConfigDisconnectedIdleSlotRow.actions.directApply.label, "Create Config & Connect");
-assert.ok(missingConfigDisconnectedIdleSlotRow.actions.directApply.reason?.includes("install the FarmScene bridge"));
+assert.ok(missingConfigDisconnectedIdleSlotRow.actions.directApply.reason?.includes("install the supported runtime bridge"));
+
+const missingConfigDisconnectedBackgroundSurface = {
+  ...connectedIdleSlotSurface,
+  surfaceType: "background_readability" as const,
+  displayName: "Background Readability",
+  adapter: {
+    ...connectedIdleSlotSurface.adapter,
+    targetId: "background",
+    targetLabel: "Monster Farm background readability",
+    connectedState: "not_connected" as const,
+    generatedStyleModulePath: "src/config/backgroundReadabilityStyle.ts",
+    runtimeConnectionProof: disconnectedBackground.runtimeProof,
+    ownerFiles: ["src/scenes/FarmScene.ts"]
+  },
+  recipe: getVisualSurfaceRecipe("background_readability")!,
+  config: { status: "missing" as const, path: backgroundReadabilityStyleConfigRelativePath, exists: false },
+  recipeFile: recipeFileStatus(getVisualSurfaceRecipe("background_readability")!, false),
+  fallbackTaskCount: 0,
+  scopeFiles: [backgroundReadabilityStyleConfigRelativePath, "src/config/backgroundReadabilityStyle.ts", "src/scenes/FarmScene.ts", visualRecipeRelativePath("background-readability")]
+};
+const missingConfigDisconnectedBackgroundRow = buildDashboardRow(missingConfigDisconnectedBackgroundSurface, attemptIndex);
+assert.strictEqual(missingConfigDisconnectedBackgroundRow.appliedStatus, "unapplied");
+assert.notStrictEqual(missingConfigDisconnectedBackgroundRow.appliedStatus, "fallback_ready");
+assert.strictEqual(missingConfigDisconnectedBackgroundRow.configStatus, "missing");
+assert.strictEqual(missingConfigDisconnectedBackgroundRow.connectedState, "not_connected");
+assert.strictEqual(missingConfigDisconnectedBackgroundRow.actions.directApply.enabled, true);
+assert.strictEqual(missingConfigDisconnectedBackgroundRow.actions.directApply.label, "Create Config & Connect");
+assert.ok(missingConfigDisconnectedBackgroundRow.actions.directApply.reason?.includes("install the supported runtime bridge"));
 
 const invalidButtonSurface = {
   ...genericButtonSurface,
