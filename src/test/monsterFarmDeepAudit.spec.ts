@@ -14,7 +14,7 @@ import {
 } from "../core/monsterFarmDeepAudit";
 import { analyzeBackgroundDetection, analyzeBackgroundStyleConnection } from "../core/backgroundAdapterAnalysis";
 import { analyzeButtonDetection, analyzeButtonStyleConnection } from "../core/buttonAdapterAnalysis";
-import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection } from "../core/farmSlotAdapterAnalysis";
+import { analyzeFarmSlotDetection, analyzeFarmSlotStyleConnection, analyzePatchedFarmSlotSetupConnection } from "../core/farmSlotAdapterAnalysis";
 import { connectFarmSlotOwnerFileToStyleModule } from "../core/farmSlotStyleBridgePatch";
 import { analyzePanelDetection, analyzePanelStyleConnection } from "../core/panelAdapterAnalysis";
 import { analyzeRewardToastDetection, analyzeRewardToastStyleConnection } from "../core/rewardToastAdapterAnalysis";
@@ -147,6 +147,7 @@ import {
   visualThemeIndexRelativePath,
   visualThemeFolderRelativePath
 } from "../core/visualThemeTransfer";
+import { runtimeProofAllowsDirectApply } from "../core/visualRuntimeConnectionProof";
 import {
   buildScreenshotAnnotationFallbackTask,
   buildScreenshotAnnotationNote,
@@ -1560,6 +1561,8 @@ const importOnlyFarmSlotConnection = analyzeFarmSlotStyleConnection([
 assert.strictEqual(importOnlyFarmSlotConnection.connected, false);
 assert.strictEqual(importOnlyFarmSlotConnection.runtimeProof.status, "import_only");
 assert.notStrictEqual(importOnlyFarmSlotConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.strictEqual(runtimeProofAllowsDirectApply(undefined), false);
+assert.strictEqual(runtimeProofAllowsDirectApply(importOnlyFarmSlotConnection.runtimeProof), false);
 
 const commentOnlyFarmSlotConnection = analyzeFarmSlotStyleConnection([
   {
@@ -1661,6 +1664,27 @@ const realFarmScenePatchedConnection = analyzeFarmSlotStyleConnection([
 assert.strictEqual(realFarmScenePatchedConnection.connected, true);
 assert.strictEqual(realFarmScenePatchedConnection.runtimeProof.proofLevel, "runtime_value_usage");
 assert.ok(realFarmScenePatchedConnection.runtimeProof.evidenceFiles.some((file) => file.matchedProperties.includes("monsterDisplayScale")));
+
+const importOnlySetupPreviewSource = "import { FARM_SLOT_STYLE } from '../config/farmSlotStyle';\nexport function renderSlot() { return FARM_SLOT_STYLE; }";
+const importOnlySetupPreview = analyzePatchedFarmSlotSetupConnection({
+  files: [{ relativePath: "src/ui/FarmSlotView.ts", text: "import { other } from './other';\nexport function renderSlot() { return other; }" }],
+  setupTarget: "src/ui/FarmSlotView.ts",
+  patchedTargetText: importOnlySetupPreviewSource,
+  supportedStyleModulePath: "src/config/farmSlotStyle.ts",
+  generatedStyleText: "export const FARM_SLOT_STYLE = { slotWidth: 100 };\n"
+});
+assert.strictEqual(runtimeProofAllowsDirectApply(importOnlySetupPreview.runtimeProof), false);
+assert.strictEqual(importOnlySetupPreview.runtimeProof.status, "import_only");
+
+const runtimeSetupPreview = analyzePatchedFarmSlotSetupConnection({
+  files: [{ relativePath: "src/scenes/FarmScene.ts", text: realFarmScenePatchSource }],
+  setupTarget: "src/scenes/FarmScene.ts",
+  patchedTargetText: realFarmScenePatch!,
+  supportedStyleModulePath: "src/config/farmSlotStyle.ts",
+  generatedStyleText: "export const FARM_SLOT_STYLE = { slotWidth: 100 };\n"
+});
+assert.strictEqual(runtimeProofAllowsDirectApply(runtimeSetupPreview.runtimeProof), true);
+assert.strictEqual(runtimeSetupPreview.runtimeProof.proofLevel, "runtime_value_usage");
 
 const connectedFiles = [
   {
@@ -2875,6 +2899,7 @@ const connectedIdleSlotSurface = {
     confidence: "high" as const,
     directApplySupported: true,
     generatedStyleModulePath: "src/config/farmSlotStyle.ts",
+    runtimeConnectionProof: runtimePropertyFarmSlotConnection.runtimeProof,
     ownerFiles: ["src/scenes/FarmScene.ts"],
     warnings: []
   },
@@ -2912,6 +2937,37 @@ assert.deepStrictEqual(Object.values(connectedIdleSlotRow.actions).map((action) 
   "Mark Latest Result"
 ]);
 
+const { runtimeConnectionProof: _unusedConnectedProof, ...connectedIdleAdapterWithoutProof } = connectedIdleSlotSurface.adapter;
+const missingProofIdleSlotRow = buildDashboardRow({
+  ...connectedIdleSlotSurface,
+  adapter: connectedIdleAdapterWithoutProof
+}, attemptIndex);
+assert.strictEqual(missingProofIdleSlotRow.appliedStatus, "config_only");
+assert.strictEqual(missingProofIdleSlotRow.actions.directApply.enabled, false);
+assert.ok(missingProofIdleSlotRow.actions.directApply.reason?.includes("Runtime value usage proof is missing"));
+assert.strictEqual(missingProofIdleSlotRow.scopeSummary.directApplySafe, false);
+
+const importOnlyProofIdleSlotRow = buildDashboardRow({
+  ...connectedIdleSlotSurface,
+  adapter: {
+    ...connectedIdleSlotSurface.adapter,
+    runtimeConnectionProof: importOnlyFarmSlotConnection.runtimeProof
+  }
+}, attemptIndex);
+assert.strictEqual(importOnlyProofIdleSlotRow.appliedStatus, "config_only");
+assert.strictEqual(importOnlyProofIdleSlotRow.actions.directApply.enabled, false);
+assert.ok(importOnlyProofIdleSlotRow.actions.directApply.reason?.includes("import_only/module_import_only"));
+
+const runtimeProofIdleSlotRow = buildDashboardRow({
+  ...connectedIdleSlotSurface,
+  adapter: {
+    ...connectedIdleSlotSurface.adapter,
+    runtimeConnectionProof: runtimePropertyFarmSlotConnection.runtimeProof
+  }
+}, attemptIndex);
+assert.strictEqual(runtimeProofIdleSlotRow.appliedStatus, "applied");
+assert.strictEqual(runtimeProofIdleSlotRow.actions.directApply.enabled, true);
+
 const genericButtonSurface = {
   surfaceType: "button" as const,
   displayName: "Generic Button",
@@ -2942,7 +2998,8 @@ assert.ok(genericButtonRow.knownBad.some((note) => note.includes("Magic Glow")))
 assert.ok(genericButtonRow.knownBad.some((note) => note.includes("no meaningful effect")));
 assert.ok(genericButtonRow.knownMixed.some((note) => note.includes("Dark Arcade")));
 assert.strictEqual(genericButtonRow.actions.directApply.enabled, true);
-assert.strictEqual(genericButtonRow.actions.directApply.reason, undefined);
+assert.strictEqual(genericButtonRow.actions.directApply.label, "Save Config");
+assert.ok(genericButtonRow.actions.directApply.reason?.includes("Config-only write"));
 assert.strictEqual(genericButtonRow.actions.exportTheme.enabled, true);
 assert.strictEqual(genericButtonRow.actions.importTheme.enabled, true);
 assert.strictEqual(genericButtonRow.actions.annotateScreenshot.enabled, true);
@@ -2981,6 +3038,8 @@ assert.strictEqual(sortPuzzleShelfRow.adapterId, "sort_puzzle");
 assert.strictEqual(sortPuzzleShelfRow.directApplyTemplate.available, true);
 assert.strictEqual(sortPuzzleShelfRow.directApplyTemplate.executable, true);
 assert.strictEqual(sortPuzzleShelfRow.actions.directApply.enabled, true);
+assert.strictEqual(sortPuzzleShelfRow.actions.directApply.label, "Save Config");
+assert.ok(sortPuzzleShelfRow.actions.directApply.reason?.includes("Config-only write"));
 assert.strictEqual(sortPuzzleShelfRow.actions.generateFallbackTask.enabled, true);
 assert.ok(sortPuzzleShelfRow.scopeSummary.allowedFiles.includes(sortPuzzleShelfStyleConfigRelativePath));
 
@@ -3011,6 +3070,8 @@ assert.strictEqual(cursorArenaHudRow.adapterId, "cursor_arena");
 assert.strictEqual(cursorArenaHudRow.directApplyTemplate.available, true);
 assert.strictEqual(cursorArenaHudRow.directApplyTemplate.executable, true);
 assert.strictEqual(cursorArenaHudRow.actions.directApply.enabled, true);
+assert.strictEqual(cursorArenaHudRow.actions.directApply.label, "Save Config");
+assert.ok(cursorArenaHudRow.actions.directApply.reason?.includes("Config-only write"));
 assert.strictEqual(cursorArenaHudRow.actions.generateFallbackTask.enabled, true);
 assert.ok(cursorArenaHudRow.scopeSummary.allowedFiles.includes(cursorArenaHudStyleConfigRelativePath));
 
@@ -3023,7 +3084,8 @@ const disconnectedIdlePanelSurface = {
     targetId: "panels",
     targetLabel: "Monster Farm panels",
     connectedState: "not_connected" as const,
-    generatedStyleModulePath: "src/config/panelStyle.ts"
+    generatedStyleModulePath: "src/config/panelStyle.ts",
+    runtimeConnectionProof: undefined
   },
   recipe: getVisualSurfaceRecipe("panel")!,
   config: { status: "valid" as const, path: panelStyleConfigRelativePath, exists: true },
@@ -3207,7 +3269,7 @@ assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.adapterId === "cur
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.appliedStatus === "config_only"));
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.directApply.enabled));
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.generateFallbackTask.enabled));
-assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.directApply.label === "Direct Apply"));
+assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.directApply.label === "Save Config"));
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.actions.generateFallbackTask.label === "Generate Fallback Task"));
 assert.ok(cursorArenaFixtureDashboard.rows.every((row) => row.connectedState === "connected"));
 assert.strictEqual(cursorArenaFixtureDashboard.summary.appliedCount, 0);
@@ -3660,10 +3722,10 @@ const v078IdleDashboard = buildVisualTuningDashboardModel({
   attemptIndex
 });
 assert.ok(v078IdleDashboard.rows.some((row) => row.adapterId === "idle_monster_farm" && row.targetId === "farm_slots"));
-assert.ok(v078IdleDashboard.rows.some((row) => row.actions.directApply.enabled));
 const v078IdleFarmSlotsRow = v078IdleDashboard.rows.find((row) => row.adapterId === "idle_monster_farm" && row.targetId === "farm_slots");
 assert.strictEqual(v078IdleFarmSlotsRow?.configStatus, "valid");
-assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.enabled, true);
+assert.strictEqual(v078IdleFarmSlotsRow?.actions.directApply.enabled, false);
+assert.ok(v078IdleFarmSlotsRow?.actions.directApply.reason?.includes("Runtime value usage proof is missing"));
 assert.strictEqual(v078IdleFarmSlotsRow?.directApplyTemplate.templateId, "idle-monster-farm.slot_card.style-config.v1");
 assert.strictEqual(v078IdleFarmSlotsRow?.directApplyTemplate.executable, true);
 const v078IdleAssetRow = v078IdleDashboard.rows.find((row) => row.adapterId === "idle_monster_farm" && row.surfaceType === "asset_replacement");

@@ -47,6 +47,13 @@ export interface VisualRuntimeConnectionProofInput {
   usageDescription: string;
 }
 
+export function runtimeProofAllowsDirectApply(proof: VisualRuntimeConnectionProof | undefined): boolean {
+  return Boolean(proof
+    && proof.connected === true
+    && proof.status === "connected"
+    && proof.proofLevel === "runtime_value_usage");
+}
+
 export function analyzeVisualRuntimeConnectionProof(input: VisualRuntimeConnectionProofInput): VisualRuntimeConnectionProof {
   const propertySet = new Set(input.styleProperties);
   const evidenceFiles: VisualRuntimeConnectionProof["evidenceFiles"] = [];

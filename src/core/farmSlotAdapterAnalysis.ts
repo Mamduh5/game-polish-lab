@@ -87,6 +87,20 @@ export function analyzeFarmSlotStyleConnection(files: FarmSlotFileInspection[], 
   };
 }
 
+export function analyzePatchedFarmSlotSetupConnection(input: {
+  files: FarmSlotFileInspection[];
+  setupTarget: string;
+  patchedTargetText: string;
+  supportedStyleModulePath: string;
+  generatedStyleText: string;
+}): FarmSlotStyleConnection {
+  return analyzeFarmSlotStyleConnection([
+    ...input.files.filter((file) => file.relativePath !== input.setupTarget && file.relativePath !== input.supportedStyleModulePath),
+    { relativePath: input.setupTarget, text: input.patchedTargetText },
+    { relativePath: input.supportedStyleModulePath, text: input.generatedStyleText }
+  ].sort((a, b) => a.relativePath.localeCompare(b.relativePath)), input.supportedStyleModulePath);
+}
+
 export function detectConnectionType(text: string, supportedStyleModulePath: string): FarmSlotStyleConnectionType {
   const normalized = text.toLowerCase();
   const styleImportPath = supportedStyleModulePath.replace(/^src\//, "../").replace(/\.ts$/, "").toLowerCase();

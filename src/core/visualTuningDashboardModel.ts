@@ -19,7 +19,7 @@ import { PolishDevOverlayStatus } from "./visualDevOverlay";
 import { getVisualGameAdapterSurfaceTargets, summarizeRegisteredVisualGameAdapterContracts } from "./visualGameAdapters";
 import { VisualAdapterProjectDetection } from "../types/visualGameAdapter";
 import { GenericPhaserManualSurfaceId, GenericPhaserOwnerFileSuggestion, genericManualStyleConfigRelativePath, manualSurfaceIdToVisualSurfaceType } from "./genericPhaserAdapterModel";
-import { VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
+import { runtimeProofAllowsDirectApply, VisualRuntimeConnectionProof } from "./visualRuntimeConnectionProof";
 
 export interface DashboardConfigInfo {
   status: DashboardConfigStatus;
@@ -503,9 +503,15 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
   }
   if (surface.adapter.adapterId === "generic_phaser") {
     if (surface.config.status !== "valid") {
-      return { enabled: false, label: "Direct Apply", reason: "A valid generated Generic Phaser config is required before config-only direct apply." };
+      return { enabled: false, label: "Save Config", reason: "A valid generated Generic Phaser config is required before config-only save." };
     }
-    return { enabled: true, label: "Direct Apply" };
+    return { enabled: true, label: "Save Config", reason: "Config-only write; runtime source integration remains fallback-only." };
+  }
+  if (surface.adapter.adapterId === "sort_puzzle" || surface.adapter.adapterId === "cursor_arena") {
+    if (surface.config.status !== "valid") {
+      return { enabled: false, label: "Save Config", reason: "A valid generated style config is required before config-only save." };
+    }
+    return { enabled: true, label: "Save Config", reason: "Config-only write; runtime source integration remains fallback-only." };
   }
   if (surface.adapter.connectedState !== "connected") {
     const proof = surface.adapter.runtimeConnectionProof;
@@ -522,7 +528,7 @@ function directApplyAction(surface: DashboardSurfaceInput, appliedStatus: Dashbo
 }
 
 function proofAllowsDirectApply(proof: VisualRuntimeConnectionProof | undefined): boolean {
-  return !proof || (proof.connected && proof.status === "connected" && proof.proofLevel === "runtime_value_usage");
+  return runtimeProofAllowsDirectApply(proof);
 }
 
 function exportThemeAction(surface: DashboardSurfaceInput) {
