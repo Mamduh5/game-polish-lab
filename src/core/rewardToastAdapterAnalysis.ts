@@ -69,7 +69,11 @@ export function analyzeRewardToastStyleConnection(files: RewardToastFileInspecti
     styleConfigPath: ".game-polish-lab/styles/reward-toast-style.json",
     importNameHints: ["REWARD_TOAST_STYLE", "rewardToastStyle", "reward_toast_style"],
     commentMarkers: ["reward toast bridge", "gamepolishlabrewardtoast", "renderer should read REWARD_TOAST_STYLE"],
-    usageDescription: "Reward feedback owner/rendering files"
+    usageDescription: "Reward feedback owner/rendering files",
+    liveOverlay: {
+      pollFunctionName: "pollRewardToastLiveStyle",
+      liveStylePath: "/.game-polish-lab/live-style/reward-toast.json"
+    }
   });
   const connectedFiles = runtimeProof.evidenceFiles
     .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")

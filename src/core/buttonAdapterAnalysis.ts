@@ -69,7 +69,11 @@ export function analyzeButtonStyleConnection(files: ButtonFileInspection[], supp
     styleConfigPath: ".game-polish-lab/styles/button-style.json",
     importNameHints: ["BUTTON_STYLE", "buttonStyle", "button_style"],
     commentMarkers: ["button style bridge", "gamepolishlabbuttonstyle", "renderer should read BUTTON_STYLE"],
-    usageDescription: "Button/action-bar owner/rendering files"
+    usageDescription: "Button/action-bar owner/rendering files",
+    liveOverlay: {
+      pollFunctionName: "pollButtonLiveStyle",
+      liveStylePath: "/.game-polish-lab/live-style/button.json"
+    }
   });
   const connectedFiles = runtimeProof.evidenceFiles
     .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")

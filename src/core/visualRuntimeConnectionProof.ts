@@ -27,6 +27,8 @@ export interface VisualRuntimeConnectionProof {
       | "uses_style_property"
       | "spreads_style_values"
       | "passes_style_to_renderer"
+      | "polls_live_style"
+      | "live_style_path"
       | "comment_marker"
       | "config_exists";
     matchedProperties: string[];
@@ -45,6 +47,10 @@ export interface VisualRuntimeConnectionProofInput {
   importNameHints: string[];
   commentMarkers: string[];
   usageDescription: string;
+  liveOverlay?: {
+    pollFunctionName: string;
+    liveStylePath: string;
+  };
 }
 
 export function runtimeProofAllowsDirectApply(proof: VisualRuntimeConnectionProof | undefined): boolean {
@@ -61,12 +67,21 @@ export function analyzeVisualRuntimeConnectionProof(input: VisualRuntimeConnecti
   const styleModuleExists = input.files.some((file) => file.relativePath === input.supportedStyleModulePath);
 
   if (styleModuleExists) {
+    const styleModule = input.files.find((file) => file.relativePath === input.supportedStyleModulePath);
     evidenceFiles.push({
       relativePath: input.supportedStyleModulePath,
       evidenceKind: "config_exists",
       matchedProperties: [],
       reason: `${input.supportedStyleModulePath} exists, but file existence alone is not runtime usage.`
     });
+    if (input.liveOverlay && styleModule?.text.includes(input.liveOverlay.liveStylePath) && new RegExp(`\\b${escapeRegExp(input.liveOverlay.pollFunctionName)}\\s*\\(`).test(styleModule.text)) {
+      evidenceFiles.push({
+        relativePath: input.supportedStyleModulePath,
+        evidenceKind: "live_style_path",
+        matchedProperties: [],
+        reason: `${input.supportedStyleModulePath} declares ${input.liveOverlay.liveStylePath} and ${input.liveOverlay.pollFunctionName}.`
+      });
+    }
   }
 
   for (const file of ownerFiles) {
@@ -103,9 +118,20 @@ export function analyzeVisualRuntimeConnectionProof(input: VisualRuntimeConnecti
         reason: `${file.relativePath} uses generated style properties in code: ${matchedProperties.join(", ")}.`
       });
     }
+
+    if (input.liveOverlay && new RegExp(`\\b${escapeRegExp(input.liveOverlay.pollFunctionName)}\\s*\\(`).test(code)) {
+      evidenceFiles.push({
+        relativePath: file.relativePath,
+        evidenceKind: "polls_live_style",
+        matchedProperties: [],
+        reason: `${file.relativePath} polls ${input.liveOverlay.liveStylePath} through ${input.liveOverlay.pollFunctionName}.`
+      });
+    }
   }
 
   const runtimeEvidence = evidenceFiles.filter((entry) => entry.evidenceKind === "uses_style_property" || entry.evidenceKind === "reads_style_object");
+  const livePollEvidence = evidenceFiles.filter((entry) => entry.evidenceKind === "polls_live_style");
+  const liveModuleEvidence = evidenceFiles.filter((entry) => entry.evidenceKind === "live_style_path");
   const importEvidence = evidenceFiles.some((entry) => entry.evidenceKind === "imports_style_source");
   const commentEvidence = evidenceFiles.some((entry) => entry.evidenceKind === "comment_marker");
   const configEvidence = evidenceFiles.some((entry) => entry.evidenceKind === "config_exists");
@@ -122,6 +148,15 @@ export function analyzeVisualRuntimeConnectionProof(input: VisualRuntimeConnecti
   if (!styleModuleExists) {
     missingPieces.push(`${input.supportedStyleModulePath} has not been generated yet.`);
   }
+  if (input.liveOverlay && liveModuleEvidence.length === 0) {
+    missingPieces.push(`${input.supportedStyleModulePath} must expose dev-only live overlay loading for ${input.liveOverlay.liveStylePath}.`);
+  }
+  if (input.liveOverlay && livePollEvidence.length === 0) {
+    missingPieces.push(`${input.usageDescription} must poll ${input.liveOverlay.liveStylePath} through ${input.liveOverlay.pollFunctionName}.`);
+  }
+  if (input.liveOverlay && runtimeEvidence.length > 0 && (liveModuleEvidence.length === 0 || livePollEvidence.length === 0)) {
+    warnings.push("Runtime style values are used, but dev live-overlay polling is not fully connected.");
+  }
   if (importEvidence && runtimeEvidence.length === 0) {
     warnings.push("Import-only evidence is not direct-apply connection proof.");
   }
@@ -132,7 +167,8 @@ export function analyzeVisualRuntimeConnectionProof(input: VisualRuntimeConnecti
     warnings.push("Generated style module/config existence is not direct-apply connection proof.");
   }
 
-  const status: VisualRuntimeConnectionStatus = runtimeEvidence.length > 0 ? "connected"
+  const liveOverlaySatisfied = !input.liveOverlay || (liveModuleEvidence.length > 0 && livePollEvidence.length > 0);
+  const status: VisualRuntimeConnectionStatus = runtimeEvidence.length > 0 && liveOverlaySatisfied ? "connected"
     : importEvidence ? "import_only"
     : commentEvidence ? "comment_only"
     : configEvidence ? "config_only"

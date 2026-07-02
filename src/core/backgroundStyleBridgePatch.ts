@@ -12,7 +12,7 @@ export function connectBackgroundOwnerFileToStyleModule(text: string, ownerPath:
   }
 
   const importPath = relativeImportPath(ownerPath, styleModulePath);
-  const importLine = `import { BACKGROUND_READABILITY_STYLE } from '${importPath}';`;
+  const importLine = `import { BACKGROUND_READABILITY_STYLE, pollBackgroundReadabilityLiveStyle } from '${importPath}';`;
   const lines = text.split(/\r?\n/);
 
   let patched = hasBackgroundStyleImport(text) ? text : insertImportLine(lines, importLine);
@@ -24,6 +24,7 @@ export function connectBackgroundOwnerFileToStyleModule(text: string, ownerPath:
   }
 
   patched = patchBackgroundVisualExpressions(patched);
+  patched = patchBackgroundLivePolling(patched);
 
   if (hasImportInsertedInsideMultilineImport(patched) || !hasRequiredRuntimeUsage(patched)) {
     return undefined;
@@ -32,7 +33,7 @@ export function connectBackgroundOwnerFileToStyleModule(text: string, ownerPath:
 }
 
 function hasBackgroundStyleImport(text: string): boolean {
-  return /import\s*\{\s*BACKGROUND_READABILITY_STYLE\s*\}\s*from\s*['"][^'"]*backgroundReadabilityStyle['"]\s*;/.test(text);
+  return /import\s*\{[^}]*\bBACKGROUND_READABILITY_STYLE\b[^}]*\}\s*from\s*['"][^'"]*backgroundReadabilityStyle['"]\s*;/.test(text);
 }
 
 function insertImportLine(lines: string[], importLine: string): string | undefined {
@@ -101,6 +102,10 @@ function hasImportInsertedInsideMultilineImport(text: string): boolean {
 function patchBackgroundVisualExpressions(text: string): string {
   let patched = text;
   patched = patched.replace(
+    /import\s*\{\s*BACKGROUND_READABILITY_STYLE\s*\}\s*from\s*(['"][^'"]*backgroundReadabilityStyle['"])\s*;/,
+    "import { BACKGROUND_READABILITY_STYLE, pollBackgroundReadabilityLiveStyle } from $1;"
+  );
+  patched = patched.replace(
     /(\b(?:this|scene)\.cameras\.main\.setBackgroundColor\s*\(\s*)([^)\n]+)(\s*\))/g,
     `$1BACKGROUND_READABILITY_STYLE.backgroundColor$3`
   );
@@ -116,6 +121,74 @@ function patchBackgroundVisualExpressions(text: string): string {
     /(\.fillStyle\s*\(\s*)THEME\.(bg|background|backdrop|ground|sky|world)(\s*,\s*)(\d+(?:\.\d+)?)(\s*\))/gi,
     `$1Number(BACKGROUND_READABILITY_STYLE.backgroundColor.replace("#", "0x"))$3$4$5`
   );
+  return patched;
+}
+
+function patchBackgroundLivePolling(text: string): string {
+  let patched = text;
+  if (/\bprivate\s+pollBackgroundReadabilityLiveStyle\s*\(/.test(patched)) {
+    return patched;
+  }
+
+  patched = patched.replace(
+    /(\n\s*private\s+pollFarmSlotLiveStyle\s*\(\)\s*:\s*void\s*\{[\s\S]*?\n\s*\})/,
+    `$1
+
+  private pollBackgroundReadabilityLiveStyle(): void {
+    void pollBackgroundReadabilityLiveStyle(this.time.now).then((changed) => {
+      if (!changed || !this.scene.isActive()) {
+        return;
+      }
+
+      this.createFarmBackground();
+    });
+  }`
+  );
+  if (!/\bprivate\s+pollBackgroundReadabilityLiveStyle\s*\(/.test(patched)) {
+    patched = patched.replace(
+      /(\n\s*update\s*\([^)]*\)\s*:\s*void\s*\{[\s\S]*?\n\s*\})/,
+      `$1
+
+  private pollBackgroundReadabilityLiveStyle(): void {
+    void pollBackgroundReadabilityLiveStyle(this.time.now).then((changed) => {
+      if (!changed || !this.scene.isActive()) {
+        return;
+      }
+
+      this.createFarmBackground();
+    });
+  }`
+    );
+  }
+  if (!/\bprivate\s+pollBackgroundReadabilityLiveStyle\s*\(/.test(patched)) {
+    patched = patched.replace(
+      /\n}\s*$/,
+      `
+
+  update(): void {
+    this.pollBackgroundReadabilityLiveStyle();
+  }
+
+  private pollBackgroundReadabilityLiveStyle(): void {
+    void pollBackgroundReadabilityLiveStyle(this.time.now).then((changed) => {
+      if (!changed || !this.scene.isActive()) {
+        return;
+      }
+
+      this.create();
+    });
+  }
+}
+`
+    );
+  }
+  if (!/\bthis\.pollBackgroundReadabilityLiveStyle\s*\(\s*\)\s*;/.test(patched)) {
+    patched = patched.replace(
+      /(\n\s*this\.pollFarmSlotLiveStyle\s*\(\s*\);\s*)/,
+      `$1    this.pollBackgroundReadabilityLiveStyle();
+`
+    );
+  }
   return patched;
 }
 

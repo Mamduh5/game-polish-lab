@@ -1618,8 +1618,9 @@ export function renderSlot(scene, x, y) {
     text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };"
   }
 ]);
-assert.strictEqual(runtimePropertyFarmSlotConnection.connected, true);
-assert.strictEqual(runtimePropertyFarmSlotConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.strictEqual(runtimePropertyFarmSlotConnection.connected, false);
+assert.notStrictEqual(runtimePropertyFarmSlotConnection.runtimeProof.proofLevel, "runtime_value_usage");
+assert.ok(runtimePropertyFarmSlotConnection.runtimeProof.missingPieces.some((piece) => piece.includes("live-style/farm-slot.json")));
 assert.deepStrictEqual(
   runtimePropertyFarmSlotConnection.runtimeProof.evidenceFiles.flatMap((file) => file.matchedProperties).sort(),
   ["borderColor", "borderWidth", "fillColor", "slotHeight", "slotWidth"]
@@ -1635,7 +1636,8 @@ const destructuredFarmSlotConnection = analyzeFarmSlotStyleConnection([
     text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };"
   }
 ]);
-assert.strictEqual(destructuredFarmSlotConnection.connected, true);
+assert.strictEqual(destructuredFarmSlotConnection.connected, false);
+assert.notStrictEqual(destructuredFarmSlotConnection.runtimeProof.proofLevel, "runtime_value_usage");
 assert.deepStrictEqual(
   destructuredFarmSlotConnection.runtimeProof.evidenceFiles.flatMap((file) => file.matchedProperties).sort(),
   ["gap", "slotHeight", "slotWidth"]
@@ -1706,7 +1708,7 @@ assert.ok(!realFarmScenePatch!.includes("FARM_SLOT_STYLE.gap"));
 assert.ok(!realFarmScenePatch!.includes("FARM_SLOT_STYLE.cornerRadius"));
 const realFarmScenePatchedConnection = analyzeFarmSlotStyleConnection([
   { relativePath: "src/scenes/FarmScene.ts", text: realFarmScenePatch! },
-  { relativePath: "src/config/farmSlotStyle.ts", text: "export const FARM_SLOT_STYLE = { slotWidth: 100 };" }
+  { relativePath: "src/config/farmSlotStyle.ts", text: renderFarmSlotStyleModule(validFarmSlotConfig.values) }
 ]);
 assert.strictEqual(realFarmScenePatchedConnection.connected, true);
 assert.strictEqual(realFarmScenePatchedConnection.runtimeProof.proofLevel, "runtime_value_usage");
@@ -1841,11 +1843,11 @@ const connectedDetection = analyzeFarmSlotDetection(connectedFiles);
 assert.strictEqual(connectedDetection.detected, true);
 assert.strictEqual(connectedDetection.confidence, "high");
 const connected = analyzeFarmSlotStyleConnection(connectedFiles);
-assert.strictEqual(connected.connected, true);
+assert.strictEqual(connected.connected, false);
 assert.strictEqual(connected.connectionType, "style_module");
 assert.deepStrictEqual(connected.connectedFiles, ["src/ui/FarmSlotView.ts"]);
 const connectedAfterRepeatedApply = analyzeFarmSlotStyleConnection(connectedFiles);
-assert.strictEqual(connectedAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedAfterRepeatedApply.connected, false);
 assert.strictEqual(connectedAfterRepeatedApply.connectionType, "style_module");
 
 assert.strictEqual(
@@ -1957,13 +1959,14 @@ const realBackgroundFarmScenePatch = connectBackgroundOwnerFileToStyleModule(
   "src/config/backgroundReadabilityStyle.ts"
 );
 assert.ok(realBackgroundFarmScenePatch);
-assert.ok(realBackgroundFarmScenePatch!.includes("import { BACKGROUND_READABILITY_STYLE } from '../config/backgroundReadabilityStyle';"));
+assert.ok(realBackgroundFarmScenePatch!.includes("import { BACKGROUND_READABILITY_STYLE, pollBackgroundReadabilityLiveStyle } from '../config/backgroundReadabilityStyle';"));
 for (const property of requiredBackgroundRuntimeProofProperties) {
   assert.ok(realBackgroundFarmScenePatch!.includes(`BACKGROUND_READABILITY_STYLE.${property}`), `background setup patch should wire ${property}`);
 }
-assert.ok(!realBackgroundFarmScenePatch!.includes("import { BACKGROUND_READABILITY_STYLE } from '../config/backgroundReadabilityStyle';\n  THEME"));
+assert.ok(!realBackgroundFarmScenePatch!.includes("import { BACKGROUND_READABILITY_STYLE, pollBackgroundReadabilityLiveStyle } from '../config/backgroundReadabilityStyle';\n  THEME"));
 assert.ok(realBackgroundFarmScenePatch!.includes("this.cameras.main.setBackgroundColor(BACKGROUND_READABILITY_STYLE.backgroundColor);"));
 assert.ok(realBackgroundFarmScenePatch!.includes("Number(BACKGROUND_READABILITY_STYLE.backgroundColor.replace"));
+assert.ok(realBackgroundFarmScenePatch!.includes("pollBackgroundReadabilityLiveStyle(this.time.now)"));
 assert.ok(realBackgroundFarmScenePatch!.includes("this.cameras.main.setBounds(0, 0, width, height);"));
 const realBackgroundPatchedConnection = analyzeBackgroundStyleConnection([
   { relativePath: "src/scenes/FarmScene.ts", text: realBackgroundFarmScenePatch! },
@@ -2055,11 +2058,11 @@ const connectedBackgroundDetection = analyzeBackgroundDetection(connectedBackgro
 assert.strictEqual(connectedBackgroundDetection.detected, true);
 assert.strictEqual(connectedBackgroundDetection.confidence, "high");
 const connectedBackground = analyzeBackgroundStyleConnection(connectedBackgroundFiles);
-assert.strictEqual(connectedBackground.connected, true);
+assert.strictEqual(connectedBackground.connected, false);
 assert.strictEqual(connectedBackground.connectionType, "style_module");
 assert.deepStrictEqual(connectedBackground.connectedFiles, ["src/ui/BackgroundView.ts"]);
 const connectedBackgroundAfterRepeatedApply = analyzeBackgroundStyleConnection(connectedBackgroundFiles);
-assert.strictEqual(connectedBackgroundAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedBackgroundAfterRepeatedApply.connected, false);
 assert.strictEqual(connectedBackgroundAfterRepeatedApply.connectionType, "style_module");
 
 assert.strictEqual(
@@ -2424,8 +2427,9 @@ export function addPanelBackground(scene, x, y, width, height) {
 }`;
 const realPanelChromePatch = connectPanelOwnerFileToStyleModule(realPanelChromeSource, "src/ui/PanelChrome.ts", "src/config/panelStyle.ts");
 assert.ok(realPanelChromePatch);
-assert.ok(realPanelChromePatch!.includes("import { PANEL_STYLE } from '../config/panelStyle';"));
-assert.ok(!realPanelChromePatch!.includes("import { PANEL_STYLE } from '../config/panelStyle';\n  THEME"));
+assert.ok(realPanelChromePatch!.includes("import { PANEL_STYLE, pollPanelLiveStyle } from '../config/panelStyle';"));
+assert.ok(!realPanelChromePatch!.includes("import { PANEL_STYLE, pollPanelLiveStyle } from '../config/panelStyle';\n  THEME"));
+assert.ok(realPanelChromePatch!.includes("pollPanelLiveStyle"));
 const previewPanelConnection = analyzePatchedPanelSetupConnection({
   files: [{ relativePath: "src/ui/PanelChrome.ts", text: realPanelChromeSource }],
   setupTarget: "src/ui/PanelChrome.ts",
@@ -2452,11 +2456,11 @@ const connectedPanelDetection = analyzePanelDetection(connectedPanelFiles);
 assert.strictEqual(connectedPanelDetection.detected, true);
 assert.strictEqual(connectedPanelDetection.confidence, "high");
 const connectedPanel = analyzePanelStyleConnection(connectedPanelFiles);
-assert.strictEqual(connectedPanel.connected, true);
+assert.strictEqual(connectedPanel.connected, false);
 assert.strictEqual(connectedPanel.connectionType, "style_module");
 assert.deepStrictEqual(connectedPanel.connectedFiles, ["src/ui/PanelChrome.ts"]);
 const connectedPanelAfterRepeatedApply = analyzePanelStyleConnection(connectedPanelFiles);
-assert.strictEqual(connectedPanelAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedPanelAfterRepeatedApply.connected, false);
 assert.strictEqual(connectedPanelAfterRepeatedApply.connectionType, "style_module");
 
 assert.strictEqual(
@@ -2573,8 +2577,9 @@ export class ToastView {
 }`;
 const realToastViewPatch = connectRewardToastOwnerFileToStyleModule(realToastViewSource, "src/ui/ToastView.ts", "src/config/rewardToastStyle.ts");
 assert.ok(realToastViewPatch);
-assert.ok(realToastViewPatch!.includes("import { REWARD_TOAST_STYLE } from '../config/rewardToastStyle';"));
-assert.ok(!realToastViewPatch!.includes("import { REWARD_TOAST_STYLE } from '../config/rewardToastStyle';\n  THEME"));
+assert.ok(realToastViewPatch!.includes("import { REWARD_TOAST_STYLE, pollRewardToastLiveStyle } from '../config/rewardToastStyle';"));
+assert.ok(!realToastViewPatch!.includes("import { REWARD_TOAST_STYLE, pollRewardToastLiveStyle } from '../config/rewardToastStyle';\n  THEME"));
+assert.ok(realToastViewPatch!.includes("pollRewardToastLiveStyle"));
 const previewRewardToastConnection = analyzePatchedRewardToastSetupConnection({
   files: [{ relativePath: "src/ui/ToastView.ts", text: realToastViewSource }],
   setupTarget: "src/ui/ToastView.ts",
@@ -2601,11 +2606,11 @@ const connectedRewardToastDetection = analyzeRewardToastDetection(connectedRewar
 assert.strictEqual(connectedRewardToastDetection.detected, true);
 assert.strictEqual(connectedRewardToastDetection.confidence, "high");
 const connectedRewardToast = analyzeRewardToastStyleConnection(connectedRewardToastFiles);
-assert.strictEqual(connectedRewardToast.connected, true);
+assert.strictEqual(connectedRewardToast.connected, false);
 assert.strictEqual(connectedRewardToast.connectionType, "style_module");
 assert.deepStrictEqual(connectedRewardToast.connectedFiles, ["src/ui/ToastView.ts"]);
 const connectedRewardToastAfterRepeatedApply = analyzeRewardToastStyleConnection(connectedRewardToastFiles);
-assert.strictEqual(connectedRewardToastAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedRewardToastAfterRepeatedApply.connected, false);
 assert.strictEqual(connectedRewardToastAfterRepeatedApply.connectionType, "style_module");
 
 assert.strictEqual(
@@ -2738,8 +2743,9 @@ export class GameplayActionBarView {
 }`;
 const realActionBarPatch = connectButtonOwnerFileToStyleModule(realActionBarSource, "src/ui/GameplayActionBarView.ts", "src/config/buttonStyle.ts");
 assert.ok(realActionBarPatch);
-assert.ok(realActionBarPatch!.includes("import { BUTTON_STYLE } from '../config/buttonStyle';"));
-assert.ok(!realActionBarPatch!.includes("import { BUTTON_STYLE } from '../config/buttonStyle';\n  THEME"));
+assert.ok(realActionBarPatch!.includes("import { BUTTON_STYLE, pollButtonLiveStyle } from '../config/buttonStyle';"));
+assert.ok(!realActionBarPatch!.includes("import { BUTTON_STYLE, pollButtonLiveStyle } from '../config/buttonStyle';\n  THEME"));
+assert.ok(realActionBarPatch!.includes("pollButtonLiveStyle"));
 const previewButtonConnection = analyzePatchedButtonSetupConnection({
   files: [{ relativePath: "src/ui/GameplayActionBarView.ts", text: realActionBarSource }],
   setupTarget: "src/ui/GameplayActionBarView.ts",
@@ -2766,11 +2772,11 @@ const connectedButtonDetection = analyzeButtonDetection(connectedButtonFiles);
 assert.strictEqual(connectedButtonDetection.detected, true);
 assert.strictEqual(connectedButtonDetection.confidence, "high");
 const connectedButton = analyzeButtonStyleConnection(connectedButtonFiles);
-assert.strictEqual(connectedButton.connected, true);
+assert.strictEqual(connectedButton.connected, false);
 assert.strictEqual(connectedButton.connectionType, "style_module");
 assert.deepStrictEqual(connectedButton.connectedFiles, ["src/ui/GameplayActionBarView.ts"]);
 const connectedButtonAfterRepeatedApply = analyzeButtonStyleConnection(connectedButtonFiles);
-assert.strictEqual(connectedButtonAfterRepeatedApply.connected, true);
+assert.strictEqual(connectedButtonAfterRepeatedApply.connected, false);
 assert.strictEqual(connectedButtonAfterRepeatedApply.connectionType, "style_module");
 
 assert.strictEqual(
@@ -3241,7 +3247,7 @@ const connectedIdleSlotSurface = {
     confidence: "high" as const,
     directApplySupported: true,
     generatedStyleModulePath: "src/config/farmSlotStyle.ts",
-    runtimeConnectionProof: runtimePropertyFarmSlotConnection.runtimeProof,
+    runtimeConnectionProof: realFarmScenePatchedConnection.runtimeProof,
     ownerFiles: ["src/scenes/FarmScene.ts"],
     warnings: []
   },
@@ -3309,7 +3315,7 @@ const runtimeProofIdleSlotRow = buildDashboardRow({
     runtimeConnectionProof: runtimePropertyFarmSlotConnection.runtimeProof
   }
 }, attemptIndex);
-assert.strictEqual(runtimeProofIdleSlotRow.appliedStatus, "applied");
+assert.strictEqual(runtimeProofIdleSlotRow.appliedStatus, "config_only");
 assert.strictEqual(runtimeProofIdleSlotRow.actions.directApply.enabled, true);
 
 const genericButtonSurface = {

@@ -69,7 +69,11 @@ export function analyzePanelStyleConnection(files: PanelFileInspection[], suppor
     styleConfigPath: ".game-polish-lab/styles/panel-style.json",
     importNameHints: ["PANEL_STYLE", "panelStyle", "panel_style"],
     commentMarkers: ["panel style bridge", "gamepolishlabpanelstyle", "renderer should read PANEL_STYLE"],
-    usageDescription: "Panel owner/rendering files"
+    usageDescription: "Panel owner/rendering files",
+    liveOverlay: {
+      pollFunctionName: "pollPanelLiveStyle",
+      liveStylePath: "/.game-polish-lab/live-style/panel.json"
+    }
   });
   const connectedFiles = runtimeProof.evidenceFiles
     .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")

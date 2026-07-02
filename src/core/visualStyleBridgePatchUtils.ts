@@ -5,9 +5,11 @@ export interface ConnectStyleOwnerFileInput {
   ownerPath: string;
   styleModulePath: string;
   importName: string;
+  pollFunctionName?: string;
   importFileStem: string;
   requiredProperties: readonly string[];
   patchExpressions: (text: string) => string;
+  patchLivePolling?: (text: string) => string;
 }
 
 export function connectStyleOwnerFileToStyleModule(input: ConnectStyleOwnerFileInput): string | undefined {
@@ -16,7 +18,8 @@ export function connectStyleOwnerFileToStyleModule(input: ConnectStyleOwnerFileI
   }
 
   const importPath = relativeImportPath(input.ownerPath, input.styleModulePath);
-  const importLine = `import { ${input.importName} } from '${importPath}';`;
+  const importSpecifiers = input.pollFunctionName ? `${input.importName}, ${input.pollFunctionName}` : input.importName;
+  const importLine = `import { ${importSpecifiers} } from '${importPath}';`;
   const lines = input.text.split(/\r?\n/);
 
   let patched = hasStyleImport(input.text, input.importName, input.importFileStem)
@@ -27,7 +30,17 @@ export function connectStyleOwnerFileToStyleModule(input: ConnectStyleOwnerFileI
   }
 
   patched = input.patchExpressions(patched);
-  if (hasImportInsertedInsideMultilineImport(patched) || !hasRequiredRuntimeUsage(patched, input.importName, input.requiredProperties)) {
+  if (input.pollFunctionName) {
+    patched = ensurePollFunctionImport(patched, input.importName, input.pollFunctionName, input.importFileStem);
+  }
+  if (input.patchLivePolling) {
+    patched = input.patchLivePolling(patched);
+  }
+  if (
+    hasImportInsertedInsideMultilineImport(patched)
+    || !hasRequiredRuntimeUsage(patched, input.importName, input.requiredProperties)
+    || (input.pollFunctionName ? !new RegExp(`\\b${escapeRegExp(input.pollFunctionName)}\\s*\\(`).test(patched) : false)
+  ) {
     return undefined;
   }
 
@@ -35,7 +48,20 @@ export function connectStyleOwnerFileToStyleModule(input: ConnectStyleOwnerFileI
 }
 
 function hasStyleImport(text: string, importName: string, importFileStem: string): boolean {
-  return new RegExp(`import\\s*\\{\\s*${escapeRegExp(importName)}\\s*\\}\\s*from\\s*['"][^'"]*${escapeRegExp(importFileStem)}['"]\\s*;`).test(text);
+  return new RegExp(`import\\s*\\{[^}]*\\b${escapeRegExp(importName)}\\b[^}]*\\}\\s*from\\s*['"][^'"]*${escapeRegExp(importFileStem)}['"]\\s*;`).test(text);
+}
+
+function ensurePollFunctionImport(text: string, importName: string, pollFunctionName: string, importFileStem: string): string {
+  if (new RegExp(`import\\s*\\{[^}]*\\b${escapeRegExp(pollFunctionName)}\\b[^}]*\\}\\s*from\\s*['"][^'"]*${escapeRegExp(importFileStem)}['"]\\s*;`).test(text)) {
+    return text;
+  }
+  return text.replace(
+    new RegExp(`import\\s*\\{([^}]*)\\b${escapeRegExp(importName)}\\b([^}]*)\\}\\s*from\\s*(['"][^'"]*${escapeRegExp(importFileStem)}['"])\\s*;`),
+    (_match, before: string, after: string, source: string) => {
+      const specifiers = `${before}${importName}${after}`.split(",").map((part) => part.trim()).filter(Boolean);
+      return `import { ${Array.from(new Set([...specifiers, pollFunctionName])).join(", ")} } from ${source};`;
+    }
+  );
 }
 
 function insertImportLine(lines: string[], importLine: string): string | undefined {

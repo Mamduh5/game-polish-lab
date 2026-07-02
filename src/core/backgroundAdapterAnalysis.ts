@@ -65,7 +65,11 @@ export function analyzeBackgroundStyleConnection(files: BackgroundFileInspection
     styleConfigPath: ".game-polish-lab/styles/background-readability-style.json",
     importNameHints: ["BACKGROUND_READABILITY_STYLE", "backgroundReadabilityStyle", "background_readability_style"],
     commentMarkers: ["background readability bridge", "gamepolishlabbackgroundstyle", "renderer should read BACKGROUND_READABILITY_STYLE"],
-    usageDescription: "Background owner/rendering files"
+    usageDescription: "Background owner/rendering files",
+    liveOverlay: {
+      pollFunctionName: "pollBackgroundReadabilityLiveStyle",
+      liveStylePath: "/.game-polish-lab/live-style/background-readability.json"
+    }
   });
   const connectedFiles = runtimeProof.evidenceFiles
     .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")

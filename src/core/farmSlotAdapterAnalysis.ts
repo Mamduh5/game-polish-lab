@@ -67,7 +67,11 @@ export function analyzeFarmSlotStyleConnection(files: FarmSlotFileInspection[], 
     styleConfigPath: ".game-polish-lab/styles/farm-slot-style.json",
     importNameHints: ["FARM_SLOT_STYLE", "farmSlotStyle", "farm_slot_style"],
     commentMarkers: ["runtime bridge", "farm slot style bridge", "gamepolishlabfarmslotstyle", "renderer should read FARM_SLOT_STYLE"],
-    usageDescription: "Farm slot owner/rendering files"
+    usageDescription: "Farm slot owner/rendering files",
+    liveOverlay: {
+      pollFunctionName: "pollFarmSlotLiveStyle",
+      liveStylePath: "/.game-polish-lab/live-style/farm-slot.json"
+    }
   });
   const connectedFiles = runtimeProof.evidenceFiles
     .filter((file) => file.evidenceKind === "uses_style_property" || file.evidenceKind === "reads_style_object")

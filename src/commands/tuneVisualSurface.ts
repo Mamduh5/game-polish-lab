@@ -1156,13 +1156,13 @@ function extractRuntimeValuesFromGeneratedModule(text: string | undefined, surfa
     return undefined;
   }
   const exportName = surfaceType === "background_readability"
-    ? "BACKGROUND_READABILITY_STYLE"
+    ? "(?:DEFAULT_BACKGROUND_READABILITY_STYLE|BACKGROUND_READABILITY_STYLE)"
     : surfaceType === "panel"
-      ? "PANEL_STYLE"
+      ? "(?:DEFAULT_PANEL_STYLE|PANEL_STYLE)"
       : surfaceType === "reward_toast"
-        ? "REWARD_TOAST_STYLE"
+        ? "(?:DEFAULT_REWARD_TOAST_STYLE|REWARD_TOAST_STYLE)"
         : surfaceType === "button"
-          ? "BUTTON_STYLE"
+          ? "(?:DEFAULT_BUTTON_STYLE|BUTTON_STYLE)"
           : "FARM_SLOT_STYLE";
   const match = text.match(new RegExp(`${exportName}\\s*:[^=]+?=\\s*(\\{[\\s\\S]*?\\})\\s*;`));
   if (!match) {
